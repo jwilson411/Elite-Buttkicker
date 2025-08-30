@@ -1,0 +1,308 @@
+{
+  "EventMappings": {
+    "FSDJump": {
+      "EventType": "FSDJump",
+      "Pattern": {
+        "Name": "Hyperspace Jump",
+        "Pattern": "BuildupRumble",
+        "Frequency": 35,
+        "Duration": 3000,
+        "Intensity": 90,
+        "FadeIn": 500,
+        "FadeOut": 1000,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "Docked": {
+      "EventType": "Docked",
+      "Pattern": {
+        "Name": "Station Docking",
+        "Pattern": "Impact",
+        "Frequency": 45,
+        "Duration": 800,
+        "Intensity": 70,
+        "FadeIn": 50,
+        "FadeOut": 300,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "Undocked": {
+      "EventType": "Undocked",
+      "Pattern": {
+        "Name": "Station Undocking",
+        "Pattern": "Fade",
+        "Frequency": 40,
+        "Duration": 500,
+        "Intensity": 60,
+        "FadeIn": 100,
+        "FadeOut": 200,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "HullDamage": {
+      "EventType": "HullDamage",
+      "Pattern": {
+        "Name": "Hull Damage",
+        "Pattern": "SharpPulse",
+        "Frequency": 50,
+        "Duration": 200,
+        "Intensity": 80,
+        "FadeIn": 0,
+        "FadeOut": 0,
+        "IntensityFromDamage": true,
+        "MaxIntensity": 100,
+        "MinIntensity": 30
+      },
+      "Enabled": true
+    },
+    "ShipTargeted": {
+      "EventType": "ShipTargeted",
+      "Pattern": {
+        "Name": "Target Lock",
+        "Pattern": "SharpPulse",
+        "Frequency": 60,
+        "Duration": 150,
+        "Intensity": 40,
+        "FadeIn": 0,
+        "FadeOut": 0,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "FighterDestroyed": {
+      "EventType": "FighterDestroyed",
+      "Pattern": {
+        "Name": "Explosion",
+        "Pattern": "Impact",
+        "Frequency": 30,
+        "Duration": 1000,
+        "Intensity": 95,
+        "FadeIn": 0,
+        "FadeOut": 600,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "Touchdown": {
+      "EventType": "Touchdown",
+      "Pattern": {
+        "Name": "Planetary Landing",
+        "Pattern": "Impact",
+        "Frequency": 25,
+        "Duration": 1200,
+        "Intensity": 75,
+        "FadeIn": 100,
+        "FadeOut": 400,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "Liftoff": {
+      "EventType": "Liftoff",
+      "Pattern": {
+        "Name": "Planetary Takeoff",
+        "Pattern": "BuildupRumble",
+        "Frequency": 30,
+        "Duration": 2000,
+        "Intensity": 65,
+        "FadeIn": 300,
+        "FadeOut": 500,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "HeatWarning": {
+      "EventType": "HeatWarning",
+      "Pattern": {
+        "Name": "Overheating Warning",
+        "Pattern": "Oscillating",
+        "Frequency": 55,
+        "Duration": 1500,
+        "Intensity": 60,
+        "FadeIn": 200,
+        "FadeOut": 200,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "HeatDamage": {
+      "EventType": "HeatDamage",
+      "Pattern": {
+        "Name": "Heat Damage",
+        "Pattern": "Oscillating",
+        "Frequency": 65,
+        "Duration": 800,
+        "Intensity": 85,
+        "FadeIn": 50,
+        "FadeOut": 200,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "FuelScoop": {
+      "EventType": "FuelScoop",
+      "Pattern": {
+        "Name": "Fuel Scooping",
+        "Pattern": "SustainedRumble",
+        "Frequency": 35,
+        "Duration": 2500,
+        "Intensity": 50,
+        "FadeIn": 400,
+        "FadeOut": 600,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "UnderAttack": {
+      "EventType": "UnderAttack",
+      "Pattern": {
+        "Name": "Under Attack",
+        "Pattern": "SharpPulse",
+        "Frequency": 70,
+        "Duration": 300,
+        "Intensity": 95,
+        "FadeIn": 0,
+        "FadeOut": 100,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "LaunchFighter": {
+      "EventType": "LaunchFighter",
+      "Pattern": {
+        "Name": "Fighter Launch",
+        "Pattern": "BuildupRumble",
+        "Frequency": 40,
+        "Duration": 1500,
+        "Intensity": 60,
+        "FadeIn": 200,
+        "FadeOut": 400,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "DockFighter": {
+      "EventType": "DockFighter",
+      "Pattern": {
+        "Name": "Fighter Docking",
+        "Pattern": "Impact",
+        "Frequency": 45,
+        "Duration": 600,
+        "Intensity": 55,
+        "FadeIn": 100,
+        "FadeOut": 200,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "JetConeBoost": {
+      "EventType": "JetConeBoost",
+      "Pattern": {
+        "Name": "Neutron Boost",
+        "Pattern": "Oscillating",
+        "Frequency": 25,
+        "Duration": 3000,
+        "Intensity": 80,
+        "FadeIn": 500,
+        "FadeOut": 800,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "Interdicted": {
+      "EventType": "Interdicted",
+      "Pattern": {
+        "Name": "Being Interdicted",
+        "Pattern": "Oscillating",
+        "Frequency": 45,
+        "Duration": 4000,
+        "Intensity": 85,
+        "FadeIn": 300,
+        "FadeOut": 500,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "Interdiction": {
+      "EventType": "Interdiction",
+      "Pattern": {
+        "Name": "Interdicting Target",
+        "Pattern": "BuildupRumble",
+        "Frequency": 40,
+        "Duration": 3500,
+        "Intensity": 75,
+        "FadeIn": 400,
+        "FadeOut": 600,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "ShieldDown": {
+      "EventType": "ShieldDown",
+      "Pattern": {
+        "Name": "Shields Down",
+        "Pattern": "Impact",
+        "Frequency": 35,
+        "Duration": 1000,
+        "Intensity": 90,
+        "FadeIn": 50,
+        "FadeOut": 400,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    },
+    "ShieldsUp": {
+      "EventType": "ShieldsUp",
+      "Pattern": {
+        "Name": "Shields Online",
+        "Pattern": "BuildupRumble",
+        "Frequency": 50,
+        "Duration": 800,
+        "Intensity": 60,
+        "FadeIn": 200,
+        "FadeOut": 300,
+        "IntensityFromDamage": false,
+        "MaxIntensity": 100,
+        "MinIntensity": 10
+      },
+      "Enabled": true
+    }
+  }
+}

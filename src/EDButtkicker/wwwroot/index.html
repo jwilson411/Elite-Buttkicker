@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elite Dangerous Buttkicker Configuration</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-rocket"></i>
+                    <h1>Elite Dangerous Buttkicker</h1>
+                </div>
+                <div class="header-status">
+                    <div class="status-indicator" id="systemStatus">
+                        <i class="fas fa-circle status-icon"></i>
+                        <span class="status-text">Initializing...</span>
+                    </div>
+                </div>
+            </div>
+            <nav class="main-nav">
+                <button class="nav-tab active" data-tab="dashboard">
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </button>
+                <button class="nav-tab" data-tab="patterns">
+                    <i class="fas fa-wave-square"></i> Patterns
+                </button>
+                <button class="nav-tab" data-tab="audio">
+                    <i class="fas fa-volume-up"></i> Audio
+                </button>
+                <button class="nav-tab" data-tab="journal">
+                    <i class="fas fa-file-alt"></i> Journal
+                </button>
+                <button class="nav-tab" data-tab="context">
+                    <i class="fas fa-brain"></i> Intelligence
+                </button>
+                <button class="nav-tab" data-tab="settings">
+                    <i class="fas fa-cog"></i> Settings
+                </button>
+            </nav>
+        </header>
+
+        <main class="main-content">
+            <!-- Dashboard Tab -->
+            <div class="tab-panel active" id="dashboard">
+                <div class="panel-header">
+                    <h2><i class="fas fa-tachometer-alt"></i> System Dashboard</h2>
+                    <button class="btn btn-primary" onclick="refreshDashboard()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="stats-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-heartbeat"></i> System Status</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="status-grid" id="systemStatusGrid">
+                                <div class="status-item">
+                                    <span class="status-indicator offline" id="audioStatus"></span>
+                                    <span>Audio Engine</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-indicator offline" id="journalStatus"></span>
+                                    <span>Journal Monitor</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-indicator offline" id="voiceStatus"></span>
+                                    <span>Voice Feedback</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-indicator online" id="webStatus"></span>
+                                    <span>Web Interface</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="card-header">
+                            <h3><i class="fas fa-chart-line"></i> Event Statistics</h3>
+                        </div>
+                        <div class="card-content">
+                            <div class="stat-item">
+                                <span class="stat-number" id="totalEvents">0</span>
+                                <span class="stat-label">Total Events</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number" id="activePatterns">0</span>
+                                <span class="stat-label">Active Patterns</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-number" id="lastEventTime">Never</span>
+                                <span class="stat-label">Last Event</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stats-card full-width">
+                        <div class="card-header">
+                            <h3><i class="fas fa-history"></i> Recent Events</h3>
+                            <button class="btn btn-sm" onclick="loadRecentEvents()">
+                                <i class="fas fa-refresh"></i>
+                            </button>
+                        </div>
+                        <div class="card-content">
+                            <div class="events-list" id="recentEventsList">
+                                <div class="loading">Loading recent events...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Patterns Tab -->
+            <div class="tab-panel" id="patterns">
+                <div class="panel-header">
+                    <h2><i class="fas fa-wave-square"></i> Haptic Patterns</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="showPatternTester()">
+                            <i class="fas fa-vial"></i> Pattern Tester
+                        </button>
+                        <button class="btn btn-primary" onclick="createNewPattern()">
+                            <i class="fas fa-plus"></i> New Pattern
+                        </button>
+                    </div>
+                </div>
+
+                <div class="patterns-content">
+                    <div class="patterns-grid" id="patternsGrid">
+                        <div class="loading">Loading patterns...</div>
+                    </div>
+
+                    <!-- Pattern Tester Panel -->
+                    <div class="pattern-tester" id="patternTester" style="display: none;">
+                        <div class="tester-header">
+                            <h3><i class="fas fa-vial"></i> Pattern Tester</h3>
+                            <button class="btn-close" onclick="hidePatternTester()">&times;</button>
+                        </div>
+                        
+                        <div class="tester-content">
+                            <div class="tester-section">
+                                <h4>Quick Test Existing Patterns</h4>
+                                <div class="quick-test-grid" id="quickTestGrid">
+                                    <div class="loading">Loading patterns for testing...</div>
+                                </div>
+                            </div>
+
+                            <div class="tester-section">
+                                <h4>Custom Pattern Designer</h4>
+                                <div class="custom-pattern-form">
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="testPatternType">Pattern Type</label>
+                                            <select id="testPatternType" onchange="updatePatternTypeOptions()">
+                                                <option value="SharpPulse">Sharp Pulse</option>
+                                                <option value="BuildupRumble">Buildup Rumble</option>
+                                                <option value="SustainedRumble">Sustained Rumble</option>
+                                                <option value="Oscillating">Oscillating</option>
+                                                <option value="Impact">Impact</option>
+                                                <option value="Fade">Fade</option>
+                                                <option value="MultiLayer">Multi-Layer</option>
+                                                <option value="Sequence">Sequence</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label for="testFrequency">Frequency (Hz)</label>
+                                            <input type="range" id="testFrequency" min="20" max="80" value="40" oninput="updateRangeDisplay(this)">
+                                            <span class="range-value">40</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="testDuration">Duration (ms)</label>
+                                            <input type="range" id="testDuration" min="100" max="5000" value="1000" oninput="updateRangeDisplay(this)">
+                                            <span class="range-value">1000</span>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label for="testIntensity">Intensity (%)</label>
+                                            <input type="range" id="testIntensity" min="1" max="100" value="80" oninput="updateRangeDisplay(this)">
+                                            <span class="range-value">80</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="testFadeIn">Fade In (ms)</label>
+                                            <input type="range" id="testFadeIn" min="0" max="1000" value="50" oninput="updateRangeDisplay(this)">
+                                            <span class="range-value">50</span>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label for="testFadeOut">Fade Out (ms)</label>
+                                            <input type="range" id="testFadeOut" min="0" max="1000" value="50" oninput="updateRangeDisplay(this)">
+                                            <span class="range-value">50</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label for="testIntensityCurve">Intensity Curve</label>
+                                            <select id="testIntensityCurve">
+                                                <option value="Linear">Linear</option>
+                                                <option value="Exponential">Exponential</option>
+                                                <option value="Logarithmic">Logarithmic</option>
+                                                <option value="Sine">Sine Wave</option>
+                                                <option value="Bounce">Bounce</option>
+                                                <option value="Custom">Custom</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="multi-layer-controls" id="multiLayerControls" style="display: none;">
+                                        <h5>Layer Configuration</h5>
+                                        <div class="layer-controls" id="layerControls">
+                                            <!-- Dynamic layer controls will be added here -->
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="addLayer()">
+                                            <i class="fas fa-plus"></i> Add Layer
+                                        </button>
+                                    </div>
+
+                                    <div class="pattern-actions">
+                                        <button class="btn btn-accent" onclick="testCustomPattern()">
+                                            <i class="fas fa-play"></i> Test Pattern
+                                        </button>
+                                        <button class="btn btn-secondary" onclick="resetPatternTester()">
+                                            <i class="fas fa-undo"></i> Reset
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Tab -->
+            <div class="tab-panel" id="audio">
+                <div class="panel-header">
+                    <h2><i class="fas fa-volume-up"></i> Audio Configuration</h2>
+                    <button class="btn btn-primary" onclick="testAudio()">
+                        <i class="fas fa-play"></i> Test Audio
+                    </button>
+                </div>
+
+                <div class="audio-config">
+                    <div class="config-section">
+                        <h3>Audio Device Selection</h3>
+                        <div class="device-list" id="audioDeviceList">
+                            <div class="loading">Loading audio devices...</div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Audio Settings</h3>
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label for="maxIntensity">Maximum Intensity (%)</label>
+                                <input type="range" id="maxIntensity" min="1" max="100" value="80">
+                                <span class="range-value">80</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="defaultFrequency">Default Frequency (Hz)</label>
+                                <input type="range" id="defaultFrequency" min="20" max="80" value="40">
+                                <span class="range-value">40</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Journal Tab -->
+            <div class="tab-panel" id="journal">
+                <div class="panel-header">
+                    <h2><i class="fas fa-file-alt"></i> Journal Monitoring</h2>
+                    <button class="btn btn-primary" onclick="refreshJournalStatus()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+
+                <div class="journal-config">
+                    <div class="config-section">
+                        <h3>Journal Path Configuration</h3>
+                        <div class="path-config">
+                            <input type="text" id="journalPath" placeholder="Enter Elite Dangerous journal path..." class="path-input">
+                            <button class="btn btn-secondary" onclick="setJournalPath()">
+                                <i class="fas fa-folder"></i> Set Path
+                            </button>
+                        </div>
+                        <div class="path-info" id="journalPathInfo">
+                            <div class="loading">Loading journal status...</div>
+                        </div>
+                    </div>
+
+                    <div class="config-section">
+                        <h3>Monitoring Status</h3>
+                        <div class="monitoring-status" id="monitoringStatus">
+                            <div class="loading">Checking monitoring status...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contextual Intelligence Tab -->
+            <div class="tab-panel" id="context">
+                <div class="panel-header">
+                    <h2><i class="fas fa-brain"></i> Contextual Intelligence</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-primary" onclick="refreshContextStatus()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="intelligence-grid">
+                    <div class="intelligence-section">
+                        <h3>Configuration</h3>
+                        <div class="config-form">
+                            <div class="form-group">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="contextEnabled" onchange="toggleContextualIntelligence()">
+                                    <span class="toggle-slider"></span>
+                                    Enable Contextual Intelligence
+                                </label>
+                                <p class="help-text">Enables adaptive pattern adjustment based on game context and player behavior</p>
+                            </div>
+                            
+                            <div id="contextSettings" class="context-settings" style="display: none;">
+                                <div class="form-group">
+                                    <label for="learningRate">Learning Rate</label>
+                                    <input type="range" id="learningRate" min="0.01" max="1.0" step="0.01" value="0.1">
+                                    <span class="range-value">0.1</span>
+                                    <p class="help-text">How quickly the system adapts to your behavior patterns</p>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label for="predictionThreshold">Prediction Confidence Threshold</label>
+                                    <input type="range" id="predictionThreshold" min="0.1" max="1.0" step="0.05" value="0.7">
+                                    <span class="range-value">0.7</span>
+                                    <p class="help-text">Minimum confidence required for predictive patterns</p>
+                                </div>
+                                
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="adaptiveIntensity" checked>
+                                        Adaptive Intensity Scaling
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="predictivePatterns" checked>
+                                        Predictive Pattern Pre-loading
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="contextualVoice" checked>
+                                        Contextual Voice Announcements
+                                    </label>
+                                    <label class="checkbox-label">
+                                        <input type="checkbox" id="logAnalysis">
+                                        Log Context Analysis
+                                    </label>
+                                </div>
+                                
+                                <button class="btn btn-primary" onclick="saveContextConfiguration()">
+                                    <i class="fas fa-save"></i> Save Configuration
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="intelligence-section">
+                        <h3>Current Game Context</h3>
+                        <div class="context-status" id="contextStatus">
+                            <div class="loading">Loading context status...</div>
+                        </div>
+                    </div>
+
+                    <div class="intelligence-section">
+                        <h3>Behavioral Analysis</h3>
+                        <div class="behavior-analysis" id="behaviorAnalysis">
+                            <div class="loading">Loading behavioral patterns...</div>
+                        </div>
+                    </div>
+
+                    <div class="intelligence-section">
+                        <h3>Predictions & Insights</h3>
+                        <div class="predictions" id="predictions">
+                            <div class="loading">Loading predictions...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div class="tab-panel" id="settings">
+                <div class="panel-header">
+                    <h2><i class="fas fa-cog"></i> Configuration Settings</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="exportConfiguration()">
+                            <i class="fas fa-download"></i> Export
+                        </button>
+                        <button class="btn btn-secondary" onclick="importConfiguration()">
+                            <i class="fas fa-upload"></i> Import
+                        </button>
+                    </div>
+                </div>
+
+                <div class="settings-grid">
+                    <div class="settings-section">
+                        <h3>Advanced Features</h3>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <i class="fas fa-check-circle feature-enabled"></i>
+                                <span>Advanced Pattern System</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-check-circle feature-enabled"></i>
+                                <span>Multi-Layer Harmonics</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-check-circle feature-enabled"></i>
+                                <span>Voice Integration</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-check-circle feature-enabled"></i>
+                                <span>Pattern Chaining</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-check-circle feature-enabled"></i>
+                                <span>Conditional Logic</span>
+                            </div>
+                            <div class="feature-item">
+                                <i class="fas fa-check-circle feature-enabled"></i>
+                                <span>Intensity Curves</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>System Information</h3>
+                        <div class="info-list">
+                            <div class="info-item">
+                                <span class="label">Version:</span>
+                                <span class="value">1.0.0</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">Web Interface:</span>
+                                <span class="value">localhost:8080</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="label">API Status:</span>
+                                <span class="value online">Online</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Pattern Editor Modal -->
+    <div class="modal" id="patternModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="patternModalTitle">Edit Pattern</h3>
+                <button class="modal-close" onclick="closePatternModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="pattern-editor" id="patternEditor">
+                    <!-- Pattern editor content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closePatternModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePattern()">Save Pattern</button>
+                <button class="btn btn-accent" onclick="testCurrentPattern()">Test Pattern</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

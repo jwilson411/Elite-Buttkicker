@@ -1,0 +1,170 @@
+{
+  "DemoPatterns": {
+    "AdvancedFSDJump": {
+      "EventType": "FSDJump",
+      "Pattern": {
+        "Name": "Advanced Hyperspace Jump",
+        "Pattern": "MultiLayer",
+        "Frequency": 35,
+        "Duration": 4000,
+        "Intensity": 90,
+        "FadeIn": 600,
+        "FadeOut": 1200,
+        "IntensityCurve": "Exponential",
+        "EnableVoiceAnnouncement": true,
+        "VoiceMessage": "Frame shift drive charging. Hyperspace jump initiated to {system}.",
+        "Layers": [
+          {
+            "Waveform": "Sine",
+            "Frequency": 35,
+            "Amplitude": 0.8,
+            "Curve": "Exponential",
+            "PhaseOffset": 0
+          },
+          {
+            "Waveform": "Sine", 
+            "Frequency": 70,
+            "Amplitude": 0.4,
+            "Curve": "Linear",
+            "PhaseOffset": 90
+          },
+          {
+            "Waveform": "Triangle",
+            "Frequency": 17,
+            "Amplitude": 0.2,
+            "Curve": "Sine",
+            "PhaseOffset": 180
+          }
+        ],
+        "ChainedPatterns": ["PostJumpStabilization"]
+      },
+      "Enabled": true
+    },
+    
+    "PostJumpStabilization": {
+      "Pattern": {
+        "Name": "Post-Jump Stabilization",
+        "Pattern": "Fade",
+        "Frequency": 40,
+        "Duration": 1500,
+        "Intensity": 30,
+        "FadeIn": 0,
+        "FadeOut": 800,
+        "IntensityCurve": "Logarithmic",
+        "EnableVoiceAnnouncement": true,
+        "VoiceMessage": "Jump complete. Frame shift drive cooling down."
+      }
+    },
+
+    "CriticalHullDamage": {
+      "EventType": "HullDamage",
+      "Pattern": {
+        "Name": "Critical Hull Breach",
+        "Pattern": "Sequence",
+        "Frequency": 65,
+        "Duration": 800,
+        "Intensity": 95,
+        "IntensityFromDamage": true,
+        "MaxIntensity": 100,
+        "MinIntensity": 40,
+        "IntensityCurve": "Bounce",
+        "EnableVoiceAnnouncement": true,
+        "VoiceMessage": "Critical hull breach detected! Hull integrity at {health} percent!",
+        "ChainedPatterns": ["EmergencyAlarm", "DamageAssessment"],
+        "Conditions": {
+          "health_below": 0.3
+        },
+        "Layers": [
+          {
+            "Waveform": "Square",
+            "Frequency": 65,
+            "Amplitude": 1.0,
+            "Curve": "Exponential"
+          },
+          {
+            "Waveform": "Sine",
+            "Frequency": 130,
+            "Amplitude": 0.6,
+            "Curve": "Bounce",
+            "PhaseOffset": 45
+          }
+        ]
+      },
+      "Enabled": true
+    },
+    
+    "EmergencyAlarm": {
+      "Pattern": {
+        "Name": "Emergency Alarm Sequence",
+        "Pattern": "SharpPulse",
+        "Frequency": 80,
+        "Duration": 300,
+        "Intensity": 85,
+        "FadeIn": 0,
+        "FadeOut": 50,
+        "IntensityCurve": "Linear"
+      }
+    },
+    
+    "DamageAssessment": {
+      "Pattern": {
+        "Name": "Damage Assessment",
+        "Pattern": "Oscillating", 
+        "Frequency": 45,
+        "Duration": 1200,
+        "Intensity": 60,
+        "FadeIn": 200,
+        "FadeOut": 400,
+        "IntensityCurve": "Sine",
+        "EnableVoiceAnnouncement": true,
+        "VoiceMessage": "Running full diagnostic. Recommend immediate docking for repairs."
+      }
+    },
+
+    "NeutronStarBoost": {
+      "EventType": "JetConeBoost",
+      "Pattern": {
+        "Name": "Neutron Star Supercharge",
+        "Pattern": "MultiLayer",
+        "Frequency": 25,
+        "Duration": 3500,
+        "Intensity": 85,
+        "FadeIn": 800,
+        "FadeOut": 1000,
+        "IntensityCurve": "Custom",
+        "CustomCurvePoints": [
+          {"Time": 0.0, "Intensity": 0.0},
+          {"Time": 0.3, "Intensity": 0.8},
+          {"Time": 0.6, "Intensity": 1.0},
+          {"Time": 0.9, "Intensity": 0.6},
+          {"Time": 1.0, "Intensity": 0.0}
+        ],
+        "EnableVoiceAnnouncement": true,
+        "VoiceMessage": "Frame shift drive supercharged by neutron star. Jump range significantly increased.",
+        "Layers": [
+          {
+            "Waveform": "Sine",
+            "Frequency": 25,
+            "Amplitude": 0.9,
+            "Curve": "Custom"
+          },
+          {
+            "Waveform": "Triangle",
+            "Frequency": 50,
+            "Amplitude": 0.3,
+            "Curve": "Sine",
+            "PhaseOffset": 120
+          },
+          {
+            "Waveform": "Sawtooth",
+            "Frequency": 12,
+            "Amplitude": 0.1,
+            "Curve": "Linear",
+            "PhaseOffset": 240
+          }
+        ]
+      },
+      "Enabled": true
+    }
+  }
+}
