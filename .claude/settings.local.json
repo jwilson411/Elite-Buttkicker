@@ -7,7 +7,11 @@
       "Bash(dotnet publish:*)",
       "Bash(dotnet build:*)",
       "Bash(7z:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(git stash:*)",
+      "Bash(dotnet build:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
