@@ -106,8 +106,8 @@ public class ContextualIntelligenceApiController
             if (string.IsNullOrEmpty(json))
             {
                 context.Response.StatusCode = 400;
-                using var writer = new StreamWriter(context.Response.Body);
-                await writer.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
+                using var errorWriter = new StreamWriter(context.Response.Body);
+                await errorWriter.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
                 return;
             }
 
@@ -115,8 +115,8 @@ public class ContextualIntelligenceApiController
             if (configUpdate == null)
             {
                 context.Response.StatusCode = 400;
-                using var writer2 = new StreamWriter(context.Response.Body);
-                await writer2.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
+                using var errorWriter = new StreamWriter(context.Response.Body);
+                await errorWriter.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
                 return;
             }
 

@@ -420,7 +420,7 @@ public class PatternApiController
 
         // Apply custom parameters
         if (parameters.ContainsKey("frequency") && double.TryParse(parameters["frequency"].ToString(), out double freq))
-            pattern.Frequency = Math.Max(20, Math.Min(80, (int)freq));
+            pattern.Frequency = (int)Math.Max(20, Math.Min(80, freq));
 
         if (parameters.ContainsKey("duration") && int.TryParse(parameters["duration"].ToString(), out int dur))
             pattern.Duration = Math.Max(100, Math.Min(10000, dur));

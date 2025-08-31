@@ -11,6 +11,7 @@ public class JournalMonitorService : BackgroundService
     private readonly ILogger<JournalMonitorService> _logger;
     private readonly AppSettings _settings;
     private readonly EventMappingService _eventMappingService;
+    private readonly ShipTrackingService _shipTrackingService;
     private FileSystemWatcher? _fileWatcher;
     private string? _currentJournalFile;
     private long _lastPosition = 0;
@@ -20,11 +21,13 @@ public class JournalMonitorService : BackgroundService
     public JournalMonitorService(
         ILogger<JournalMonitorService> logger,
         AppSettings settings,
-        EventMappingService eventMappingService)
+        EventMappingService eventMappingService,
+        ShipTrackingService shipTrackingService)
     {
         _logger = logger;
         _settings = settings;
         _eventMappingService = eventMappingService;
+        _shipTrackingService = shipTrackingService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

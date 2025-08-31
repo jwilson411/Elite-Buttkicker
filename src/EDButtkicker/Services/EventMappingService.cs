@@ -560,4 +560,42 @@ public class EventMappingService
         _logger.LogInformation("Event statistics reset");
     }
 
+    private bool ShouldAnnounceEvent(string eventType)
+    {
+        // Define which events should have voice announcements
+        var announcementEvents = new HashSet<string>
+        {
+            "FSDJump", "Docked", "Undocked", "ShieldDown", "ShieldsUp",
+            "UnderAttack", "HeatWarning", "HeatDamage", "Interdicted",
+            "JetConeBoost", "Touchdown", "Liftoff"
+        };
+
+        return announcementEvents.Contains(eventType);
+    }
+
+    public HapticPattern? GetDefaultPatternForEvent(string eventType)
+    {
+        if (_eventMappings.EventMappings.TryGetValue(eventType, out var mapping))
+        {
+            return mapping.Pattern;
+        }
+        
+        _logger.LogDebug("No default pattern found for event: {EventType}", eventType);
+        return null;
+    }
+
+    public Dictionary<string, HapticPattern> GetAllDefaultPatterns()
+    {
+        return _eventMappings.EventMappings.ToDictionary(
+            kvp => kvp.Key, 
+            kvp => kvp.Value.Pattern
+        );
+    }
+
+    public void UpdateEventMappings(EventMappingsConfig newMappings)
+    {
+        _eventMappings = newMappings;
+        _patternSequencer.LoadPatterns(_eventMappings);
+        _logger.LogInformation("Event mappings updated with {Count} patterns", newMappings.EventMappings.Count);
+    }
 }

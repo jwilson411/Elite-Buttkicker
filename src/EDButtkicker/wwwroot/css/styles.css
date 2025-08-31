@@ -1297,3 +1297,69 @@ input:checked + .toggle-slider:before {
         grid-template-columns: 1fr;
     }
 }
+
+/* Pattern Refresh States */
+.refresh-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    text-align: center;
+    background: var(--card-bg);
+    border-radius: 8px;
+    border: 2px solid var(--success-color);
+}
+
+.refresh-success i {
+    font-size: 3rem;
+    color: var(--success-color);
+    margin-bottom: 1rem;
+}
+
+.refresh-success div:first-of-type {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.refresh-stats {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.error-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    text-align: center;
+    background: var(--card-bg);
+    border-radius: 8px;
+    border: 2px solid var(--danger-color);
+}
+
+.error-message i {
+    font-size: 3rem;
+    color: var(--danger-color);
+    margin-bottom: 1rem;
+}
+
+.error-message div:first-of-type {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.error-details {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.loading i.fa-spin {
+    margin-right: 0.5rem;
+}

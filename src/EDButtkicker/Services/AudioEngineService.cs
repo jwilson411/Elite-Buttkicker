@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
+using NAudio.CoreAudioApi;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 
@@ -28,42 +29,75 @@ public class AudioEngineService : IDisposable
         lock (_lock)
         {
             if (_isInitialized)
+            {
+                _logger.LogDebug("Audio Engine already initialized, skipping");
                 return;
+            }
 
             try
             {
                 _logger.LogInformation("Initializing Audio Engine");
+                LogSystemAudioInfo();
                 
                 // Create wave output device
                 if (_settings.Audio.AudioDeviceId >= 0)
                 {
-                    _waveOut = new WaveOutEvent { DeviceNumber = _settings.Audio.AudioDeviceId };
-                    _logger.LogInformation("Using audio device {DeviceId}: {DeviceName}", 
+                    _logger.LogDebug("Attempting to use specific audio device - ID: {DeviceId}, Name: '{DeviceName}'", 
                         _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName);
+                    
+                    // Validate device still exists
+                    if (ValidateAudioDevice(_settings.Audio.AudioDeviceId))
+                    {
+                        _waveOut = new WaveOutEvent { DeviceNumber = _settings.Audio.AudioDeviceId };
+                        _logger.LogInformation("✓ Successfully configured audio device {DeviceId}: {DeviceName}", 
+                            _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠ Configured audio device {DeviceId} '{DeviceName}' not available, falling back to default", 
+                            _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName);
+                        _waveOut = new WaveOutEvent();
+                    }
                 }
                 else
                 {
                     _waveOut = new WaveOutEvent();
-                    _logger.LogInformation("Using default audio device");
+                    var defaultDevice = GetDefaultAudioDevice();
+                    _logger.LogInformation("Using default audio device: {DefaultDevice}", defaultDevice ?? "Unknown");
                 }
 
+                // Log wave output configuration
+                LogWaveOutConfiguration();
+
                 // Create mixer for combining multiple audio streams
-                _mixer = new MixingSampleProvider(WaveFormat.CreateIeeeFloatWaveFormat(_settings.Audio.SampleRate, 1));
+                var waveFormat = WaveFormat.CreateIeeeFloatWaveFormat(_settings.Audio.SampleRate, 1);
+                _mixer = new MixingSampleProvider(waveFormat);
                 _mixer.ReadFully = true; // Ensure smooth playback
 
+                _logger.LogDebug("Created mixer with format: {SampleRate}Hz, {Channels} channel(s), {BitsPerSample}-bit float", 
+                    waveFormat.SampleRate, waveFormat.Channels, waveFormat.BitsPerSample);
+
                 // Start the output
+                _logger.LogDebug("Initializing wave output with mixer...");
                 _waveOut.Init(_mixer);
+                
+                _logger.LogDebug("Starting wave output playback...");
                 _waveOut.Play();
+                
+                // Verify playback state
+                var playbackState = _waveOut.PlaybackState;
+                _logger.LogDebug("Wave output playback state: {PlaybackState}", playbackState);
 
                 _isInitialized = true;
-                _logger.LogInformation("Audio Engine initialized successfully");
-                _logger.LogInformation("Sample Rate: {SampleRate}Hz, Buffer Size: {BufferSize}", 
+                _logger.LogInformation("✓ Audio Engine initialized successfully");
+                _logger.LogInformation("Configuration: Sample Rate: {SampleRate}Hz, Buffer Size: {BufferSize}, Channels: 1", 
                     _settings.Audio.SampleRate, _settings.Audio.BufferSize);
                 _logger.LogInformation("WaveOut PlaybackState: {PlaybackState}", _waveOut.PlaybackState);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to initialize audio engine");
+                _logger.LogError(ex, "❌ Failed to initialize audio engine: {ErrorMessage}", ex.Message);
+                LogDetailedAudioError(ex);
                 throw;
             }
         }
@@ -73,21 +107,52 @@ public class AudioEngineService : IDisposable
     {
         if (!_isInitialized)
         {
-            _logger.LogWarning("Audio engine not initialized, skipping playback");
+            _logger.LogWarning("⚠ Audio engine not initialized, skipping playbook for pattern: {PatternName}", pattern.Name);
             return Task.CompletedTask;
+        }
+
+        // Check if wave output is still valid
+        if (_waveOut == null)
+        {
+            _logger.LogError("❌ Wave output is null, cannot play pattern: {PatternName}", pattern.Name);
+            return Task.CompletedTask;
+        }
+
+        var playbackState = _waveOut.PlaybackState;
+        if (playbackState != PlaybackState.Playing)
+        {
+            _logger.LogWarning("⚠ Wave output not in playing state ({PlaybackState}), attempting to restart for pattern: {PatternName}", 
+                playbackState, pattern.Name);
+            try
+            {
+                _waveOut.Play();
+                _logger.LogDebug("✓ Wave output restarted successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ Failed to restart wave output");
+                return Task.CompletedTask;
+            }
         }
 
         try
         {
             var effectId = Guid.NewGuid().ToString();
-            _logger.LogDebug("Playing haptic pattern: {PatternName} (ID: {EffectId})", pattern.Name, effectId);
+            _logger.LogDebug("🎵 Playing haptic pattern: '{PatternName}' (ID: {EffectId})", pattern.Name, effectId);
 
             // Calculate intensity
             var intensity = CalculateIntensity(pattern, journalEvent);
             var frequency = pattern.Frequency;
 
-            _logger.LogDebug("Pattern details - Frequency: {Frequency}Hz, Intensity: {Intensity}%, Duration: {Duration}ms",
-                frequency, intensity, pattern.Duration);
+            _logger.LogDebug("Pattern configuration - Frequency: {Frequency}Hz, Intensity: {Intensity}%, Duration: {Duration}ms, Type: {PatternType}",
+                frequency, intensity, pattern.Duration, pattern.Pattern);
+
+            // Log current mixer state
+            lock (_lock)
+            {
+                _logger.LogDebug("Current active effects: {ActiveCount}, Mixer inputs: {MixerInputs}", 
+                    _activeGenerators.Count, _mixer?.MixerInputs?.Count() ?? 0);
+            }
 
             // Create appropriate sample provider based on pattern type
             ISampleProvider sampleProvider = pattern.Pattern switch
@@ -97,35 +162,56 @@ public class AudioEngineService : IDisposable
                 _ => CreateStandardPattern(pattern, intensity, frequency)
             };
 
+            _logger.LogDebug("Created sample provider type: {SampleProviderType}", sampleProvider.GetType().Name);
+
             lock (_lock)
             {
                 // For compatibility, store the sample provider reference
                 _activeGenerators[effectId] = sampleProvider as SignalGenerator ?? new SignalGenerator(_settings.Audio.SampleRate, 1);
-                _mixer?.AddMixerInput(sampleProvider);
-                _logger.LogDebug("Added sample provider to mixer. Active effects: {Count}", _activeGenerators.Count);
+                
+                try
+                {
+                    _mixer?.AddMixerInput(sampleProvider);
+                    _logger.LogDebug("✓ Added sample provider to mixer successfully. Active effects: {Count}", _activeGenerators.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ Failed to add sample provider to mixer");
+                    throw;
+                }
             }
 
             // Set up automatic cleanup
             var cancellationSource = new CancellationTokenSource();
             _activeCancellations[effectId] = cancellationSource;
 
+            var cleanupDelay = pattern.Duration + pattern.FadeOut + 100;
+            _logger.LogDebug("Scheduling cleanup for effect {EffectId} in {CleanupDelay}ms", effectId, cleanupDelay);
+
             // Schedule cleanup after pattern duration
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await Task.Delay(pattern.Duration + pattern.FadeOut + 100, cancellationSource.Token);
+                    await Task.Delay(cleanupDelay, cancellationSource.Token);
                     CleanupEffect(effectId);
                 }
                 catch (OperationCanceledException)
                 {
-                    // Expected when effect is manually stopped
+                    _logger.LogDebug("Effect cleanup cancelled for {EffectId} (manual stop)", effectId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during scheduled cleanup for effect {EffectId}", effectId);
                 }
             });
+            
+            _logger.LogDebug("✓ Successfully initiated playback for pattern '{PatternName}' with effect ID: {EffectId}", pattern.Name, effectId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error playing haptic pattern: {PatternName}", pattern.Name);
+            _logger.LogError(ex, "❌ Error playing haptic pattern '{PatternName}': {ErrorMessage}", pattern.Name, ex.Message);
+            LogDetailedAudioError(ex);
         }
         
         return Task.CompletedTask;
@@ -373,6 +459,165 @@ public class AudioEngineService : IDisposable
             // Initialize with new settings
             Initialize();
         }
+    }
+
+    private void LogSystemAudioInfo()
+    {
+        try
+        {
+            _logger.LogDebug("=== System Audio Information ===");
+            
+            // Log available output devices using DirectSound/WASAPI
+            _logger.LogDebug("WaveOut Device Count: {DeviceCount}", WaveOut.DeviceCount);
+            
+            for (int i = 0; i < WaveOut.DeviceCount; i++)
+            {
+                try
+                {
+                    var caps = WaveOut.GetCapabilities(i);
+                    _logger.LogDebug("WaveOut Device {Index}: '{Name}' - Channels: {Channels}", 
+                        i, caps.ProductName, caps.Channels);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to get capabilities for WaveOut device {Index}: {Error}", i, ex.Message);
+                }
+            }
+
+            // Log WASAPI devices for comparison
+            try
+            {
+                var deviceEnumerator = new MMDeviceEnumerator();
+                var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+                
+                _logger.LogDebug("WASAPI Active Render Devices: {Count}", devices.Count);
+                for (int i = 0; i < devices.Count; i++)
+                {
+                    var device = devices[i];
+                    _logger.LogDebug("WASAPI Device {Index}: '{FriendlyName}' - ID: {DeviceId}, State: {State}", 
+                        i, device.FriendlyName, device.ID, device.State);
+                }
+
+                var defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                _logger.LogDebug("Default WASAPI Device: '{FriendlyName}' - ID: {DeviceId}", 
+                    defaultDevice.FriendlyName, defaultDevice.ID);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning("Failed to enumerate WASAPI devices: {Error}", ex.Message);
+            }
+            
+            _logger.LogDebug("=== End System Audio Information ===");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error logging system audio information");
+        }
+    }
+
+    private bool ValidateAudioDevice(int deviceId)
+    {
+        try
+        {
+            if (deviceId < 0 || deviceId >= WaveOut.DeviceCount)
+            {
+                _logger.LogWarning("Device ID {DeviceId} is out of range (0-{MaxId})", deviceId, WaveOut.DeviceCount - 1);
+                return false;
+            }
+
+            var caps = WaveOut.GetCapabilities(deviceId);
+            _logger.LogDebug("Validated device {DeviceId}: '{ProductName}' - Available", deviceId, caps.ProductName);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to validate audio device {DeviceId}: {Error}", deviceId, ex.Message);
+            return false;
+        }
+    }
+
+    private string? GetDefaultAudioDevice()
+    {
+        try
+        {
+            var deviceEnumerator = new MMDeviceEnumerator();
+            var defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            return defaultDevice.FriendlyName;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to get default audio device name: {Error}", ex.Message);
+            return null;
+        }
+    }
+
+    private void LogWaveOutConfiguration()
+    {
+        if (_waveOut == null)
+        {
+            _logger.LogError("WaveOut is null, cannot log configuration");
+            return;
+        }
+
+        try
+        {
+            if (_waveOut is WaveOutEvent waveOutEvent)
+            {
+                _logger.LogDebug("WaveOut Configuration - Device Number: {DeviceNumber}, Volume: {Volume}", 
+                    waveOutEvent.DeviceNumber, waveOutEvent.Volume);
+                
+                // Get device capabilities
+                if (waveOutEvent.DeviceNumber >= 0 && waveOutEvent.DeviceNumber < WaveOut.DeviceCount)
+                {
+                    var caps = WaveOut.GetCapabilities(waveOutEvent.DeviceNumber);
+                    _logger.LogDebug("Target Device Capabilities - Name: '{ProductName}', Channels: {Channels}",
+                        caps.ProductName, caps.Channels);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to log WaveOut configuration");
+        }
+    }
+
+    private void LogDetailedAudioError(Exception ex)
+    {
+        _logger.LogDebug("=== Detailed Audio Error Analysis ===");
+        
+        try
+        {
+            // Log exception details
+            _logger.LogDebug("Exception Type: {ExceptionType}", ex.GetType().Name);
+            _logger.LogDebug("Exception Message: {Message}", ex.Message);
+            
+            if (ex.InnerException != null)
+            {
+                _logger.LogDebug("Inner Exception: {InnerType} - {InnerMessage}", 
+                    ex.InnerException.GetType().Name, ex.InnerException.Message);
+            }
+
+            // Log current system state
+            _logger.LogDebug("Current WaveOut State: {WaveOutState}", _waveOut?.PlaybackState.ToString() ?? "null");
+            _logger.LogDebug("Audio Engine Initialized: {IsInitialized}", _isInitialized);
+            _logger.LogDebug("Active Effects Count: {ActiveCount}", _activeGenerators.Count);
+            
+            // Check system audio availability
+            _logger.LogDebug("System WaveOut Device Count: {DeviceCount}", WaveOut.DeviceCount);
+            
+            // Log configuration that might cause issues
+            _logger.LogDebug("Configured Device ID: {DeviceId}", _settings.Audio.AudioDeviceId);
+            _logger.LogDebug("Configured Device Name: '{DeviceName}'", _settings.Audio.AudioDeviceName);
+            _logger.LogDebug("Sample Rate: {SampleRate}Hz", _settings.Audio.SampleRate);
+            _logger.LogDebug("Buffer Size: {BufferSize}", _settings.Audio.BufferSize);
+            
+        }
+        catch (Exception logEx)
+        {
+            _logger.LogError(logEx, "Failed to log detailed audio error information");
+        }
+        
+        _logger.LogDebug("=== End Detailed Audio Error Analysis ===");
     }
 
     public void Dispose()

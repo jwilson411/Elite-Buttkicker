@@ -15,38 +15,89 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        // Check for debug flag
+        bool debugMode = args.Contains("--debug") || args.Contains("-d");
+        bool helpMode = args.Contains("--help") || args.Contains("-h");
+        
+        if (helpMode)
+        {
+            ShowHelp();
+            return;
+        }
+        
         Console.WriteLine("Elite Dangerous Buttkicker Extension");
         Console.WriteLine("====================================");
+        if (debugMode)
+        {
+            Console.WriteLine("🔍 DEBUG MODE ENABLED");
+            Console.WriteLine("Detailed logging will be displayed");
+        }
         Console.WriteLine();
 
-        var hostBuilder = CreateHostBuilder(args);
+        var hostBuilder = CreateHostBuilder(args, debugMode);
         var host = hostBuilder.Build();
 
         var logger = host.Services.GetRequiredService<ILogger<Program>>();
         var config = host.Services.GetRequiredService<IConfiguration>();
         var appSettings = host.Services.GetRequiredService<AppSettings>();
 
-        logger.LogInformation("Starting Elite Dangerous Buttkicker Extension");
+        logger.LogInformation("Starting Elite Dangerous Buttkicker Extension (Debug: {DebugMode})", debugMode);
 
         try
         {
-            // Show setup UI
-            await ShowSetupUI(appSettings, logger);
+            // Auto-configure with default settings
+            // Load and apply user settings
+            var userSettingsService = host.Services.GetRequiredService<UserSettingsService>();
+            await LoadAndApplyUserSettings(appSettings, userSettingsService, logger, debugMode);
 
-            // Start services
-            logger.LogInformation("Configuration complete. Starting services...");
+            // Start services and web UI
+            logger.LogInformation("Starting services and web interface...");
+            ShowStartupInfo(debugMode);
             await host.RunAsync();
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Application terminated unexpectedly");
             Console.WriteLine($"Error: {ex.Message}");
+            if (debugMode)
+            {
+                Console.WriteLine();
+                Console.WriteLine("=== Debug Information ===");
+                Console.WriteLine($"Exception Type: {ex.GetType().Name}");
+                Console.WriteLine($"Stack Trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner Exception: {ex.InnerException.Message}");
+                }
+            }
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
         }
     }
 
-    static IHostBuilder CreateHostBuilder(string[] args) =>
+    static void ShowHelp()
+    {
+        Console.WriteLine("Elite Dangerous Buttkicker Extension");
+        Console.WriteLine("====================================");
+        Console.WriteLine();
+        Console.WriteLine("Usage: EDButtkicker [options]");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  -d, --debug     Enable debug mode with detailed logging");
+        Console.WriteLine("  -h, --help      Show this help message");
+        Console.WriteLine();
+        Console.WriteLine("Debug Mode:");
+        Console.WriteLine("  When enabled, shows detailed information about:");
+        Console.WriteLine("  • Audio device enumeration and selection");
+        Console.WriteLine("  • NAudio initialization and configuration");
+        Console.WriteLine("  • Pattern playback and mixer operations");
+        Console.WriteLine("  • Error diagnosis and troubleshooting");
+        Console.WriteLine();
+        Console.WriteLine("Example: EDButtkicker --debug");
+        Console.WriteLine();
+    }
+
+    static IHostBuilder CreateHostBuilder(string[] args, bool debugMode = false) =>
         Host.CreateDefaultBuilder(args)
             .ConfigureAppConfiguration((hostingContext, config) =>
             {
@@ -101,6 +152,11 @@ class Program
                 services.AddSingleton<PatternSequencer>();
                 services.AddSingleton<ContextualIntelligenceService>();
                 services.AddSingleton<EventMappingService>();
+                services.AddSingleton<UserSettingsService>();
+                services.AddSingleton<ShipTrackingService>();
+                services.AddSingleton<PatternFileService>();
+                services.AddSingleton<PatternSelectionService>();
+                services.AddSingleton<ShipPatternService>();
                 // IntensityCurveProcessor is a static class, no need to register
                 // AdvancedWaveformGenerator and MultiLayerPatternGenerator are created as needed
                 
@@ -111,25 +167,95 @@ class Program
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
-                logging.AddConsole();
+                logging.AddConsole(options =>
+                {
+                    options.IncludeScopes = debugMode;
+                    options.TimestampFormat = debugMode ? "yyyy-MM-dd HH:mm:ss.fff " : null;
+                });
                 logging.AddDebug();
+                
+                if (debugMode)
+                {
+                    // Override log levels for debug mode
+                    logging.SetMinimumLevel(LogLevel.Debug);
+                }
             });
 
-    static async Task ShowSetupUI(AppSettings settings, ILogger logger)
+    static async Task LoadAndApplyUserSettings(AppSettings settings, UserSettingsService userSettingsService, ILogger logger, bool debugMode = false)
     {
-        Console.WriteLine("Initial Setup");
-        Console.WriteLine("=============");
-        Console.WriteLine();
+        try
+        {
+            // Load user preferences
+            var userPreferences = await userSettingsService.LoadUserPreferencesAsync();
+            
+            if (userSettingsService.UserSettingsExist())
+            {
+                // Apply saved preferences to app settings
+                userSettingsService.ApplyUserPreferencesToAppSettings(userPreferences, settings);
+                
+                if (debugMode)
+                {
+                    Console.WriteLine("💾 Loaded saved user settings:");
+                    Console.WriteLine("----------------------------");
+                    Console.WriteLine($"Settings file: {userSettingsService.GetUserSettingsPath()}");
+                    Console.WriteLine($"Audio Device: {userPreferences.AudioDeviceName ?? "Default"} (ID: {userPreferences.AudioDeviceId ?? -1})");
+                    Console.WriteLine($"Journal Path: {userPreferences.JournalPath ?? "Auto-detect"}");
+                    Console.WriteLine($"Last Saved: {userPreferences.LastSaved?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Unknown"}");
+                    Console.WriteLine();
+                }
+                
+                logger.LogInformation("Applied saved user settings");
+            }
+            else
+            {
+                // No saved settings, use auto-configuration
+                await AutoConfigureDefaults(settings, logger, debugMode);
+                
+                if (debugMode)
+                {
+                    Console.WriteLine("🏠 No saved settings found - using defaults");
+                    Console.WriteLine("Settings will be saved when changed via web interface");
+                    Console.WriteLine();
+                }
+                
+                logger.LogInformation("No user settings found, using defaults");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error loading user settings, falling back to defaults");
+            await AutoConfigureDefaults(settings, logger, debugMode);
+        }
+    }
 
-        // Audio Device Selection
-        await ConfigureAudioDevice(settings, logger);
-        Console.WriteLine();
+    static async Task AutoConfigureDefaults(AppSettings settings, ILogger logger, bool debugMode = false)
+    {
+        if (debugMode)
+        {
+            Console.WriteLine("Auto-configuring with defaults...");
+            Console.WriteLine();
+        }
 
-        // Journal Path Configuration
-        ConfigureJournalPath(settings, logger);
-        Console.WriteLine();
+        // Auto-configure audio device to default
+        await AutoConfigureAudioDevice(settings, logger, debugMode);
 
-        Console.WriteLine("Setup complete! Starting monitoring...");
+        // Auto-configure journal path
+        AutoConfigureJournalPath(settings, logger, debugMode);
+
+        if (debugMode)
+        {
+            Console.WriteLine("Auto-configuration complete!");
+            Console.WriteLine();
+        }
+    }
+
+    static void ShowStartupInfo(bool debugMode = false)
+    {
+        Console.WriteLine("✓ Elite Dangerous Buttkicker Extension is running!");
+        Console.WriteLine();
+        Console.WriteLine("🌍 Web Interface: http://localhost:5000");
+        Console.WriteLine("🎵 Audio: Using system default device (can be changed in web UI)");
+        Console.WriteLine("📁 Journal: Auto-detecting Elite Dangerous folder");
         Console.WriteLine();
         Console.WriteLine("Supported Events:");
         Console.WriteLine("┌─ Core Events:");
@@ -153,18 +279,93 @@ class Program
         Console.WriteLine("│  • Interdicted/Interdiction (Interdiction events)");
         Console.WriteLine("└─");
         Console.WriteLine();
-        Console.WriteLine("Press Ctrl+C to stop.");
+        Console.WriteLine("🔧 Open http://localhost:5000 to configure audio device and test patterns");
+        Console.WriteLine("⏹️  Press Ctrl+C to stop");
         Console.WriteLine();
     }
 
-    static Task ConfigureAudioDevice(AppSettings settings, ILogger logger)
+    static async Task AutoConfigureAudioDevice(AppSettings settings, ILogger logger, bool debugMode = false)
+    {
+        try
+        {
+            // Set to default device automatically
+            settings.Audio.AudioDeviceId = -1;
+            settings.Audio.AudioDeviceName = "Default";
+            
+            if (debugMode)
+            {
+                Console.WriteLine("🎵 Audio Configuration:");
+                Console.WriteLine("----------------------");
+                Console.WriteLine("✓ Using system default audio device");
+                Console.WriteLine("  (Can be changed via web interface at http://localhost:5000)");
+                Console.WriteLine();
+                
+                // Still show device enumeration in debug mode
+                var devices = GetAvailableAudioDevices(debugMode);
+                Console.WriteLine($"Available devices ({devices.Count} found):");
+                for (int i = 0; i < devices.Count; i++)
+                {
+                    var marker = devices[i].IsDefault ? "✓ " : "  ";
+                    Console.WriteLine($"{marker}{i + 1}. {devices[i].Name}");
+                }
+                Console.WriteLine();
+            }
+            
+            logger.LogInformation("Auto-configured audio to use default system device");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Error during audio device auto-configuration, using fallback");
+            settings.Audio.AudioDeviceId = -1;
+            settings.Audio.AudioDeviceName = "Default";
+        }
+    }
+
+    static void AutoConfigureJournalPath(AppSettings settings, ILogger logger, bool debugMode = false)
+    {
+        var defaultPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Saved Games", "Frontier Developments", "Elite Dangerous");
+
+        if (debugMode)
+        {
+            Console.WriteLine("📁 Journal Configuration:");
+            Console.WriteLine("-----------------------");
+            Console.WriteLine($"Checking: {defaultPath}");
+        }
+        
+        if (Directory.Exists(defaultPath))
+        {
+            settings.EliteDangerous.JournalPath = defaultPath;
+            if (debugMode)
+            {
+                Console.WriteLine("✓ Elite Dangerous journal folder found and configured");
+                Console.WriteLine();
+            }
+            logger.LogInformation("Auto-configured journal path: {JournalPath}", defaultPath);
+        }
+        else
+        {
+            // Use the configured path or default path as fallback
+            settings.EliteDangerous.JournalPath = defaultPath; 
+            if (debugMode)
+            {
+                Console.WriteLine("⚠️  Elite Dangerous folder not found at default location");
+                Console.WriteLine("   Journal monitoring will start when Elite Dangerous is launched");
+                Console.WriteLine();
+            }
+            logger.LogWarning("Elite Dangerous journal folder not found, using default path: {JournalPath}", defaultPath);
+        }
+    }
+
+    static Task ConfigureAudioDevice(AppSettings settings, ILogger logger, bool debugMode = false)
     {
         Console.WriteLine("Audio Device Selection:");
         Console.WriteLine("----------------------");
 
         try
         {
-            var devices = GetAvailableAudioDevices();
+            var devices = GetAvailableAudioDevices(debugMode);
             
             if (!devices.Any())
             {
@@ -192,14 +393,32 @@ class Program
                     {
                         settings.Audio.AudioDeviceId = -1;
                         settings.Audio.AudioDeviceName = "Default";
-                        Console.WriteLine("Using default audio device.");
+                        Console.WriteLine("✓ Using default audio device.");
+                        if (debugMode)
+                        {
+                            Console.WriteLine($"[DEBUG] Device ID set to: {settings.Audio.AudioDeviceId}");
+                            Console.WriteLine($"[DEBUG] Device Name set to: '{settings.Audio.AudioDeviceName}'");
+                        }
                     }
                     else
                     {
                         var selectedDevice = devices[selection - 1];
                         settings.Audio.AudioDeviceId = selectedDevice.DeviceId;
                         settings.Audio.AudioDeviceName = selectedDevice.Name;
-                        Console.WriteLine($"Selected: {selectedDevice.Name}");
+                        Console.WriteLine($"✓ Selected: {selectedDevice.Name}");
+                        if (debugMode)
+                        {
+                            Console.WriteLine($"[DEBUG] Device ID set to: {settings.Audio.AudioDeviceId}");
+                            Console.WriteLine($"[DEBUG] Device Name set to: '{settings.Audio.AudioDeviceName}'");
+                            Console.WriteLine($"[DEBUG] Device Driver: {selectedDevice.Driver}");
+                            Console.WriteLine($"[DEBUG] Device Available: {selectedDevice.IsAvailable}");
+                            Console.WriteLine($"[DEBUG] Device Default: {selectedDevice.IsDefault}");
+                        }
+                        
+                        if (!selectedDevice.IsAvailable)
+                        {
+                            Console.WriteLine("⚠️  WARNING: Selected device is not currently active!");
+                        }
                     }
                     break;
                 }
@@ -220,34 +439,74 @@ class Program
         return Task.CompletedTask;
     }
 
-    static List<AudioDevice> GetAvailableAudioDevices()
+    static List<AudioDevice> GetAvailableAudioDevices(bool debugMode = false)
     {
         var devices = new List<AudioDevice>();
 
         try
         {
+            if (debugMode)
+                Console.WriteLine("[DEBUG] Enumerating audio devices...");
+            
             // Use MMDevice enumerator for better device detection
             var deviceEnumerator = new MMDeviceEnumerator();
             var devices_collection = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
             
+            if (debugMode)
+                Console.WriteLine($"[DEBUG] Found {devices_collection.Count} WASAPI render devices");
+            
+            var defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            if (debugMode)
+                Console.WriteLine($"[DEBUG] System default device: '{defaultDevice.FriendlyName}' (ID: {defaultDevice.ID})");
+            
             for (int i = 0; i < devices_collection.Count; i++)
             {
                 var device = devices_collection[i];
+                var isDefault = device.ID == defaultDevice.ID;
+                
+                if (debugMode)
+                    Console.WriteLine($"[DEBUG] Device {i}: '{device.FriendlyName}' - State: {device.State}, Default: {isDefault}");
+                
                 devices.Add(new AudioDevice
                 {
                     DeviceId = i,
                     Name = device.FriendlyName,
                     Driver = "WASAPI",
                     Channels = 2, // Default assumption
-                    IsDefault = device.ID == deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID,
-                    IsAvailable = true
+                    IsDefault = isDefault,
+                    IsAvailable = device.State == DeviceState.Active
                 });
+            }
+            
+            // Also check WaveOut devices for comparison
+            if (debugMode)
+            {
+                Console.WriteLine($"[DEBUG] WaveOut device count: {WaveOut.DeviceCount}");
+                for (int i = 0; i < WaveOut.DeviceCount; i++)
+                {
+                    try
+                    {
+                        var caps = WaveOut.GetCapabilities(i);
+                        Console.WriteLine($"[DEBUG] WaveOut Device {i}: '{caps.ProductName}' - Channels: {caps.Channels}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[DEBUG] Failed to get WaveOut device {i} capabilities: {ex.Message}");
+                    }
+                }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Warning: Failed to enumerate audio devices using MMDevice: {ex.Message}");
-            Console.WriteLine("Trying alternative device enumeration...");
+            if (debugMode)
+            {
+                Console.WriteLine($"[DEBUG] Error enumerating devices: {ex.Message}");
+                Console.WriteLine($"[DEBUG] Exception type: {ex.GetType().Name}");
+            }
+            else
+            {
+                Console.WriteLine($"Warning: Failed to enumerate audio devices using MMDevice: {ex.Message}");
+            }
             
             // Skip fallback enumeration for now to avoid issues with published version
             
@@ -266,6 +525,8 @@ class Program
             }
         }
 
+        if (debugMode)
+            Console.WriteLine($"[DEBUG] Returning {devices.Count} available devices");
         return devices;
     }
 

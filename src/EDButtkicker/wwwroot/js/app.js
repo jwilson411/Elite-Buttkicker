@@ -262,6 +262,61 @@ class ButtkickerApp {
         }
     }
 
+    async refreshPatterns() {
+        try {
+            // Show loading state
+            const patternsGrid = document.getElementById('patternsGrid');
+            if (patternsGrid) {
+                patternsGrid.innerHTML = '<div class="loading"><i class="fas fa-sync-alt fa-spin"></i> Refreshing patterns...</div>';
+            }
+
+            // Call the reload endpoint first
+            const reloadResponse = await fetch('/api/PatternFiles/reload', {
+                method: 'POST'
+            });
+
+            if (!reloadResponse.ok) {
+                throw new Error('Failed to reload pattern files');
+            }
+
+            const reloadData = await reloadResponse.json();
+            
+            // Show success message temporarily
+            if (patternsGrid) {
+                patternsGrid.innerHTML = `
+                    <div class="refresh-success">
+                        <i class="fas fa-check-circle"></i>
+                        <div>Patterns refreshed successfully!</div>
+                        <div class="refresh-stats">
+                            ${reloadData.totalPacks} total packs loaded
+                            ${reloadData.newPacks > 0 ? `(${reloadData.newPacks} new)` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Wait a moment to show the success message
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            // Then reload the patterns display
+            await this.loadPatterns();
+
+        } catch (error) {
+            console.error('Error refreshing patterns:', error);
+            const patternsGrid = document.getElementById('patternsGrid');
+            if (patternsGrid) {
+                patternsGrid.innerHTML = `
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <div>Failed to refresh patterns</div>
+                        <div class="error-details">${error.message}</div>
+                        <button class="btn btn-sm" onclick="app.loadPatterns()">Try Again</button>
+                    </div>
+                `;
+            }
+        }
+    }
+
     updateQuickTestGrid(patterns) {
         const quickTestGrid = document.getElementById('quickTestGrid');
         if (!quickTestGrid || !patterns) return;
@@ -793,6 +848,12 @@ window.savePattern = () => {
 
 window.testCurrentPattern = () => {
     app.showToast('Testing current pattern - Coming soon!', 'warning');
+};
+
+window.refreshPatterns = () => {
+    if (app) {
+        app.refreshPatterns();
+    }
 };
 
 // Contextual Intelligence Functions

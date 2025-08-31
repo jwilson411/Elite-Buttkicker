@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elite Dangerous Buttkicker - Pattern Editor</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Pattern Editor Specific Styles */
+        .editor-container {
+            display: grid;
+            grid-template-columns: 300px 1fr 300px;
+            gap: 20px;
+            height: calc(100vh - 120px);
+        }
+
+        .editor-sidebar {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .editor-main {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .pattern-form {
+            display: grid;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-group label {
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .ship-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--input-bg);
+        }
+
+        .ship-item {
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ship-item:hover {
+            background: var(--hover-bg);
+        }
+
+        .ship-item.active {
+            background: var(--accent-color);
+            color: white;
+        }
+
+        .ship-item:last-child {
+            border-bottom: none;
+        }
+
+        .event-grid {
+            display: grid;
+            gap: 15px;
+        }
+
+        .event-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            background: var(--input-bg);
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .event-title {
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+
+        .pattern-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+
+        .range-control {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .range-control input[type="range"] {
+            width: 100%;
+        }
+
+        .range-value {
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .template-grid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .template-item {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            background: var(--input-bg);
+        }
+
+        .template-item:hover {
+            background: var(--hover-bg);
+        }
+
+        .template-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .template-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .validation-panel {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .validation-error {
+            color: var(--danger-color);
+            margin: 5px 0;
+        }
+
+        .validation-warning {
+            color: var(--warning-color);
+            margin: 5px 0;
+        }
+
+        .validation-success {
+            color: var(--success-color);
+        }
+
+        .user-files {
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+        }
+
+        .file-item:hover {
+            background: var(--hover-bg);
+        }
+
+        .file-name {
+            font-weight: bold;
+        }
+
+        .file-details {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .button-row button {
+            flex: 1;
+        }
+
+        .btn-test {
+            background: var(--warning-color);
+        }
+
+        .btn-test:hover {
+            background: var(--warning-hover);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 50%;
+            max-width: 500px;
+        }
+
+        .close {
+            color: var(--text-secondary);
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: var(--text-primary);
+        }
+
+        .refresh-success-small {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            text-align: center;
+            background: var(--input-bg);
+            border-radius: 4px;
+            border: 1px solid var(--success-color);
+        }
+
+        .refresh-success-small i {
+            font-size: 1.5rem;
+            color: var(--success-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .refresh-success-small div {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            margin-bottom: 0.2rem;
+        }
+
+        .error-message-small {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            text-align: center;
+            background: var(--input-bg);
+            border-radius: 4px;
+            border: 1px solid var(--danger-color);
+        }
+
+        .error-message-small i {
+            font-size: 1.5rem;
+            color: var(--danger-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .error-message-small div:first-of-type {
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            margin-bottom: 0.2rem;
+        }
+
+        .error-message-small .error-details {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 1200px) {
+            .editor-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <h1>🚀 Elite Dangerous Buttkicker</h1>
+                    <span class="subtitle">Pattern Editor</span>
+                </div>
+                <nav class="navigation">
+                    <a href="index.html" class="nav-button">← Back to Main</a>
+                </nav>
+            </div>
+        </header>
+
+        <main class="editor-container">
+            <!-- Left Sidebar: Templates & User Files -->
+            <aside class="editor-sidebar">
+                <div class="section">
+                    <h3>🎨 Pattern Templates</h3>
+                    <div id="templateGrid" class="template-grid">
+                        <!-- Templates loaded via JS -->
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>📁 Your Pattern Files</h3>
+                    <div class="form-group">
+                        <input type="text" id="authorFilter" placeholder="Your username" value="">
+                        <div class="button-row">
+                            <button onclick="loadUserFiles()" class="btn btn-secondary">Load Files</button>
+                            <button onclick="refreshPatternFiles()" class="btn btn-secondary">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div id="userFiles" class="user-files">
+                        <!-- User files loaded via JS -->
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Editor -->
+            <section class="editor-main">
+                <div class="section">
+                    <div class="section-header">
+                        <h2>Pattern Pack Editor</h2>
+                        <div class="action-buttons">
+                            <button onclick="createNewPattern()" class="btn btn-primary">New Pattern Pack</button>
+                            <button onclick="savePattern()" class="btn btn-success">Save Pattern</button>
+                            <button onclick="validatePattern()" class="btn btn-secondary">Validate</button>
+                        </div>
+                    </div>
+
+                    <!-- Pattern Metadata -->
+                    <div class="pattern-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="packName">Pattern Pack Name</label>
+                                <input type="text" id="packName" placeholder="My Custom Patterns" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="author">Author (Your Username)</label>
+                                <input type="text" id="author" placeholder="CMDR YourName" required>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="description">Description</label>
+                            <textarea id="description" placeholder="Describe your custom patterns..."></textarea>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="version">Version</label>
+                                <input type="text" id="version" value="1.0.0">
+                            </div>
+                            <div class="form-group">
+                                <label for="tags">Tags (comma-separated)</label>
+                                <input type="text" id="tags" placeholder="custom, combat, exploration">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ship Selection -->
+                    <div class="section">
+                        <div class="section-header">
+                            <h3>🚢 Ships & Events</h3>
+                            <button onclick="addShip()" class="btn btn-secondary">Add Ship</button>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Ships in Pattern Pack</label>
+                                <div id="shipList" class="ship-list">
+                                    <!-- Ships loaded via JS -->
+                                </div>
+                            </div>
+                            <div class="form-group" id="eventEditor" style="display: none;">
+                                <label>Events for Selected Ship</label>
+                                <div id="eventGrid" class="event-grid">
+                                    <!-- Events loaded via JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Sidebar: Validation & Controls -->
+            <aside class="editor-sidebar">
+                <div class="section">
+                    <h3>✅ Validation</h3>
+                    <div id="validationPanel" class="validation-panel">
+                        <p class="text-secondary">Click 'Validate' to check your pattern</p>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>🎛️ Quick Actions</h3>
+                    <div class="form-group">
+                        <button onclick="testCurrentPattern()" class="btn btn-test full-width">Test Current Pattern</button>
+                    </div>
+                    <div class="form-group">
+                        <button onclick="refreshPatternFiles()" class="btn btn-secondary full-width">
+                            <i class="fas fa-sync-alt"></i> Refresh All Patterns
+                        </button>
+                    </div>
+                    <div class="form-group">
+                        <button onclick="importPattern()" class="btn btn-secondary full-width">Import Pattern File</button>
+                    </div>
+                    <div class="form-group">
+                        <button onclick="exportPattern()" class="btn btn-secondary full-width">Export Pattern Pack</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>💾 File Naming</h3>
+                    <p class="text-secondary small">Files will be saved as:</p>
+                    <code id="filenamePreview">YourUsername_PackName_timestamp.json</code>
+                    <p class="text-secondary small mt-2">
+                        Saved to: <strong>patterns/Custom/</strong>
+                    </p>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Add Ship Modal -->
+    <div id="addShipModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addShipModal')">&times;</span>
+            <h3>Add Ship to Pattern Pack</h3>
+            <div class="form-group">
+                <label for="shipType">Ship Type</label>
+                <select id="shipType">
+                    <option value="">Select ship type...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="shipDisplayName">Display Name (optional)</label>
+                <input type="text" id="shipDisplayName" placeholder="Custom display name">
+            </div>
+            <div class="action-buttons">
+                <button onclick="confirmAddShip()" class="btn btn-primary">Add Ship</button>
+                <button onclick="closeModal('addShipModal')" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Event Modal -->
+    <div id="addEventModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('addEventModal')">&times;</span>
+            <h3>Add Event Pattern</h3>
+            <div class="form-group">
+                <label for="eventType">Event Type</label>
+                <select id="eventType">
+                    <option value="">Select event type...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="patternTemplate">Start with Template</label>
+                <select id="patternTemplate">
+                    <option value="">Select template...</option>
+                </select>
+            </div>
+            <div class="action-buttons">
+                <button onclick="confirmAddEvent()" class="btn btn-primary">Add Event</button>
+                <button onclick="closeModal('addEventModal')" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/pattern-editor.js"></script>
+</body>
+</html>

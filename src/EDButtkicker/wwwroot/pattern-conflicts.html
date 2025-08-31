@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Elite Dangerous Buttkicker - Pattern Conflicts</title>
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        .conflicts-container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            height: calc(100vh - 120px);
+        }
+
+        .conflicts-sidebar {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .conflicts-main {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .stats-card {
+            background: var(--input-bg);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .stat-value {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+
+        .conflict-list {
+            display: grid;
+            gap: 15px;
+        }
+
+        .conflict-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            overflow: hidden;
+        }
+
+        .conflict-card.has-conflicts {
+            border-color: var(--warning-color);
+        }
+
+        .conflict-header {
+            padding: 15px;
+            background: var(--hover-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .conflict-title {
+            font-weight: bold;
+            color: var(--text-primary);
+            margin-bottom: 5px;
+        }
+
+        .conflict-subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .conflict-body {
+            padding: 15px;
+        }
+
+        .pattern-options {
+            display: grid;
+            gap: 10px;
+        }
+
+        .pattern-option {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .pattern-option:hover {
+            background: var(--hover-bg);
+        }
+
+        .pattern-option.active {
+            border-color: var(--accent-color);
+            background: rgba(33, 150, 243, 0.1);
+        }
+
+        .pattern-option input[type="radio"] {
+            margin-right: 12px;
+        }
+
+        .pattern-info {
+            flex: 1;
+        }
+
+        .pattern-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .pattern-details {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+        }
+
+        .pattern-meta {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .auto-resolve-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .resolve-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .resolve-option {
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .resolve-option:hover {
+            background: var(--hover-bg);
+            border-color: var(--accent-color);
+        }
+
+        .resolve-option.selected {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+
+        .no-conflicts {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+
+        .no-conflicts i {
+            font-size: 3rem;
+            color: var(--success-color);
+            margin-bottom: 20px;
+        }
+
+        .conflict-badge {
+            background: var(--warning-color);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .source-type-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .source-type-filesystem {
+            background: var(--info-color);
+            color: white;
+        }
+
+        .source-type-usercustom {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .source-type-default {
+            background: var(--text-secondary);
+            color: white;
+        }
+
+        @media (max-width: 1024px) {
+            .conflicts-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            
+            .pattern-details {
+                grid-template-columns: 1fr;
+            }
+            
+            .resolve-options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <h1>🚀 Elite Dangerous Buttkicker</h1>
+                    <span class="subtitle">Pattern Conflicts Manager</span>
+                </div>
+                <nav class="navigation">
+                    <a href="index.html" class="nav-button">← Back to Main</a>
+                    <a href="pattern-editor.html" class="nav-button">Pattern Editor</a>
+                </nav>
+            </div>
+        </header>
+
+        <main class="conflicts-container">
+            <!-- Left Sidebar: Stats & Auto-Resolve -->
+            <aside class="conflicts-sidebar">
+                <div class="section">
+                    <h3>📊 Pattern Statistics</h3>
+                    <div id="statsCard" class="stats-card">
+                        <!-- Stats loaded via JS -->
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>🔧 Auto-Resolve Conflicts</h3>
+                    <div class="auto-resolve-panel">
+                        <p class="text-secondary">Automatically resolve all conflicts using a strategy:</p>
+                        
+                        <div class="resolve-options" id="resolveOptions">
+                            <div class="resolve-option" data-strategy="LatestModified">
+                                <strong>Latest Modified</strong>
+                                <div class="text-secondary small">Use most recently changed</div>
+                            </div>
+                            <div class="resolve-option" data-strategy="LatestVersion">
+                                <strong>Latest Version</strong>
+                                <div class="text-secondary small">Use highest version number</div>
+                            </div>
+                            <div class="resolve-option" data-strategy="PreferFileSystem">
+                                <strong>Prefer Files</strong>
+                                <div class="text-secondary small">Favor pattern files over defaults</div>
+                            </div>
+                            <div class="resolve-option" data-strategy="PreferUserCustom">
+                                <strong>Prefer Custom</strong>
+                                <div class="text-secondary small">Favor user customizations</div>
+                            </div>
+                        </div>
+                        
+                        <button id="autoResolveBtn" class="btn btn-warning full-width" disabled>
+                            Auto-Resolve Conflicts
+                        </button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h3>🔄 Actions</h3>
+                    <button onclick="refreshConflicts()" class="btn btn-secondary full-width">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button onclick="refreshSources()" class="btn btn-primary full-width">
+                        <i class="fas fa-database"></i> Refresh Sources
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Content: Conflict List -->
+            <section class="conflicts-main">
+                <div class="section-header">
+                    <h2>Pattern Conflicts</h2>
+                    <div class="header-actions">
+                        <span id="conflictCount" class="conflict-badge">0 conflicts</span>
+                    </div>
+                </div>
+
+                <div id="conflictsList" class="conflict-list">
+                    <!-- Conflicts loaded via JS -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="js/pattern-conflicts.js"></script>
+</body>
+</html>
