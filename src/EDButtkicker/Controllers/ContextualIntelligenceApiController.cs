@@ -91,8 +91,8 @@ public class ContextualIntelligenceApiController
         {
             _logger.LogError(ex, "Error getting contextual intelligence status");
             context.Response.StatusCode = 500;
-            using var writer = new StreamWriter(context.Response.Body);
-            await writer.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            using var errorWriter = new StreamWriter(context.Response.Body);
+            await errorWriter.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
         }
     }
 
@@ -115,8 +115,8 @@ public class ContextualIntelligenceApiController
             if (configUpdate == null)
             {
                 context.Response.StatusCode = 400;
-                using var writer = new StreamWriter(context.Response.Body);
-                await writer.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
+                using var writer2 = new StreamWriter(context.Response.Body);
+                await writer2.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
                 return;
             }
 
@@ -151,8 +151,8 @@ public class ContextualIntelligenceApiController
             _logger.LogInformation("Contextual Intelligence configuration updated via web interface - Enabled: {Enabled}", config.Enabled);
 
             context.Response.ContentType = "application/json";
-            using var writer = new StreamWriter(context.Response.Body);
-            await writer.WriteAsync(JsonSerializer.Serialize(new 
+            using var responseWriter = new StreamWriter(context.Response.Body);
+            await responseWriter.WriteAsync(JsonSerializer.Serialize(new 
             { 
                 success = true, 
                 message = "Contextual Intelligence configuration updated successfully",
@@ -163,8 +163,8 @@ public class ContextualIntelligenceApiController
         {
             _logger.LogError(ex, "Error updating contextual intelligence configuration");
             context.Response.StatusCode = 500;
-            using var writer = new StreamWriter(context.Response.Body);
-            await writer.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            using var errorWriter = new StreamWriter(context.Response.Body);
+            await errorWriter.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
         }
     }
 
@@ -202,8 +202,8 @@ public class ContextualIntelligenceApiController
         {
             _logger.LogError(ex, "Error getting game context predictions");
             context.Response.StatusCode = 500;
-            using var writer = new StreamWriter(context.Response.Body);
-            await writer.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            using var errorWriter = new StreamWriter(context.Response.Body);
+            await errorWriter.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
         }
     }
 }

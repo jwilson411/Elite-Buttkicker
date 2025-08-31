@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Collections.Concurrent;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 
@@ -10,29 +11,25 @@ public class EventMappingService
     private readonly ILogger<EventMappingService> _logger;
     private readonly AudioEngineService _audioEngine;
     private readonly PatternSequencer _patternSequencer;
-    private readonly VoiceFeedbackService _voiceFeedback;
     private readonly ContextualIntelligenceService _contextualIntelligence;
     private EventMappingsConfig _eventMappings;
-    private readonly Dictionary<string, DateTime> _lastEventTimes = new();
-    private readonly Dictionary<string, int> _eventCounts = new();
+    private readonly ConcurrentDictionary<string, DateTime> _lastEventTimes = new();
+    private readonly ConcurrentDictionary<string, int> _eventCounts = new();
 
     public EventMappingService(
         ILogger<EventMappingService> logger,
         AudioEngineService audioEngine,
         PatternSequencer patternSequencer,
-        VoiceFeedbackService voiceFeedback,
         ContextualIntelligenceService contextualIntelligence)
     {
         _logger = logger;
         _audioEngine = audioEngine;
         _patternSequencer = patternSequencer;
-        _voiceFeedback = voiceFeedback;
         _contextualIntelligence = contextualIntelligence;
         _eventMappings = EventMappingsConfig.GetDefault();
         
         // Initialize services
         _audioEngine.Initialize();
-        _voiceFeedback.Initialize();
         _patternSequencer.LoadPatterns(_eventMappings);
         
         _logger.LogInformation("Event Mapping Service initialized with {Count} default patterns", 
@@ -74,9 +71,9 @@ public class EventMappingService
 
             _logger.LogInformation("Processing mapped event: {EventType}", eventType);
             
-            // Track event timing
+            // Track event timing (thread-safe)
             _lastEventTimes[eventType] = DateTime.UtcNow;
-            _eventCounts[eventType] = _eventCounts.GetValueOrDefault(eventType, 0) + 1;
+            _eventCounts.AddOrUpdate(eventType, 1, (key, value) => value + 1);
 
             // Apply any event-specific modifications to the pattern
             var basePattern = CreatePatternForEvent(mapping.Pattern, journalEvent);
@@ -101,32 +98,7 @@ public class EventMappingService
                 tasks.Add(_audioEngine.PlayHapticPattern(pattern, journalEvent));
             }
 
-            // Voice feedback - prioritize contextual messages
-            var contextualMessage = _contextualIntelligence.GetContextualVoiceMessage(eventType, journalEvent);
-            if (!string.IsNullOrEmpty(contextualMessage))
-            {
-                // Use contextual intelligence message
-                tasks.Add(Task.Run(async () =>
-                {
-                    var customPattern = new HapticPattern 
-                    { 
-                        EnableVoiceAnnouncement = true, 
-                        VoiceMessage = contextualMessage 
-                    };
-                    await _voiceFeedback.ProcessPatternVoiceFeedback(customPattern, journalEvent);
-                }));
-            }
-            else
-            {
-                // Use standard pattern voice feedback
-                tasks.Add(_voiceFeedback.ProcessPatternVoiceFeedback(pattern, journalEvent));
-            }
-            
-            // Event-specific voice announcements (only if no contextual message)
-            if (string.IsNullOrEmpty(contextualMessage) && ShouldAnnounceEvent(eventType))
-            {
-                tasks.Add(_voiceFeedback.AnnounceEvent(eventType, journalEvent));
-            }
+            // Voice feedback has been removed for better user experience
 
             // Execute all feedback simultaneously
             await Task.WhenAll(tasks);
@@ -521,10 +493,10 @@ public class EventMappingService
         const string unmappedKey = "UNMAPPED_";
         var logKey = unmappedKey + eventType;
         
-        if (!_eventCounts.ContainsKey(logKey))
+        // Thread-safe way to add if not exists
+        if (_eventCounts.TryAdd(logKey, 1))
         {
             _logger.LogDebug("No mapping found for event type: {EventType}", eventType);
-            _eventCounts[logKey] = 1;
         }
     }
 
@@ -588,16 +560,4 @@ public class EventMappingService
         _logger.LogInformation("Event statistics reset");
     }
 
-    private bool ShouldAnnounceEvent(string eventType)
-    {
-        // Define which events should have voice announcements
-        var announcementEvents = new HashSet<string>
-        {
-            "FSDJump", "Docked", "Undocked", "ShieldDown", "ShieldsUp",
-            "UnderAttack", "HeatWarning", "HeatDamage", "Interdicted",
-            "JetConeBoost", "Touchdown", "Liftoff"
-        };
-
-        return announcementEvents.Contains(eventType);
-    }
 }

@@ -249,7 +249,7 @@ public class PatternApiController
             _logger.LogInformation("Testing pattern for event: {EventType}", eventType);
 
             // Check if this is a custom pattern test (with parameters in body)
-            HapticPattern patternToTest = null;
+            HapticPattern? patternToTest = null;
             var testEvent = new JournalEvent
             {
                 Event = eventType,
@@ -270,7 +270,10 @@ public class PatternApiController
                     try
                     {
                         var customParams = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-                        patternToTest = CreateCustomTestPattern(eventType, customParams);
+                        if (customParams != null)
+                        {
+                            patternToTest = CreateCustomTestPattern(eventType, customParams);
+                        }
                     }
                     catch
                     {
@@ -411,13 +414,13 @@ public class PatternApiController
             MinIntensity = 10,
             ChainedPatterns = new List<string>(),
             Conditions = new Dictionary<string, object>(),
-            Layers = new List<HapticLayer>(),
+            Layers = new List<PatternLayer>(),
             CustomCurvePoints = new List<CurvePoint>()
         };
 
         // Apply custom parameters
         if (parameters.ContainsKey("frequency") && double.TryParse(parameters["frequency"].ToString(), out double freq))
-            pattern.Frequency = Math.Max(20, Math.Min(80, freq));
+            pattern.Frequency = Math.Max(20, Math.Min(80, (int)freq));
 
         if (parameters.ContainsKey("duration") && int.TryParse(parameters["duration"].ToString(), out int dur))
             pattern.Duration = Math.Max(100, Math.Min(10000, dur));
@@ -441,7 +444,7 @@ public class PatternApiController
         if (parameters.ContainsKey("layers") && parameters["layers"] is JsonElement layersElement && layersElement.ValueKind == JsonValueKind.Array)
         {
             pattern.Pattern = PatternType.MultiLayer;
-            pattern.Layers = new List<HapticLayer>();
+            pattern.Layers = new List<PatternLayer>();
 
             foreach (var layerElement in layersElement.EnumerateArray())
             {
@@ -449,11 +452,11 @@ public class PatternApiController
                     layerElement.TryGetProperty("frequency", out var freqProp) && freqProp.TryGetDouble(out double layerFreq) &&
                     layerElement.TryGetProperty("amplitude", out var ampProp) && ampProp.TryGetDouble(out double amplitude))
                 {
-                    var layer = new HapticLayer
+                    var layer = new PatternLayer
                     {
                         Waveform = waveform,
-                        Frequency = layerFreq,
-                        Amplitude = amplitude,
+                        Frequency = (int)layerFreq,
+                        Amplitude = (float)amplitude,
                         Curve = IntensityCurve.Linear,
                         PhaseOffset = 0
                     };
@@ -462,7 +465,7 @@ public class PatternApiController
                         layer.Curve = layerCurve;
 
                     if (layerElement.TryGetProperty("phaseOffset", out var phaseProp) && phaseProp.TryGetDouble(out double phase))
-                        layer.PhaseOffset = phase;
+                        layer.PhaseOffset = (int)phase;
 
                     pattern.Layers.Add(layer);
                 }
@@ -482,8 +485,8 @@ public class PatternApiController
                 {
                     pattern.CustomCurvePoints.Add(new CurvePoint
                     {
-                        Time = time,
-                        Intensity = pointIntensity
+                        Time = (float)time,
+                        Intensity = (float)pointIntensity
                     });
                 }
             }

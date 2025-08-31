@@ -377,6 +377,10 @@ class ButtkickerApp {
                     </div>
                 `;
             }
+            
+            // Load initial replay status and journal files
+            refreshReplayStatus();
+            refreshJournalFiles();
 
         } catch (error) {
             console.error('Error loading journal config:', error);
@@ -1054,6 +1058,174 @@ window.resetPatternTester = () => {
     updatePatternTypeOptions();
     
     app.showToast('Pattern tester reset to defaults', 'info');
+};
+
+// Journal Replay Functions
+window.startJournalReplay = async () => {
+    try {
+        const selectedJournalFile = document.getElementById('journalFileSelect')?.value;
+        
+        const requestBody = {};
+        if (selectedJournalFile && selectedJournalFile !== '') {
+            requestBody.journalFile = selectedJournalFile;
+        }
+
+        const response = await fetch('/api/journal/replay/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            app.showToast(`Journal replay started with ${result.events_count} events from ${result.source}!`, 'success');
+            updateReplayUI(true);
+            
+            // Update source display
+            const replaySource = document.getElementById('replaySource');
+            if (replaySource) {
+                replaySource.textContent = result.source || 'recent_events';
+            }
+            
+            // Update status every 2 seconds while replaying
+            startReplayStatusUpdates();
+        } else {
+            const error = await response.json();
+            app.showToast(error.error || 'Error starting journal replay', 'error');
+        }
+    } catch (error) {
+        console.error('Error starting journal replay:', error);
+        app.showToast('Error starting journal replay', 'error');
+    }
+};
+
+window.stopJournalReplay = async () => {
+    try {
+        const response = await fetch('/api/journal/replay/stop', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            app.showToast('Journal replay stopped', 'info');
+            updateReplayUI(false);
+            stopReplayStatusUpdates();
+        } else {
+            const error = await response.json();
+            app.showToast(error.error || 'Error stopping journal replay', 'error');
+        }
+    } catch (error) {
+        console.error('Error stopping journal replay:', error);
+        app.showToast('Error stopping journal replay', 'error');
+    }
+};
+
+window.refreshReplayStatus = async () => {
+    try {
+        const response = await fetch('/api/journal/replay/status');
+        
+        if (response.ok) {
+            const status = await response.json();
+            
+            // Update UI elements
+            const replayStatusText = document.getElementById('replayStatusText');
+            const replayEventCount = document.getElementById('replayEventCount');
+            const replayIndicator = document.getElementById('replayIndicator');
+            
+            if (replayStatusText) {
+                replayStatusText.textContent = status.is_replaying ? 'Running' : 'Stopped';
+            }
+            
+            if (replayEventCount) {
+                replayEventCount.textContent = status.last_5_minutes_events || 0;
+            }
+            
+            if (replayIndicator) {
+                replayIndicator.className = `status-indicator ${status.is_replaying ? 'online' : 'offline'}`;
+            }
+            
+            updateReplayUI(status.is_replaying);
+            
+            // If replay stopped naturally, stop status updates
+            if (!status.is_replaying) {
+                stopReplayStatusUpdates();
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing replay status:', error);
+    }
+};
+
+function updateReplayUI(isReplaying) {
+    const startBtn = document.getElementById('startReplayBtn');
+    const stopBtn = document.getElementById('stopReplayBtn');
+    
+    if (startBtn) {
+        startBtn.disabled = isReplaying;
+        startBtn.innerHTML = isReplaying ? '<i class="fas fa-play"></i> Running...' : '<i class="fas fa-play"></i> Start Replay';
+    }
+    
+    if (stopBtn) {
+        stopBtn.disabled = !isReplaying;
+    }
+}
+
+let replayStatusInterval;
+
+function startReplayStatusUpdates() {
+    stopReplayStatusUpdates(); // Clear any existing interval
+    replayStatusInterval = setInterval(refreshReplayStatus, 2000); // Every 2 seconds
+}
+
+function stopReplayStatusUpdates() {
+    if (replayStatusInterval) {
+        clearInterval(replayStatusInterval);
+        replayStatusInterval = null;
+    }
+}
+
+// Journal File Management Functions
+window.refreshJournalFiles = async () => {
+    try {
+        const response = await fetch('/api/journal/status');
+        
+        if (response.ok) {
+            const status = await response.json();
+            const journalFileSelect = document.getElementById('journalFileSelect');
+            
+            if (journalFileSelect && status.recent_files) {
+                // Clear existing options
+                journalFileSelect.innerHTML = '';
+                
+                // Add default option
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = 'Use recent events from memory';
+                journalFileSelect.appendChild(defaultOption);
+                
+                // Add journal files (most recent first)
+                status.recent_files.forEach(fileName => {
+                    const option = document.createElement('option');
+                    option.value = fileName;
+                    option.textContent = fileName;
+                    journalFileSelect.appendChild(option);
+                });
+                
+                if (status.recent_files.length === 0) {
+                    const noFilesOption = document.createElement('option');
+                    noFilesOption.value = '';
+                    noFilesOption.textContent = 'No journal files found';
+                    noFilesOption.disabled = true;
+                    journalFileSelect.appendChild(noFilesOption);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing journal files:', error);
+        const journalFileSelect = document.getElementById('journalFileSelect');
+        if (journalFileSelect) {
+            journalFileSelect.innerHTML = '<option value="">Error loading journal files</option>';
+        }
+    }
 };
 
 // Initialize app when DOM is loaded

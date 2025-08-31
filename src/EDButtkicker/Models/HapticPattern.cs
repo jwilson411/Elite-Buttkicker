@@ -38,6 +38,12 @@ public class PatternLayer
     public float Amplitude { get; set; } = 1.0f; // 0.0 to 1.0
     public int PhaseOffset { get; set; } = 0; // degrees
     public IntensityCurve Curve { get; set; } = IntensityCurve.Linear;
+    
+    // Timing properties for sequenced patterns
+    public int StartTime { get; set; } = 0; // milliseconds from pattern start
+    public int Duration { get; set; } = 0; // milliseconds (0 = use pattern duration)
+    public int FadeIn { get; set; } = 0; // milliseconds
+    public int FadeOut { get; set; } = 0; // milliseconds
 }
 
 public class HapticPattern

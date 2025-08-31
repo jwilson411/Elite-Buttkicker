@@ -241,7 +241,7 @@ public class ContextualIntelligenceService
                 
             case "ShieldDown":
                 _gameContext.ShieldStrength = 0.0;
-                _gameContext.ThreatLevel = Math.Max(_gameContext.ThreatLevel, CombatThreatLevel.Medium);
+                _gameContext.ThreatLevel = (CombatThreatLevel)Math.Max((byte)_gameContext.ThreatLevel, (byte)CombatThreatLevel.Medium);
                 break;
                 
             case "FighterDestroyed" or "ShipTargeted":

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
+using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
@@ -10,13 +11,20 @@ public class JournalApiController
 {
     private readonly ILogger<JournalApiController> _logger;
     private readonly AppSettings _settings;
+    private readonly EventMappingService _eventMappingService;
     private static readonly List<JournalEvent> RecentEvents = new();
     private static readonly object EventsLock = new object();
+    
+    // Replay functionality
+    private static CancellationTokenSource? _replayTokenSource;
+    private static Task? _replayTask;
+    private static readonly object ReplayLock = new object();
 
-    public JournalApiController(ILogger<JournalApiController> logger, AppSettings settings)
+    public JournalApiController(ILogger<JournalApiController> logger, AppSettings settings, EventMappingService eventMappingService)
     {
         _logger = logger;
         _settings = settings;
+        _eventMappingService = eventMappingService;
     }
 
     public async Task GetJournalStatus(HttpContext context)
@@ -241,5 +249,276 @@ public class JournalApiController
         {
             return RecentEvents.FirstOrDefault()?.Timestamp;
         }
+    }
+
+    public async Task StartJournalReplay(HttpContext context)
+    {
+        try
+        {
+            // Parse request body to get journal file selection
+            string? selectedJournalFile = null;
+            if (context.Request.ContentLength > 0)
+            {
+                using var reader = new StreamReader(context.Request.Body);
+                var json = await reader.ReadToEndAsync();
+                if (!string.IsNullOrEmpty(json))
+                {
+                    var requestData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+                    if (requestData != null && requestData.ContainsKey("journalFile"))
+                    {
+                        selectedJournalFile = requestData["journalFile"].ToString();
+                    }
+                }
+            }
+
+            // Get events from the selected journal file or fallback to recent events (outside of lock)
+            List<JournalEvent> eventsToReplay;
+            if (!string.IsNullOrEmpty(selectedJournalFile))
+            {
+                eventsToReplay = await ReadLastFiveMinutesFromJournalFile(selectedJournalFile);
+            }
+            else
+            {
+                // Fallback to recent events from memory (last 5 minutes of real time)
+                var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
+                lock (EventsLock)
+                {
+                    eventsToReplay = RecentEvents
+                        .Where(e => e.Timestamp >= cutoffTime)
+                        .OrderBy(e => e.Timestamp)
+                        .ToList();
+                }
+            }
+            
+            // Now handle replay start/stop in lock
+            lock (ReplayLock)
+            {
+                // Stop any existing replay
+                if (_replayTokenSource != null && !_replayTokenSource.Token.IsCancellationRequested)
+                {
+                    _replayTokenSource.Cancel();
+                    _replayTask?.Wait(TimeSpan.FromSeconds(2));
+                }
+
+                if (eventsToReplay.Any())
+                {
+                    // Start new replay
+                    _replayTokenSource = new CancellationTokenSource();
+                    _replayTask = Task.Run(async () => await ReplayEventsAsync(eventsToReplay, _replayTokenSource.Token));
+
+                    _logger.LogInformation("Started journal replay with {Count} events from {Source}", 
+                        eventsToReplay.Count, 
+                        !string.IsNullOrEmpty(selectedJournalFile) ? selectedJournalFile : "recent events");
+                }
+            }
+            
+            if (!eventsToReplay.Any())
+            {
+                context.Response.StatusCode = 404;
+                var errorMessage = !string.IsNullOrEmpty(selectedJournalFile) 
+                    ? $"No events found in the last 5 minutes of journal file: {selectedJournalFile}"
+                    : "No events found in the last 5 minutes";
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = errorMessage }));
+                return;
+            }
+
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
+            { 
+                success = true,
+                message = $"Journal replay started from {(!string.IsNullOrEmpty(selectedJournalFile) ? Path.GetFileName(selectedJournalFile) : "recent events")}",
+                events_count = eventsToReplay.Count,
+                source = !string.IsNullOrEmpty(selectedJournalFile) ? Path.GetFileName(selectedJournalFile) : "recent_events"
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error starting journal replay");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+        }
+    }
+
+    public async Task StopJournalReplay(HttpContext context)
+    {
+        try
+        {
+            lock (ReplayLock)
+            {
+                if (_replayTokenSource != null && !_replayTokenSource.Token.IsCancellationRequested)
+                {
+                    _replayTokenSource.Cancel();
+                    _logger.LogInformation("Stopped journal replay");
+                }
+            }
+
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
+            { 
+                success = true,
+                message = "Journal replay stopped"
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error stopping journal replay");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+        }
+    }
+
+    public async Task GetJournalReplayStatus(HttpContext context)
+    {
+        try
+        {
+            bool isReplaying = false;
+            int eventsCount = 0;
+
+            lock (ReplayLock)
+            {
+                isReplaying = _replayTokenSource != null && 
+                             !_replayTokenSource.Token.IsCancellationRequested &&
+                             _replayTask != null && 
+                             !_replayTask.IsCompleted;
+                eventsCount = GetEventsToReplayCount();
+            }
+
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
+            { 
+                is_replaying = isReplaying,
+                events_available = eventsCount,
+                last_5_minutes_events = GetEventsInLast5Minutes()
+            }));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting replay status");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+        }
+    }
+
+    private async Task ReplayEventsAsync(List<JournalEvent> events, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Starting replay of {Count} journal events", events.Count);
+            
+            foreach (var journalEvent in events)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    break;
+
+                // Process the event through the normal event mapping system
+                await Task.Run(() => _eventMappingService.ProcessEvent(journalEvent), cancellationToken);
+                
+                _logger.LogDebug("Replayed event: {EventType} at {Timestamp}", journalEvent.Event, journalEvent.Timestamp);
+
+                // Add a small delay between events to make it more realistic
+                await Task.Delay(500, cancellationToken);
+            }
+            
+            _logger.LogInformation("Journal replay completed");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Journal replay was cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during journal replay");
+        }
+    }
+
+    private int GetEventsToReplayCount()
+    {
+        var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
+        lock (EventsLock)
+        {
+            return RecentEvents.Count(e => e.Timestamp >= cutoffTime);
+        }
+    }
+
+    private int GetEventsInLast5Minutes()
+    {
+        var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
+        lock (EventsLock)
+        {
+            return RecentEvents.Count(e => e.Timestamp >= cutoffTime);
+        }
+    }
+
+    private async Task<List<JournalEvent>> ReadLastFiveMinutesFromJournalFile(string journalFileName)
+    {
+        var events = new List<JournalEvent>();
+        
+        try
+        {
+            var journalPath = _settings.EliteDangerous.JournalPath;
+            if (string.IsNullOrEmpty(journalPath) || !Directory.Exists(journalPath))
+            {
+                _logger.LogWarning("Journal path not configured or does not exist");
+                return events;
+            }
+
+            var fullPath = Path.Combine(journalPath, journalFileName);
+            if (!File.Exists(fullPath))
+            {
+                _logger.LogWarning("Journal file not found: {FilePath}", fullPath);
+                return events;
+            }
+
+            var allLines = await File.ReadAllLinesAsync(fullPath);
+            var allEvents = new List<JournalEvent>();
+
+            // Parse all events from the journal file
+            foreach (var line in allLines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                try
+                {
+                    var journalEvent = JsonSerializer.Deserialize<JournalEvent>(line);
+                    if (journalEvent != null)
+                    {
+                        allEvents.Add(journalEvent);
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogDebug("Failed to parse journal line: {Line} - {Error}", line, ex.Message);
+                }
+            }
+
+            if (!allEvents.Any())
+            {
+                _logger.LogWarning("No valid events found in journal file: {FilePath}", fullPath);
+                return events;
+            }
+
+            // Sort events by timestamp
+            allEvents = allEvents.OrderBy(e => e.Timestamp).ToList();
+            
+            // Find the last event timestamp and calculate 5 minutes before that
+            var lastEventTime = allEvents.Last().Timestamp;
+            var cutoffTime = lastEventTime.AddMinutes(-5);
+
+            // Get events from the last 5 minutes of the journal's timeline
+            events = allEvents
+                .Where(e => e.Timestamp >= cutoffTime)
+                .OrderBy(e => e.Timestamp)
+                .ToList();
+
+            _logger.LogInformation("Loaded {EventCount} events from last 5 minutes of journal {FileName} (from {StartTime} to {EndTime})",
+                events.Count, journalFileName, cutoffTime, lastEventTime);
+
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading journal file: {FileName}", journalFileName);
+        }
+
+        return events;
     }
 }

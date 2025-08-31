@@ -72,9 +72,24 @@ public class MultiLayerPatternGenerator : ISampleProvider
         int samplesToRead = Math.Min(count, _totalSamples - (int)_samplePosition);
         if (samplesToRead <= 0) return 0;
 
-        // Mix all layers
+        // Current time in milliseconds
+        double currentTimeMs = (_samplePosition * 1000.0) / _sampleRate;
+
+        // Mix all layers that should be active at current time
         foreach (var layerGen in _layers)
         {
+            var layer = layerGen.Layer;
+            
+            // Calculate layer timing
+            int layerStartTime = layer.StartTime;
+            int layerDuration = layer.Duration > 0 ? layer.Duration : _pattern.Duration;
+            int layerEndTime = layerStartTime + layerDuration;
+            
+            // Skip layer if it's not active during this time window
+            double endTimeMs = currentTimeMs + (samplesToRead * 1000.0 / _sampleRate);
+            if (currentTimeMs >= layerEndTime || endTimeMs <= layerStartTime)
+                continue;
+
             // Ensure buffer is large enough
             if (layerGen.Buffer.Length < samplesToRead)
             {
@@ -84,19 +99,43 @@ public class MultiLayerPatternGenerator : ISampleProvider
             // Generate samples for this layer
             layerGen.Generator.Read(layerGen.Buffer, 0, samplesToRead);
 
-            // Apply intensity curve to each sample
+            // Apply timing, fading, and intensity curve to each sample
             for (int i = 0; i < samplesToRead; i++)
             {
-                float progress = (float)(_samplePosition + i) / _totalSamples;
+                double sampleTimeMs = currentTimeMs + (i * 1000.0 / _sampleRate);
+                
+                // Skip samples outside layer timing
+                if (sampleTimeMs < layerStartTime || sampleTimeMs >= layerEndTime)
+                    continue;
+
+                // Calculate fade multipliers
+                float fadeMultiplier = 1.0f;
+                
+                // Fade in
+                if (layer.FadeIn > 0 && sampleTimeMs < layerStartTime + layer.FadeIn)
+                {
+                    fadeMultiplier *= (float)((sampleTimeMs - layerStartTime) / layer.FadeIn);
+                }
+                
+                // Fade out
+                if (layer.FadeOut > 0 && sampleTimeMs > layerEndTime - layer.FadeOut)
+                {
+                    fadeMultiplier *= (float)((layerEndTime - sampleTimeMs) / layer.FadeOut);
+                }
+
+                // Calculate layer progress for intensity curve
+                float layerProgress = (float)((sampleTimeMs - layerStartTime) / layerDuration);
+                layerProgress = Math.Max(0f, Math.Min(1f, layerProgress));
+                
                 float intensityMultiplier = IntensityCurveProcessor.CalculateIntensity(
-                    layerGen.Layer.Curve, 
-                    progress, 
+                    layer.Curve, 
+                    layerProgress, 
                     _pattern.Intensity / 100.0f,
                     _pattern.CustomCurvePoints
                 );
 
                 // Mix the layer into the main buffer
-                buffer[offset + i] += layerGen.Buffer[i] * intensityMultiplier * layerGen.Layer.Amplitude;
+                buffer[offset + i] += layerGen.Buffer[i] * intensityMultiplier * layer.Amplitude * fadeMultiplier;
             }
         }
 

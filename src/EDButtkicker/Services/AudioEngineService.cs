@@ -59,6 +59,7 @@ public class AudioEngineService : IDisposable
                 _logger.LogInformation("Audio Engine initialized successfully");
                 _logger.LogInformation("Sample Rate: {SampleRate}Hz, Buffer Size: {BufferSize}", 
                     _settings.Audio.SampleRate, _settings.Audio.BufferSize);
+                _logger.LogInformation("WaveOut PlaybackState: {PlaybackState}", _waveOut.PlaybackState);
             }
             catch (Exception ex)
             {
@@ -92,6 +93,7 @@ public class AudioEngineService : IDisposable
             ISampleProvider sampleProvider = pattern.Pattern switch
             {
                 PatternType.MultiLayer => CreateMultiLayerPattern(pattern),
+                PatternType.Sequence => CreateMultiLayerPattern(pattern), // Sequence uses same timing logic as MultiLayer
                 _ => CreateStandardPattern(pattern, intensity, frequency)
             };
 
@@ -100,6 +102,7 @@ public class AudioEngineService : IDisposable
                 // For compatibility, store the sample provider reference
                 _activeGenerators[effectId] = sampleProvider as SignalGenerator ?? new SignalGenerator(_settings.Audio.SampleRate, 1);
                 _mixer?.AddMixerInput(sampleProvider);
+                _logger.LogDebug("Added sample provider to mixer. Active effects: {Count}", _activeGenerators.Count);
             }
 
             // Set up automatic cleanup
@@ -144,12 +147,19 @@ public class AudioEngineService : IDisposable
 
     private SignalGenerator CreateSignalGenerator(HapticPattern pattern, int intensity, int frequency)
     {
+        var gain = intensity / 100.0;
+        // Temporarily boost gain to debug audio issues
+        var boostedGain = Math.Min(gain * 2.0, 1.0); // Double the gain but cap at 1.0
+        
         var generator = new SignalGenerator(_settings.Audio.SampleRate, 1)
         {
-            Gain = intensity / 100.0, // Convert percentage to 0-1 scale
+            Gain = boostedGain,
             Frequency = frequency,
             Type = SignalGeneratorType.Sin // Smooth sine wave for buttkicker
         };
+
+        _logger.LogDebug("Created signal generator - Intensity: {Intensity}%, Gain: {Gain}, Frequency: {Frequency}Hz, SampleRate: {SampleRate}", 
+            intensity, gain, frequency, _settings.Audio.SampleRate);
 
         return generator;
     }
@@ -330,6 +340,39 @@ public class AudioEngineService : IDisposable
         }
         
         return sampleProvider;
+    }
+
+    public void Reinitialize()
+    {
+        _logger.LogInformation("Reinitializing Audio Engine with new device settings");
+        
+        lock (_lock)
+        {
+            // Stop and dispose current audio engine
+            StopAllEffects();
+            
+            if (_waveOut != null)
+            {
+                _waveOut.Stop();
+                _waveOut.Dispose();
+                _waveOut = null;
+            }
+            
+            _mixer = null;
+            _isInitialized = false;
+            
+            // Clear active cancellations
+            foreach (var cancellation in _activeCancellations.Values)
+            {
+                cancellation.Cancel();
+                cancellation.Dispose();
+            }
+            _activeCancellations.Clear();
+            _activeGenerators.Clear();
+            
+            // Initialize with new settings
+            Initialize();
+        }
     }
 
     public void Dispose()

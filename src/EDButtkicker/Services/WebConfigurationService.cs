@@ -4,8 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using EDButtkicker.Configuration;
 using EDButtkicker.Controllers;
+using System.Diagnostics;
 
 namespace EDButtkicker.Services;
 
@@ -15,18 +18,16 @@ public class WebConfigurationService : BackgroundService
     private readonly AppSettings _settings;
     private readonly AudioEngineService _audioEngine;
     private readonly EventMappingService _eventMapping;
-    private readonly VoiceFeedbackService _voiceService;
     private readonly PatternSequencer _patternSequencer;
     private readonly ContextualIntelligenceService _contextualIntelligence;
     private IWebHost? _webHost;
-    private readonly int _port = 8080;
+    private readonly int _port = 47811; // Elite Dangerous Buttkicker - uncommon port
 
     public WebConfigurationService(
         ILogger<WebConfigurationService> logger,
         AppSettings settings,
         AudioEngineService audioEngine,
         EventMappingService eventMapping,
-        VoiceFeedbackService voiceService,
         PatternSequencer patternSequencer,
         ContextualIntelligenceService contextualIntelligence)
     {
@@ -34,7 +35,6 @@ public class WebConfigurationService : BackgroundService
         _settings = settings;
         _audioEngine = audioEngine;
         _eventMapping = eventMapping;
-        _voiceService = voiceService;
         _patternSequencer = patternSequencer;
         _contextualIntelligence = contextualIntelligence;
     }
@@ -55,7 +55,6 @@ public class WebConfigurationService : BackgroundService
                     services.AddSingleton(_settings);
                     services.AddSingleton(_audioEngine);
                     services.AddSingleton(_eventMapping);
-                    services.AddSingleton(_voiceService);
                     services.AddSingleton(_patternSequencer);
                     services.AddSingleton<ConfigurationApiController>();
                     services.AddSingleton<PatternApiController>();
@@ -65,7 +64,12 @@ public class WebConfigurationService : BackgroundService
                 })
                 .Configure(app =>
                 {
-                    app.UseStaticFiles();
+                    var webRootPath = GetWebRootPath();
+                    app.UseStaticFiles(new StaticFileOptions
+                    {
+                        FileProvider = new PhysicalFileProvider(webRootPath),
+                        RequestPath = ""
+                    });
                     
                     // Simple middleware-based routing
                     app.Use(async (context, next) =>
@@ -175,6 +179,24 @@ public class WebConfigurationService : BackgroundService
                                 await controller!.GetRecentEvents(context);
                                 return;
                             }
+                            else if (path == "/api/journal/replay/start" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<JournalApiController>();
+                                await controller!.StartJournalReplay(context);
+                                return;
+                            }
+                            else if (path == "/api/journal/replay/stop" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<JournalApiController>();
+                                await controller!.StopJournalReplay(context);
+                                return;
+                            }
+                            else if (path == "/api/journal/replay/status" && method == "GET")
+                            {
+                                var controller = context.RequestServices.GetService<JournalApiController>();
+                                await controller!.GetJournalReplayStatus(context);
+                                return;
+                            }
                             // Contextual Intelligence API
                             else if (path == "/api/context/status" && method == "GET")
                             {
@@ -216,14 +238,17 @@ public class WebConfigurationService : BackgroundService
                         await next();
                     });
                 })
-                .UseContentRoot(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"))
+                .UseContentRoot(GetWebRootPath())
                 .Build();
 
             await _webHost.StartAsync(stoppingToken);
 
             _logger.LogInformation("✅ Web Configuration Interface started!");
-            _logger.LogInformation("🌐 Open your browser and navigate to: http://localhost:{Port}", _port);
+            _logger.LogInformation("🌐 Opening browser at: http://localhost:{Port}", _port);
             _logger.LogInformation("📱 Configure patterns, audio devices, and monitor Elite Dangerous events");
+            
+            // Automatically open the web browser
+            OpenBrowser($"http://localhost:{_port}");
             
             await _webHost.WaitForShutdownAsync(stoppingToken);
         }
@@ -235,7 +260,8 @@ public class WebConfigurationService : BackgroundService
 
     private async Task<string> GetMainHtmlPage()
     {
-        var htmlPath = Path.Combine("wwwroot", "index.html");
+        var webRootPath = GetWebRootPath();
+        var htmlPath = Path.Combine(webRootPath, "index.html");
         
         if (File.Exists(htmlPath))
         {
@@ -383,5 +409,60 @@ public class WebConfigurationService : BackgroundService
         }
         
         await base.StopAsync(cancellationToken);
+    }
+
+    private string GetWebRootPath()
+    {
+        // Try multiple possible locations for wwwroot
+        var possiblePaths = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+            Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "EDButtkicker", "wwwroot"),
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "EDButtkicker", "wwwroot")
+        };
+
+        foreach (var path in possiblePaths)
+        {
+            if (Directory.Exists(path))
+            {
+                _logger.LogInformation("Found wwwroot at: {Path}", path);
+                return path;
+            }
+        }
+
+        // If no wwwroot found, use the base directory (will serve embedded content)
+        _logger.LogWarning("wwwroot directory not found, using base directory: {Path}", AppContext.BaseDirectory);
+        return AppContext.BaseDirectory;
+    }
+
+    private void OpenBrowser(string url)
+    {
+        try
+        {
+            // Cross-platform browser opening
+            if (OperatingSystem.IsWindows())
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                Process.Start("xdg-open", url);
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                Process.Start("open", url);
+            }
+            
+            _logger.LogInformation("Browser launched successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to automatically open browser. Please manually navigate to: {Url}", url);
+        }
     }
 }

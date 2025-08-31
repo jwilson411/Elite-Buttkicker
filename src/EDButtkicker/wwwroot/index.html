@@ -307,6 +307,52 @@
                             <div class="loading">Checking monitoring status...</div>
                         </div>
                     </div>
+
+                    <div class="config-section">
+                        <h3>Journal Replay Testing</h3>
+                        <div class="replay-controls">
+                            <div class="replay-info">
+                                <p>Test haptic patterns by replaying the last 5 minutes from a selected journal file without launching Elite Dangerous.</p>
+                                
+                                <div class="journal-selection">
+                                    <label for="journalFileSelect">Select Journal File:</label>
+                                    <div class="journal-select-container">
+                                        <select id="journalFileSelect" class="journal-select">
+                                            <option value="">Loading journal files...</option>
+                                        </select>
+                                        <button class="btn btn-sm btn-secondary" onclick="refreshJournalFiles()">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                    </div>
+                                    <small class="help-text">Select a journal file to replay its last 5 minutes of events, or leave unselected to use recent events from memory.</small>
+                                </div>
+
+                                <div class="replay-status" id="replayStatus">
+                                    <div class="status-item">
+                                        <span class="status-indicator offline" id="replayIndicator"></span>
+                                        <span class="status-text">Replay Status: <span id="replayStatusText">Stopped</span></span>
+                                    </div>
+                                    <div class="status-item">
+                                        <span>Source: <span id="replaySource">None</span></span>
+                                    </div>
+                                    <div class="status-item">
+                                        <span>Available Events: <span id="replayEventCount">0</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="replay-actions">
+                                <button class="btn btn-primary" id="startReplayBtn" onclick="startJournalReplay()">
+                                    <i class="fas fa-play"></i> Start Replay
+                                </button>
+                                <button class="btn btn-secondary" id="stopReplayBtn" onclick="stopJournalReplay()" disabled>
+                                    <i class="fas fa-stop"></i> Stop Replay
+                                </button>
+                                <button class="btn btn-accent" onclick="refreshReplayStatus()">
+                                    <i class="fas fa-sync-alt"></i> Refresh Status
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

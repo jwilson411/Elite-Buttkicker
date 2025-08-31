@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build)",
+      "Bash(echo $env:USERPROFILE)",
+      "Bash(ls:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(dotnet build:*)",
+      "Bash(7z:*)",
+      "Bash(powershell:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

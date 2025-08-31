@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 using NAudio.CoreAudioApi;
+using NAudio.Wasapi;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
@@ -49,9 +50,42 @@ class Program
         Host.CreateDefaultBuilder(args)
             .ConfigureAppConfiguration((hostingContext, config) =>
             {
-                config.SetBasePath(Directory.GetCurrentDirectory())
-                      .AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: true)
-                      .AddJsonFile("patterns/default-patterns.json", optional: true, reloadOnChange: true)
+                // Try to load embedded appsettings.json first
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                using var resourceStream = assembly.GetManifestResourceStream("appsettings.json");
+                bool embeddedConfigLoaded = false;
+                
+                if (resourceStream != null)
+                {
+                    try
+                    {
+                        // Read the embedded resource as string and parse as JSON
+                        using var reader = new StreamReader(resourceStream);
+                        var jsonContent = reader.ReadToEnd();
+                        
+                        // Parse JSON and convert to key-value pairs for in-memory configuration
+                        var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonContent);
+                        var configDict = new Dictionary<string, string>();
+                        FlattenJson(jsonDoc.RootElement, configDict, "");
+                        
+                        config.AddInMemoryCollection(configDict);
+                        embeddedConfigLoaded = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to load embedded configuration: {ex.Message}");
+                    }
+                }
+                
+                if (!embeddedConfigLoaded)
+                {
+                    // Fallback to file-based configuration for development
+                    config.SetBasePath(Directory.GetCurrentDirectory())
+                          .AddJsonFile("config/appsettings.json", optional: true, reloadOnChange: true)
+                          .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+                }
+                
+                config.AddJsonFile("patterns/default-patterns.json", optional: true, reloadOnChange: true)
                       .AddEnvironmentVariables()
                       .AddCommandLine(args);
             })
@@ -64,7 +98,6 @@ class Program
 
                 // Add core services
                 services.AddSingleton<AudioEngineService>();
-                services.AddSingleton<VoiceFeedbackService>();
                 services.AddSingleton<PatternSequencer>();
                 services.AddSingleton<ContextualIntelligenceService>();
                 services.AddSingleton<EventMappingService>();
@@ -211,18 +244,26 @@ class Program
                 });
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Fallback - add a default device entry
-            devices.Add(new AudioDevice
+            Console.WriteLine($"Warning: Failed to enumerate audio devices using MMDevice: {ex.Message}");
+            Console.WriteLine("Trying alternative device enumeration...");
+            
+            // Skip fallback enumeration for now to avoid issues with published version
+            
+            // Final fallback - add a default device entry if no devices were found
+            if (devices.Count == 0)
             {
-                DeviceId = -1,
-                Name = "Default Audio Device",
-                Driver = "Default",
-                Channels = 2,
-                IsDefault = true,
-                IsAvailable = true
-            });
+                devices.Add(new AudioDevice
+                {
+                    DeviceId = -1,
+                    Name = "Default Audio Device",
+                    Driver = "Default",
+                    Channels = 2,
+                    IsDefault = true,
+                    IsAvailable = true
+                });
+            }
         }
 
         return devices;
@@ -280,6 +321,31 @@ class Program
                     Console.WriteLine("  (You can also press Ctrl+C to exit and run the game first)");
                 }
             }
+        }
+    }
+
+    private static void FlattenJson(System.Text.Json.JsonElement element, Dictionary<string, string> result, string prefix)
+    {
+        switch (element.ValueKind)
+        {
+            case System.Text.Json.JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    var key = string.IsNullOrEmpty(prefix) ? property.Name : $"{prefix}:{property.Name}";
+                    FlattenJson(property.Value, result, key);
+                }
+                break;
+            case System.Text.Json.JsonValueKind.Array:
+                int index = 0;
+                foreach (var arrayElement in element.EnumerateArray())
+                {
+                    FlattenJson(arrayElement, result, $"{prefix}:{index}");
+                    index++;
+                }
+                break;
+            default:
+                result[prefix] = element.ToString();
+                break;
         }
     }
 }
