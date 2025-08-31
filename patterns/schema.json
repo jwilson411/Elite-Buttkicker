@@ -1,0 +1,263 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Elite Dangerous Buttkicker Pattern File",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the pattern pack"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Version in semantic format (e.g., 1.0.0)"
+        },
+        "author": {
+          "type": "string",
+          "description": "Pattern creator/author"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of the pattern pack"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Tags for categorization (e.g., combat, exploration, cinematic)"
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp"
+        },
+        "compatibility": {
+          "type": "string",
+          "description": "Minimum EDButtkicker version required"
+        }
+      },
+      "required": ["name", "version", "author"]
+    },
+    "ships": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "$ref": "#/definitions/shipPatterns"
+        }
+      },
+      "description": "Ship patterns keyed by ship type (e.g., anaconda, sidewinder)"
+    }
+  },
+  "required": ["metadata", "ships"],
+  "definitions": {
+    "shipPatterns": {
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "description": "Human-readable ship name"
+        },
+        "class": {
+          "type": "string",
+          "enum": ["small", "medium", "large"],
+          "description": "Ship size classification"
+        },
+        "role": {
+          "type": "string", 
+          "enum": ["combat", "exploration", "transport", "multipurpose"],
+          "description": "Primary ship role"
+        },
+        "events": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-zA-Z0-9_]+$": {
+              "$ref": "#/definitions/hapticPattern"
+            }
+          },
+          "description": "Event patterns keyed by event name (e.g., FSDJump, Docked)"
+        }
+      },
+      "required": ["events"]
+    },
+    "hapticPattern": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Pattern name"
+        },
+        "pattern": {
+          "type": "string",
+          "enum": ["Pulse", "SustainedRumble", "BuildupRumble", "SharpPulse", "Impact", "Fade", "Oscillating", "Sequence", "MultiLayer"],
+          "description": "Base pattern type"
+        },
+        "frequency": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Base frequency in Hz"
+        },
+        "intensity": {
+          "type": "integer", 
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Base intensity percentage"
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 30000,
+          "description": "Pattern duration in milliseconds"
+        },
+        "fadeIn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000,
+          "default": 0,
+          "description": "Fade in duration in milliseconds"
+        },
+        "fadeOut": {
+          "type": "integer",
+          "minimum": 0, 
+          "maximum": 5000,
+          "default": 0,
+          "description": "Fade out duration in milliseconds"
+        },
+        "intensityFromDamage": {
+          "type": "boolean",
+          "default": false,
+          "description": "Scale intensity based on hull damage"
+        },
+        "minIntensity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "Minimum intensity for damage scaling"
+        },
+        "maxIntensity": {
+          "type": "integer", 
+          "minimum": 0,
+          "maximum": 100,
+          "default": 100,
+          "description": "Maximum intensity for damage scaling"
+        },
+        "intensityCurve": {
+          "type": "string",
+          "enum": ["Linear", "EaseIn", "EaseOut", "EaseInOut", "Exponential", "Logarithmic", "Sine", "Custom"],
+          "default": "Linear",
+          "description": "Intensity curve type"
+        },
+        "customCurvePoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "time": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Time point (0-1)"
+              },
+              "intensity": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Intensity at time point (0-1)"
+              }
+            },
+            "required": ["time", "intensity"]
+          },
+          "description": "Custom curve points for Custom intensity curve"
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/patternLayer"
+          },
+          "description": "Layers for MultiLayer patterns"
+        },
+        "conditions": {
+          "type": "array", 
+          "items": {
+            "$ref": "#/definitions/patternCondition"
+          },
+          "description": "Conditions for conditional pattern execution"
+        },
+        "chainedPatterns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/hapticPattern"
+          },
+          "description": "Patterns to chain after this one"
+        },
+        "enableVoiceAnnouncement": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable voice announcement for this pattern"
+        },
+        "voiceMessage": {
+          "type": "string",
+          "description": "Custom voice message"
+        }
+      },
+      "required": ["name", "pattern", "frequency", "intensity", "duration"]
+    },
+    "patternLayer": {
+      "type": "object", 
+      "properties": {
+        "frequency": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Layer frequency in Hz"
+        },
+        "intensity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Layer intensity (0-1)"
+        },
+        "delay": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Layer start delay in milliseconds"
+        },
+        "duration": {
+          "type": "integer", 
+          "minimum": 50,
+          "description": "Layer duration in milliseconds"
+        },
+        "waveform": {
+          "type": "string",
+          "enum": ["Sine", "Square", "Sawtooth", "Triangle", "Noise"],
+          "default": "Sine",
+          "description": "Waveform type"
+        }
+      },
+      "required": ["frequency", "intensity", "duration"]
+    },
+    "patternCondition": {
+      "type": "object",
+      "properties": {
+        "property": {
+          "type": "string",
+          "description": "Journal event property to check"
+        },
+        "operator": {
+          "type": "string",
+          "enum": ["equals", "not_equals", "greater_than", "less_than", "contains", "exists"],
+          "description": "Comparison operator"
+        },
+        "value": {
+          "description": "Value to compare against (string, number, or boolean)"
+        }
+      },
+      "required": ["property", "operator"]
+    }
+  }
+}

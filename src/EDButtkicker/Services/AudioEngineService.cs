@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using NAudio.CoreAudioApi;
+using NAudio.Wasapi;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 
@@ -467,24 +468,7 @@ public class AudioEngineService : IDisposable
         {
             _logger.LogDebug("=== System Audio Information ===");
             
-            // Log available output devices using DirectSound/WASAPI
-            _logger.LogDebug("WaveOut Device Count: {DeviceCount}", WaveOut.DeviceCount);
-            
-            for (int i = 0; i < WaveOut.DeviceCount; i++)
-            {
-                try
-                {
-                    var caps = WaveOut.GetCapabilities(i);
-                    _logger.LogDebug("WaveOut Device {Index}: '{Name}' - Channels: {Channels}", 
-                        i, caps.ProductName, caps.Channels);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Failed to get capabilities for WaveOut device {Index}: {Error}", i, ex.Message);
-                }
-            }
-
-            // Log WASAPI devices for comparison
+            // Log WASAPI devices using MMDeviceEnumerator (compatible with NAudio 2.2.1)
             try
             {
                 var deviceEnumerator = new MMDeviceEnumerator();
@@ -519,14 +503,18 @@ public class AudioEngineService : IDisposable
     {
         try
         {
-            if (deviceId < 0 || deviceId >= WaveOut.DeviceCount)
+            // Use MMDevice API for validation (compatible with NAudio 2.2.1)
+            var deviceEnumerator = new MMDeviceEnumerator();
+            var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+            
+            if (deviceId < 0 || deviceId >= devices.Count)
             {
-                _logger.LogWarning("Device ID {DeviceId} is out of range (0-{MaxId})", deviceId, WaveOut.DeviceCount - 1);
+                _logger.LogWarning("Device ID {DeviceId} is out of range (0-{MaxId})", deviceId, devices.Count - 1);
                 return false;
             }
 
-            var caps = WaveOut.GetCapabilities(deviceId);
-            _logger.LogDebug("Validated device {DeviceId}: '{ProductName}' - Available", deviceId, caps.ProductName);
+            var device = devices[deviceId];
+            _logger.LogDebug("Validated device {DeviceId}: '{FriendlyName}' - Available", deviceId, device.FriendlyName);
             return true;
         }
         catch (Exception ex)
@@ -566,12 +554,22 @@ public class AudioEngineService : IDisposable
                 _logger.LogDebug("WaveOut Configuration - Device Number: {DeviceNumber}, Volume: {Volume}", 
                     waveOutEvent.DeviceNumber, waveOutEvent.Volume);
                 
-                // Get device capabilities
-                if (waveOutEvent.DeviceNumber >= 0 && waveOutEvent.DeviceNumber < WaveOut.DeviceCount)
+                // Get device capabilities using MMDevice API
+                try
                 {
-                    var caps = WaveOut.GetCapabilities(waveOutEvent.DeviceNumber);
-                    _logger.LogDebug("Target Device Capabilities - Name: '{ProductName}', Channels: {Channels}",
-                        caps.ProductName, caps.Channels);
+                    var deviceEnumerator = new MMDeviceEnumerator();
+                    var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+                    
+                    if (waveOutEvent.DeviceNumber >= 0 && waveOutEvent.DeviceNumber < devices.Count)
+                    {
+                        var device = devices[waveOutEvent.DeviceNumber];
+                        _logger.LogDebug("Target Device Capabilities - Name: '{FriendlyName}', ID: {DeviceId}",
+                            device.FriendlyName, device.ID);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to get device capabilities: {Error}", ex.Message);
                 }
             }
         }
@@ -602,8 +600,17 @@ public class AudioEngineService : IDisposable
             _logger.LogDebug("Audio Engine Initialized: {IsInitialized}", _isInitialized);
             _logger.LogDebug("Active Effects Count: {ActiveCount}", _activeGenerators.Count);
             
-            // Check system audio availability
-            _logger.LogDebug("System WaveOut Device Count: {DeviceCount}", WaveOut.DeviceCount);
+            // Check system audio availability using MMDevice API
+            try
+            {
+                var deviceEnumerator = new MMDeviceEnumerator();
+                var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+                _logger.LogDebug("System WASAPI Device Count: {DeviceCount}", devices.Count);
+            }
+            catch (Exception deviceEx)
+            {
+                _logger.LogDebug("Failed to enumerate WASAPI devices: {Error}", deviceEx.Message);
+            }
             
             // Log configuration that might cause issues
             _logger.LogDebug("Configured Device ID: {DeviceId}", _settings.Audio.AudioDeviceId);

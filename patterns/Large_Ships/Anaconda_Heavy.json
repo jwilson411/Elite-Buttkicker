@@ -1,0 +1,179 @@
+{
+  "metadata": {
+    "name": "Heavy Ship Patterns",
+    "version": "1.0.0", 
+    "author": "EDButtkicker Team",
+    "description": "Deep, powerful patterns for large, massive ships",
+    "tags": ["large-ships", "exploration", "heavy", "default"],
+    "created": "2024-08-31T12:00:00Z",
+    "compatibility": "1.0.0"
+  },
+  "ships": {
+    "anaconda": {
+      "displayName": "Anaconda", 
+      "class": "large",
+      "role": "multipurpose",
+      "events": {
+        "FSDJump": {
+          "name": "Heavy Ship Jump",
+          "pattern": "BuildupRumble", 
+          "frequency": 32,
+          "intensity": 90,
+          "duration": 4200,
+          "fadeIn": 600,
+          "fadeOut": 1200,
+          "intensityCurve": "Exponential",
+          "layers": [
+            {
+              "frequency": 28,
+              "intensity": 0.3,
+              "delay": 0,
+              "duration": 4200,
+              "waveform": "Sine"
+            },
+            {
+              "frequency": 36,
+              "intensity": 0.4,
+              "delay": 800,
+              "duration": 3400,
+              "waveform": "Sine"
+            }
+          ]
+        },
+        "Docked": {
+          "name": "Massive Docking Impact",
+          "pattern": "Impact",
+          "frequency": 30,
+          "intensity": 95,
+          "duration": 800,
+          "fadeOut": 500,
+          "intensityCurve": "EaseOut"
+        },
+        "Undocked": {
+          "name": "Heavy Undocking",
+          "pattern": "SustainedRumble",
+          "frequency": 32,
+          "intensity": 85,
+          "duration": 600,
+          "fadeIn": 200,
+          "fadeOut": 300
+        },
+        "HullDamage": {
+          "name": "Anaconda Hull Breach",
+          "pattern": "Impact",
+          "frequency": 35,
+          "intensity": 85,
+          "duration": 400,
+          "intensityFromDamage": true,
+          "minIntensity": 40,
+          "maxIntensity": 100,
+          "fadeOut": 200
+        },
+        "ShieldDown": {
+          "name": "Massive Shield Failure",
+          "pattern": "Oscillating", 
+          "frequency": 30,
+          "intensity": 100,
+          "duration": 1200,
+          "fadeOut": 600
+        },
+        "Touchdown": {
+          "name": "Heavy Landing",
+          "pattern": "Impact",
+          "frequency": 28,
+          "intensity": 90,
+          "duration": 600,
+          "fadeOut": 400
+        },
+        "Liftoff": {
+          "name": "Heavy Takeoff",
+          "pattern": "BuildupRumble",
+          "frequency": 30,
+          "intensity": 80,
+          "duration": 800,
+          "fadeIn": 100,
+          "fadeOut": 200
+        }
+      }
+    },
+    "federation_corvette": {
+      "displayName": "Federal Corvette",
+      "class": "large",
+      "role": "combat",
+      "events": {
+        "FSDJump": {
+          "name": "Warship Jump",
+          "pattern": "BuildupRumble",
+          "frequency": 30,
+          "intensity": 95,
+          "duration": 4000,
+          "fadeIn": 500,
+          "fadeOut": 1000,
+          "intensityCurve": "EaseInOut"
+        },
+        "Docked": {
+          "name": "Warship Docking", 
+          "pattern": "Impact",
+          "frequency": 28,
+          "intensity": 100,
+          "duration": 900,
+          "fadeOut": 600
+        },
+        "HullDamage": {
+          "name": "Corvette Battle Damage",
+          "pattern": "SharpPulse",
+          "frequency": 38,
+          "intensity": 90,
+          "duration": 350,
+          "intensityFromDamage": true,
+          "minIntensity": 45,
+          "maxIntensity": 100
+        },
+        "UnderAttack": {
+          "name": "Combat Alert",
+          "pattern": "Oscillating",
+          "frequency": 42,
+          "intensity": 95,
+          "duration": 600,
+          "fadeOut": 200
+        }
+      }
+    },
+    "cutter": {
+      "displayName": "Imperial Cutter",
+      "class": "large", 
+      "role": "multipurpose",
+      "events": {
+        "FSDJump": {
+          "name": "Imperial Jump",
+          "pattern": "BuildupRumble",
+          "frequency": 34,
+          "intensity": 88,
+          "duration": 4500,
+          "fadeIn": 700,
+          "fadeOut": 1300,
+          "intensityCurve": "Sine"
+        },
+        "Docked": {
+          "name": "Luxury Docking",
+          "pattern": "Impact",
+          "frequency": 32,
+          "intensity": 85,
+          "duration": 700,
+          "fadeOut": 400,
+          "intensityCurve": "EaseOut"
+        },
+        "HullDamage": {
+          "name": "Imperial Hull Damage",
+          "pattern": "Impact",
+          "frequency": 36,
+          "intensity": 80,
+          "duration": 380,
+          "intensityFromDamage": true,
+          "minIntensity": 35,
+          "maxIntensity": 95
+        }
+      }
+    }
+  }
+}

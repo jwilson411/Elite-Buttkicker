@@ -1,0 +1,139 @@
+{
+  "metadata": {
+    "name": "Cinematic Movie Experience", 
+    "version": "1.2.0",
+    "author": "CMDR MovieMaker",
+    "description": "Dramatic, movie-like patterns for an epic space opera experience",
+    "tags": ["cinematic", "dramatic", "movie", "community", "epic"],
+    "created": "2024-08-31T12:00:00Z",
+    "compatibility": "1.0.0"
+  },
+  "ships": {
+    "python": {
+      "displayName": "Python (Cinematic)",
+      "class": "medium",
+      "role": "multipurpose", 
+      "events": {
+        "FSDJump": {
+          "name": "Epic Hyperspace",
+          "pattern": "MultiLayer",
+          "frequency": 38,
+          "intensity": 85,
+          "duration": 5000,
+          "fadeIn": 800,
+          "fadeOut": 1500,
+          "intensityCurve": "Custom",
+          "customCurvePoints": [
+            {"time": 0.0, "intensity": 0.0},
+            {"time": 0.2, "intensity": 0.3},
+            {"time": 0.6, "intensity": 0.8},
+            {"time": 0.8, "intensity": 1.0},
+            {"time": 1.0, "intensity": 0.1}
+          ],
+          "layers": [
+            {
+              "frequency": 32,
+              "intensity": 0.4,
+              "delay": 0,
+              "duration": 5000,
+              "waveform": "Sine"
+            },
+            {
+              "frequency": 44, 
+              "intensity": 0.6,
+              "delay": 1000,
+              "duration": 4000,
+              "waveform": "Sine"
+            },
+            {
+              "frequency": 28,
+              "intensity": 0.3,
+              "delay": 2000,
+              "duration": 3000,
+              "waveform": "Triangle"
+            }
+          ]
+        },
+        "Interdicted": {
+          "name": "Dramatic Interdiction",
+          "pattern": "Sequence",
+          "frequency": 45,
+          "intensity": 95,
+          "duration": 2500,
+          "chainedPatterns": [
+            {
+              "name": "Initial Shock",
+              "pattern": "SharpPulse",
+              "frequency": 50,
+              "intensity": 100,
+              "duration": 300
+            },
+            {
+              "name": "Struggle",
+              "pattern": "Oscillating", 
+              "frequency": 42,
+              "intensity": 85,
+              "duration": 1500,
+              "fadeOut": 300
+            },
+            {
+              "name": "Final Impact",
+              "pattern": "Impact",
+              "frequency": 38,
+              "intensity": 90,
+              "duration": 700,
+              "fadeOut": 400
+            }
+          ]
+        },
+        "HullDamage": {
+          "name": "Cinematic Damage",
+          "pattern": "Impact",
+          "frequency": 40,
+          "intensity": 90,
+          "duration": 600,
+          "intensityFromDamage": true,
+          "minIntensity": 50,
+          "maxIntensity": 100,
+          "fadeOut": 400,
+          "conditions": [
+            {
+              "property": "Health",
+              "operator": "less_than",
+              "value": 0.5
+            }
+          ]
+        }
+      }
+    },
+    "asp": {
+      "displayName": "Asp Explorer (Cinematic)",
+      "class": "medium",
+      "role": "exploration",
+      "events": {
+        "FSDJump": {
+          "name": "Explorer's Journey",
+          "pattern": "BuildupRumble",
+          "frequency": 40,
+          "intensity": 75,
+          "duration": 3500,
+          "fadeIn": 600,
+          "fadeOut": 1000,
+          "intensityCurve": "Sine",
+          "enableVoiceAnnouncement": true,
+          "voiceMessage": "Jumping to unknown space"
+        },
+        "Discovery": {
+          "name": "First Discovery",
+          "pattern": "Fade",
+          "frequency": 42,
+          "intensity": 70,
+          "duration": 2000,
+          "fadeIn": 500,
+          "fadeOut": 1500,
+          "intensityCurve": "EaseIn"
+        }
+      }
+    }
+  }
+}

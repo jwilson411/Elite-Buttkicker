@@ -478,22 +478,10 @@ class Program
                 });
             }
             
-            // Also check WaveOut devices for comparison
+            // Debug logging already handled by MMDevice enumeration above
             if (debugMode)
             {
-                Console.WriteLine($"[DEBUG] WaveOut device count: {WaveOut.DeviceCount}");
-                for (int i = 0; i < WaveOut.DeviceCount; i++)
-                {
-                    try
-                    {
-                        var caps = WaveOut.GetCapabilities(i);
-                        Console.WriteLine($"[DEBUG] WaveOut Device {i}: '{caps.ProductName}' - Channels: {caps.Channels}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[DEBUG] Failed to get WaveOut device {i} capabilities: {ex.Message}");
-                    }
-                }
+                Console.WriteLine($"[DEBUG] Device enumeration completed using WASAPI/MMDevice API");
             }
         }
         catch (Exception ex)

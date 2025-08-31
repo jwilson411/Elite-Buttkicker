@@ -1,0 +1,133 @@
+{
+  "metadata": {
+    "name": "Agile Fighter Patterns",
+    "version": "1.0.0",
+    "author": "EDButtkicker Team",
+    "description": "Quick, responsive patterns for small, agile ships",
+    "tags": ["small-ships", "combat", "agile", "default"],
+    "created": "2024-08-31T12:00:00Z",
+    "compatibility": "1.0.0"
+  },
+  "ships": {
+    "sidewinder": {
+      "displayName": "Sidewinder",
+      "class": "small",
+      "role": "combat",
+      "events": {
+        "FSDJump": {
+          "name": "Agile Jump",
+          "pattern": "BuildupRumble",
+          "frequency": 45,
+          "intensity": 70,
+          "duration": 2100,
+          "fadeIn": 300,
+          "fadeOut": 600,
+          "intensityCurve": "EaseInOut"
+        },
+        "Docked": {
+          "name": "Light Docking",
+          "pattern": "Impact",
+          "frequency": 50,
+          "intensity": 60,
+          "duration": 400,
+          "fadeOut": 200
+        },
+        "Undocked": {
+          "name": "Light Undocking",
+          "pattern": "Pulse",
+          "frequency": 48,
+          "intensity": 55,
+          "duration": 350,
+          "fadeIn": 100
+        },
+        "HullDamage": {
+          "name": "Fighter Damage",
+          "pattern": "SharpPulse",
+          "frequency": 60,
+          "intensity": 80,
+          "duration": 150,
+          "intensityFromDamage": true,
+          "minIntensity": 30,
+          "maxIntensity": 90
+        },
+        "ShieldDown": {
+          "name": "Fighter Shield Loss",
+          "pattern": "Oscillating",
+          "frequency": 55,
+          "intensity": 85,
+          "duration": 800,
+          "fadeOut": 300
+        }
+      }
+    },
+    "eagle": {
+      "displayName": "Eagle",
+      "class": "small", 
+      "role": "combat",
+      "events": {
+        "FSDJump": {
+          "name": "Swift Jump",
+          "pattern": "BuildupRumble",
+          "frequency": 48,
+          "intensity": 75,
+          "duration": 2000,
+          "fadeIn": 250,
+          "fadeOut": 550,
+          "intensityCurve": "EaseIn"
+        },
+        "Docked": {
+          "name": "Precision Docking",
+          "pattern": "Impact",
+          "frequency": 52,
+          "intensity": 65,
+          "duration": 380,
+          "fadeOut": 180
+        },
+        "HullDamage": {
+          "name": "Eagle Combat Damage",
+          "pattern": "SharpPulse", 
+          "frequency": 62,
+          "intensity": 85,
+          "duration": 140,
+          "intensityFromDamage": true,
+          "minIntensity": 35,
+          "maxIntensity": 95
+        }
+      }
+    },
+    "hauler": {
+      "displayName": "Hauler",
+      "class": "small",
+      "role": "transport", 
+      "events": {
+        "FSDJump": {
+          "name": "Cargo Hauler Jump",
+          "pattern": "BuildupRumble",
+          "frequency": 40,
+          "intensity": 65,
+          "duration": 2400,
+          "fadeIn": 400,
+          "fadeOut": 700,
+          "intensityCurve": "Linear"
+        },
+        "Docked": {
+          "name": "Cargo Docking",
+          "pattern": "Impact",
+          "frequency": 42,
+          "intensity": 70,
+          "duration": 500,
+          "fadeOut": 250
+        },
+        "CargoScoop": {
+          "name": "Small Cargo Scoop",
+          "pattern": "Pulse",
+          "frequency": 38,
+          "intensity": 50,
+          "duration": 300,
+          "fadeIn": 50,
+          "fadeOut": 100
+        }
+      }
+    }
+  }
+}
