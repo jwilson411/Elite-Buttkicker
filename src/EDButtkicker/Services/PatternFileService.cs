@@ -23,8 +23,11 @@ public class PatternFileService
     {
         _logger = logger;
         
-        // Use patterns directory in application root
-        _patternsPath = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
+        // Use patterns directory - check project root first, then application directory
+        var projectRootPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "patterns");
+        var appPath = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
+        
+        _patternsPath = Directory.Exists(projectRootPath) ? Path.GetFullPath(projectRootPath) : appPath;
         Directory.CreateDirectory(_patternsPath);
         
         // Ensure Custom directory exists for user patterns
@@ -131,6 +134,7 @@ public class PatternFileService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading pattern files");
+            throw; // Re-throw the exception so the API can handle it properly
         }
     }
 

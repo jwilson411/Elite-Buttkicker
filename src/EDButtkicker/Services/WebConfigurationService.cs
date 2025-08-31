@@ -56,8 +56,11 @@ public class WebConfigurationService : BackgroundService
                     services.AddSingleton(_audioEngine);
                     services.AddSingleton(_eventMapping);
                     services.AddSingleton(_patternSequencer);
+                    services.AddSingleton<PatternFileService>();
                     services.AddSingleton<ConfigurationApiController>();
                     services.AddSingleton<PatternApiController>();
+                    services.AddSingleton<PatternFilesController>();
+                    services.AddSingleton<PatternEditorController>();
                     services.AddSingleton<AudioApiController>();
                     services.AddSingleton<JournalApiController>();
                     services.AddSingleton<ContextualIntelligenceApiController>();
@@ -195,6 +198,76 @@ public class WebConfigurationService : BackgroundService
                             {
                                 var controller = context.RequestServices.GetService<JournalApiController>();
                                 await controller!.GetJournalReplayStatus(context);
+                                return;
+                            }
+                            // Pattern Files API
+                            else if (path == "/api/PatternFiles/reload" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternFilesController>();
+                                await controller!.ReloadPatternFilesHttpContext(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternFiles/export" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternFilesController>();
+                                await controller!.ExportPatternPack(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternFiles/import" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternFilesController>();
+                                await controller!.ImportPatternFile(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternFiles/packs" && method == "GET")
+                            {
+                                var controller = context.RequestServices.GetService<PatternFilesController>();
+                                await controller!.GetPatternPacks(context);
+                                return;
+                            }
+                            // Pattern Editor API
+                            else if (path == "/api/PatternEditor/templates" && method == "GET")
+                            {
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.GetPatternTemplatesHttpContext(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternEditor/create" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.CreateNewPatternHttpContext(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternEditor/save" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.SavePatternHttpContext(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternEditor/validate" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.ValidatePatternHttpContext(context);
+                                return;
+                            }
+                            else if (path == "/api/PatternEditor/test" && method == "POST")
+                            {
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.TestPatternHttpContext(context);
+                                return;
+                            }
+                            else if (path.StartsWith("/api/PatternEditor/load/") && method == "GET")
+                            {
+                                var fileName = path.Substring("/api/PatternEditor/load/".Length);
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.LoadPatternForEditingHttpContext(context, fileName);
+                                return;
+                            }
+                            else if (path.StartsWith("/api/PatternEditor/user-files/") && method == "GET")
+                            {
+                                var author = path.Substring("/api/PatternEditor/user-files/".Length);
+                                var controller = context.RequestServices.GetService<PatternEditorController>();
+                                await controller!.GetUserFilesHttpContext(context, author);
                                 return;
                             }
                             // Contextual Intelligence API

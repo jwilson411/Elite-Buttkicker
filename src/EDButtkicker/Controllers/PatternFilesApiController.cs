@@ -340,6 +340,118 @@ public class PatternFilesController : ControllerBase
             return StatusCode(500, new { error = "Failed to delete pattern file", details = ex.Message });
         }
     }
+
+    // HttpContext wrapper methods for WebConfigurationService
+    public async Task ReloadPatternFilesHttpContext(HttpContext context)
+    {
+        var result = await ReloadPatternFiles();
+        
+        context.Response.ContentType = "application/json";
+        
+        if (result.Result is ObjectResult objectResult)
+        {
+            context.Response.StatusCode = objectResult.StatusCode ?? 200;
+            var json = System.Text.Json.JsonSerializer.Serialize(objectResult.Value);
+            await context.Response.WriteAsync(json);
+        }
+        else if (result.Value != null)
+        {
+            context.Response.StatusCode = 200;
+            var json = System.Text.Json.JsonSerializer.Serialize(result.Value);
+            await context.Response.WriteAsync(json);
+        }
+        else
+        {
+            context.Response.StatusCode = 500;
+            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Unknown error occurred" });
+            await context.Response.WriteAsync(errorJson);
+        }
+    }
+
+    public async Task GetPatternPacks(HttpContext context)
+    {
+        var result = GetAllPatternPacks();
+        
+        context.Response.ContentType = "application/json";
+        
+        if (result.Result is ObjectResult objectResult)
+        {
+            context.Response.StatusCode = objectResult.StatusCode ?? 200;
+            var json = System.Text.Json.JsonSerializer.Serialize(objectResult.Value);
+            await context.Response.WriteAsync(json);
+        }
+        else if (result.Value != null)
+        {
+            context.Response.StatusCode = 200;
+            var json = System.Text.Json.JsonSerializer.Serialize(result.Value);
+            await context.Response.WriteAsync(json);
+        }
+        else
+        {
+            context.Response.StatusCode = 500;
+            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Unknown error occurred" });
+            await context.Response.WriteAsync(errorJson);
+        }
+    }
+
+    public async Task ExportPatternPack(HttpContext context)
+    {
+        try
+        {
+            var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
+            var request = System.Text.Json.JsonSerializer.Deserialize<ExportPatternRequest>(body);
+            
+            var result = await ExportPatternPack(request!);
+            
+            context.Response.ContentType = "application/json";
+            
+            if (result.Result is ObjectResult objectResult)
+            {
+                context.Response.StatusCode = objectResult.StatusCode ?? 200;
+                var json = System.Text.Json.JsonSerializer.Serialize(objectResult.Value);
+                await context.Response.WriteAsync(json);
+            }
+            else if (result.Value != null)
+            {
+                context.Response.StatusCode = 200;
+                var json = System.Text.Json.JsonSerializer.Serialize(result.Value);
+                await context.Response.WriteAsync(json);
+            }
+            else
+            {
+                context.Response.StatusCode = 500;
+                var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Unknown error occurred" });
+                await context.Response.WriteAsync(errorJson);
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Failed to export pattern pack", details = ex.Message });
+            await context.Response.WriteAsync(errorJson);
+        }
+    }
+
+    public async Task ImportPatternFile(HttpContext context)
+    {
+        try
+        {
+            // This would need multipart form handling for file upload
+            // For now, return not implemented
+            context.Response.StatusCode = 501;
+            context.Response.ContentType = "application/json";
+            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Import not yet implemented via HttpContext" });
+            await context.Response.WriteAsync(errorJson);
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Failed to import pattern file", details = ex.Message });
+            await context.Response.WriteAsync(errorJson);
+        }
+    }
 }
 
 // DTOs

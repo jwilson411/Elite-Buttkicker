@@ -516,6 +516,273 @@ public class PatternEditorController : ControllerBase
             "JetConeBoost", "Interdicted", "Interdiction", "CargoScoop", "Discovery"
         };
     }
+
+    // HttpContext wrapper methods for manual routing compatibility
+    public async Task GetPatternTemplatesHttpContext(HttpContext context)
+    {
+        var result = GetPatternTemplates();
+        context.Response.ContentType = "application/json";
+        
+        if (result.Result is OkObjectResult okResult)
+        {
+            context.Response.StatusCode = 200;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+        else if (result.Result is ObjectResult objResult)
+        {
+            context.Response.StatusCode = objResult.StatusCode ?? 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+        else
+        {
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Unexpected response type" }));
+        }
+    }
+
+    public async Task CreateNewPatternHttpContext(HttpContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var requestBody = await reader.ReadToEndAsync();
+            var request = JsonSerializer.Deserialize<CreatePatternRequest>(requestBody, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (request == null)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
+                return;
+            }
+
+            var result = CreateNewPattern(request);
+            context.Response.ContentType = "application/json";
+            
+            if (result.Result is OkObjectResult okResult)
+            {
+                context.Response.StatusCode = 200;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+            else if (result.Result is ObjectResult objResult)
+            {
+                context.Response.StatusCode = objResult.StatusCode ?? 500;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+        }
+    }
+
+    public async Task SavePatternHttpContext(HttpContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var requestBody = await reader.ReadToEndAsync();
+            var request = JsonSerializer.Deserialize<SavePatternRequest>(requestBody, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (request == null)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
+                return;
+            }
+
+            var result = await SavePattern(request);
+            context.Response.ContentType = "application/json";
+            
+            if (result.Result is OkObjectResult okResult)
+            {
+                context.Response.StatusCode = 200;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+            else if (result.Result is ObjectResult objResult)
+            {
+                context.Response.StatusCode = objResult.StatusCode ?? 500;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+        }
+    }
+
+    public async Task LoadPatternForEditingHttpContext(HttpContext context, string fileName)
+    {
+        var result = await LoadPatternForEditing(fileName);
+        context.Response.ContentType = "application/json";
+        
+        if (result.Result is OkObjectResult okResult)
+        {
+            context.Response.StatusCode = 200;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+        else if (result.Result is ObjectResult objResult)
+        {
+            context.Response.StatusCode = objResult.StatusCode ?? 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+        else if (result.Result is NotFoundObjectResult notFoundResult)
+        {
+            context.Response.StatusCode = 404;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(notFoundResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+    }
+
+    public async Task ValidatePatternHttpContext(HttpContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var requestBody = await reader.ReadToEndAsync();
+            var request = JsonSerializer.Deserialize<PatternFileDefinition>(requestBody, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (request == null)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
+                return;
+            }
+
+            var result = ValidatePattern(request);
+            context.Response.ContentType = "application/json";
+            
+            if (result.Result is OkObjectResult okResult)
+            {
+                context.Response.StatusCode = 200;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+            else if (result.Result is ObjectResult objResult)
+            {
+                context.Response.StatusCode = objResult.StatusCode ?? 500;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+        }
+    }
+
+    public async Task TestPatternHttpContext(HttpContext context)
+    {
+        try
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var requestBody = await reader.ReadToEndAsync();
+            var request = JsonSerializer.Deserialize<TestPatternRequest>(requestBody, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (request == null)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
+                return;
+            }
+
+            var result = await TestPattern(request);
+            context.Response.ContentType = "application/json";
+            
+            if (result is OkObjectResult okResult)
+            {
+                context.Response.StatusCode = 200;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+            else if (result is ObjectResult objResult)
+            {
+                context.Response.StatusCode = objResult.StatusCode ?? 500;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                }));
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+        }
+    }
+
+    public async Task GetUserFilesHttpContext(HttpContext context, string author)
+    {
+        var result = GetUserFiles(author);
+        context.Response.ContentType = "application/json";
+        
+        if (result.Result is OkObjectResult okResult)
+        {
+            context.Response.StatusCode = 200;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(okResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+        else if (result.Result is ObjectResult objResult)
+        {
+            context.Response.StatusCode = objResult.StatusCode ?? 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(objResult.Value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+        }
+    }
 }
 
 // DTOs for pattern editing

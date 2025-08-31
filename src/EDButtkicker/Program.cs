@@ -50,6 +50,11 @@ class Program
             var userSettingsService = host.Services.GetRequiredService<UserSettingsService>();
             await LoadAndApplyUserSettings(appSettings, userSettingsService, logger, debugMode);
 
+            // Load patterns at startup
+            logger.LogInformation("Loading pattern files...");
+            var patternFileService = host.Services.GetRequiredService<PatternFileService>();
+            await patternFileService.LoadAllPatternsAsync();
+
             // Start services and web UI
             logger.LogInformation("Starting services and web interface...");
             ShowStartupInfo(debugMode);
