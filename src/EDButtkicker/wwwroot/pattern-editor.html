@@ -4,28 +4,538 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Elite Dangerous Buttkicker - Pattern Editor</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         /* Pattern Editor Specific Styles */
-        .editor-container {
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+            box-shadow: var(--shadow);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .logo h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            margin: 0;
+            color: white;
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+            font-weight: normal;
+        }
+
+        .navigation {
+            display: flex;
+            align-items: center;
+        }
+
+        .nav-button {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            transition: var(--transition);
+        }
+
+        .nav-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .wizard-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            min-height: calc(100vh - 120px);
+        }
+
+        /* Progress Bar */
+        .progress-bar {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 3rem;
+            position: relative;
+        }
+
+        .progress-bar::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 10%;
+            right: 10%;
+            height: 2px;
+            background: var(--border-color);
+            z-index: 1;
+        }
+
+        .progress-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            z-index: 2;
+            flex: 1;
+            max-width: 120px;
+        }
+
+        .step-number {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--border-color);
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            transition: var(--transition);
+        }
+
+        .progress-step.active .step-number {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .progress-step.completed .step-number {
+            background: var(--success-color);
+            color: white;
+        }
+
+        .step-label {
+            font-size: 0.85rem;
+            text-align: center;
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+
+        .progress-step.active .step-label {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        /* Wizard Steps */
+        .wizard-step {
+            display: none;
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 2rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow);
+            min-height: 500px;
+        }
+
+        .wizard-step.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .step-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .step-header h2 {
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+            font-size: 2rem;
+        }
+
+        .step-description {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        .step-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Ship Selection */
+        .ship-search {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .search-input {
+            max-width: 400px;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            font-size: 1.1rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .ship-grid {
             display: grid;
-            grid-template-columns: 300px 1fr 300px;
-            gap: 20px;
-            height: calc(100vh - 120px);
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
         }
 
-        .editor-sidebar {
-            background: var(--card-bg);
-            border-radius: 8px;
-            padding: 20px;
-            overflow-y: auto;
+        .ship-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: var(--transition);
         }
 
-        .editor-main {
-            background: var(--card-bg);
-            border-radius: 8px;
-            padding: 20px;
-            overflow-y: auto;
+        .ship-card:hover {
+            border-color: var(--primary-color);
+            background: rgba(255, 107, 53, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .ship-card.selected {
+            border-color: var(--primary-color);
+            background: rgba(255, 107, 53, 0.2);
+        }
+
+        .ship-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .ship-class {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Event Selection */
+        .event-search {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .event-categories {
+            margin-bottom: 2rem;
+        }
+
+        .category {
+            margin-bottom: 2rem;
+        }
+
+        .category h3 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .event-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+
+        .event-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .event-card:hover {
+            border-color: var(--accent-color);
+            background: rgba(0, 188, 212, 0.1);
+        }
+
+        .event-card.selected {
+            border-color: var(--accent-color);
+            background: rgba(0, 188, 212, 0.2);
+        }
+
+        .event-title {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .event-description {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Pattern Selection */
+        .selected-events {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .event-pattern-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+        }
+
+        .event-pattern-header {
+            margin-bottom: 1rem;
+        }
+
+        .event-pattern-title {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .pattern-templates {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .pattern-template {
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 1rem;
+            cursor: pointer;
+            transition: var(--transition);
+            text-align: center;
+        }
+
+        .pattern-template:hover {
+            border-color: var(--secondary-color);
+            background: rgba(247, 147, 30, 0.1);
+        }
+
+        .pattern-template.selected {
+            border-color: var(--secondary-color);
+            background: rgba(247, 147, 30, 0.2);
+        }
+
+        .template-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .template-description {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .template-test {
+            background: var(--warning-color);
+            color: white;
+            border: none;
+            padding: 0.4rem 0.8rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .template-test:hover {
+            background: var(--warning-hover);
+        }
+
+        /* Fine-tuning */
+        .tuning-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .tuning-event {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+        }
+
+        .tuning-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .tuning-title {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .test-button {
+            background: var(--warning-color);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .test-button:hover {
+            background: var(--warning-hover);
+        }
+
+        .tuning-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-label {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .control-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--border-color);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .control-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: pointer;
+        }
+
+        .control-value {
+            text-align: center;
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        /* Save Form */
+        .save-form {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .pattern-summary {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .summary-title {
+            color: var(--primary-color);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        /* Success Screen */
+        .success-content {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .success-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .success-content h2 {
+            color: var(--success-color);
+            margin-bottom: 1rem;
+        }
+
+        .success-content p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+
+        .success-actions {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .section {
+            margin-bottom: 2rem;
+        }
+
+        .section:last-child {
+            margin-bottom: 0;
+        }
+
+        .section h3 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .section-header h2 {
+            color: var(--primary-color);
+            margin: 0;
+            font-size: 1.8rem;
         }
 
         .pattern-form {
@@ -53,11 +563,41 @@
         .form-group input,
         .form-group select,
         .form-group textarea {
-            padding: 8px 12px;
+            padding: 0.75rem;
             border: 1px solid var(--border-color);
-            border-radius: 4px;
-            background: var(--input-bg);
+            border-radius: var(--border-radius);
+            background: rgba(255, 255, 255, 0.1);
             color: var(--text-primary);
+            font-size: 1rem;
+            transition: var(--transition);
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Fix dropdown option visibility */
+        .form-group select option {
+            background: var(--darker-bg);
+            color: var(--text-primary);
+            padding: 0.5rem;
+        }
+
+        .form-group select option:hover {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        /* Input background variable fix */
+        :root {
+            --input-bg: rgba(255, 255, 255, 0.1);
+            --hover-bg: rgba(255, 255, 255, 0.1);
+            --success-hover: #45a049;
+            --warning-hover: #e68900;
         }
 
         .form-group textarea {
@@ -235,6 +775,47 @@
             background: var(--warning-hover);
         }
 
+        .btn-success {
+            background: var(--success-color);
+        }
+
+        .btn-success:hover {
+            background: var(--success-hover);
+        }
+
+        .full-width {
+            width: 100%;
+        }
+
+        /* Quick Actions Spacing */
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .text-secondary {
+            color: var(--text-secondary);
+        }
+
+        .small {
+            font-size: 0.85rem;
+        }
+
+        .mt-2 {
+            margin-top: 0.5rem;
+        }
+
+        code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            color: var(--accent-color);
+        }
+
         .modal {
             display: none;
             position: fixed;
@@ -342,136 +923,187 @@
             </div>
         </header>
 
-        <main class="editor-container">
-            <!-- Left Sidebar: Templates & User Files -->
-            <aside class="editor-sidebar">
-                <div class="section">
-                    <h3>🎨 Pattern Templates</h3>
-                    <div id="templateGrid" class="template-grid">
-                        <!-- Templates loaded via JS -->
+        <main class="wizard-container">
+            <!-- Progress Indicator -->
+            <div class="progress-bar">
+                <div class="progress-step active" data-step="1">
+                    <div class="step-number">1</div>
+                    <div class="step-label">Choose Ship</div>
+                </div>
+                <div class="progress-step" data-step="2">
+                    <div class="step-number">2</div>
+                    <div class="step-label">Select Events</div>
+                </div>
+                <div class="progress-step" data-step="3">
+                    <div class="step-number">3</div>
+                    <div class="step-label">Choose Patterns</div>
+                </div>
+                <div class="progress-step" data-step="4">
+                    <div class="step-number">4</div>
+                    <div class="step-label">Fine-tune</div>
+                </div>
+                <div class="progress-step" data-step="5">
+                    <div class="step-number">5</div>
+                    <div class="step-label">Save</div>
+                </div>
+            </div>
+
+            <!-- Step 1: Ship Selection -->
+            <div class="wizard-step active" id="step1">
+                <div class="step-header">
+                    <h2>🚢 What ship are you flying?</h2>
+                    <p class="step-description">Choose your ship to create custom haptic feedback patterns</p>
+                </div>
+                
+                <div class="ship-search">
+                    <input type="text" id="shipSearch" placeholder="Search for your ship..." class="search-input">
+                </div>
+                
+                <div class="ship-grid" id="shipGrid">
+                    <!-- Ships loaded via JS -->
+                </div>
+                
+                <div class="step-actions">
+                    <button onclick="nextStep()" class="btn btn-primary" id="step1Next" disabled>Next: Select Events →</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Event Selection -->
+            <div class="wizard-step" id="step2">
+                <div class="step-header">
+                    <h2>⚡ What events do you want to customize?</h2>
+                    <p class="step-description">Select the game events you want to feel through haptic feedback</p>
+                </div>
+                
+                <div class="event-search">
+                    <input type="text" id="eventSearch" placeholder="Search for events..." class="search-input">
+                </div>
+                
+                <div class="event-categories">
+                    <div class="category active" data-category="popular">
+                        <h3>🔥 Most Popular</h3>
+                        <div class="event-grid" id="popularEvents">
+                            <!-- Popular events loaded via JS -->
+                        </div>
+                    </div>
+                    
+                    <div class="category" data-category="combat">
+                        <h3>⚔️ Combat</h3>
+                        <div class="event-grid" id="combatEvents">
+                            <!-- Combat events loaded via JS -->
+                        </div>
+                    </div>
+                    
+                    <div class="category" data-category="exploration">
+                        <h3>🌌 Exploration</h3>
+                        <div class="event-grid" id="explorationEvents">
+                            <!-- Exploration events loaded via JS -->
+                        </div>
+                    </div>
+                    
+                    <div class="category" data-category="trading">
+                        <h3>💰 Trading</h3>
+                        <div class="event-grid" id="tradingEvents">
+                            <!-- Trading events loaded via JS -->
+                        </div>
+                    </div>
+                    
+                    <div class="category" data-category="other">
+                        <h3>🔧 Other Events</h3>
+                        <div class="event-grid" id="otherEvents">
+                            <!-- Other events loaded via JS -->
+                        </div>
                     </div>
                 </div>
+                
+                <div class="step-actions">
+                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
+                    <button onclick="nextStep()" class="btn btn-primary" id="step2Next" disabled>Next: Choose Patterns →</button>
+                </div>
+            </div>
 
-                <div class="section">
-                    <h3>📁 Your Pattern Files</h3>
+            <!-- Step 3: Pattern Selection -->
+            <div class="wizard-step" id="step3">
+                <div class="step-header">
+                    <h2>🎨 How should each event feel?</h2>
+                    <p class="step-description">Choose a pattern template for each selected event</p>
+                </div>
+                
+                <div class="selected-events" id="selectedEventsList">
+                    <!-- Selected events with pattern choices loaded via JS -->
+                </div>
+                
+                <div class="step-actions">
+                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
+                    <button onclick="nextStep()" class="btn btn-primary" id="step3Next" disabled>Next: Fine-tune →</button>
+                </div>
+            </div>
+
+            <!-- Step 4: Fine-tuning -->
+            <div class="wizard-step" id="step4">
+                <div class="step-header">
+                    <h2>🎛️ Fine-tune your patterns</h2>
+                    <p class="step-description">Adjust intensity, duration, and other settings for each event</p>
+                </div>
+                
+                <div class="tuning-panel" id="tuningPanel">
+                    <!-- Fine-tuning controls loaded via JS -->
+                </div>
+                
+                <div class="step-actions">
+                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
+                    <button onclick="nextStep()" class="btn btn-primary">Next: Save →</button>
+                </div>
+            </div>
+
+            <!-- Step 5: Save -->
+            <div class="wizard-step" id="step5">
+                <div class="step-header">
+                    <h2>💾 Save your custom patterns</h2>
+                    <p class="step-description">Give your pattern pack a name and save it</p>
+                </div>
+                
+                <div class="save-form">
                     <div class="form-group">
-                        <input type="text" id="authorFilter" placeholder="Your username" value="">
-                        <div class="button-row">
-                            <button onclick="loadUserFiles()" class="btn btn-secondary">Load Files</button>
-                            <button onclick="refreshPatternFiles()" class="btn btn-secondary">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                        </div>
+                        <label for="finalPackName">Pattern Pack Name</label>
+                        <input type="text" id="finalPackName" placeholder="My Awesome Haptic Pack" required>
                     </div>
-                    <div id="userFiles" class="user-files">
-                        <!-- User files loaded via JS -->
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Main Editor -->
-            <section class="editor-main">
-                <div class="section">
-                    <div class="section-header">
-                        <h2>Pattern Pack Editor</h2>
-                        <div class="action-buttons">
-                            <button onclick="createNewPattern()" class="btn btn-primary">New Pattern Pack</button>
-                            <button onclick="savePattern()" class="btn btn-success">Save Pattern</button>
-                            <button onclick="validatePattern()" class="btn btn-secondary">Validate</button>
-                        </div>
-                    </div>
-
-                    <!-- Pattern Metadata -->
-                    <div class="pattern-form">
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="packName">Pattern Pack Name</label>
-                                <input type="text" id="packName" placeholder="My Custom Patterns" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="author">Author (Your Username)</label>
-                                <input type="text" id="author" placeholder="CMDR YourName" required>
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="description">Description</label>
-                            <textarea id="description" placeholder="Describe your custom patterns..."></textarea>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="version">Version</label>
-                                <input type="text" id="version" value="1.0.0">
-                            </div>
-                            <div class="form-group">
-                                <label for="tags">Tags (comma-separated)</label>
-                                <input type="text" id="tags" placeholder="custom, combat, exploration">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Ship Selection -->
-                    <div class="section">
-                        <div class="section-header">
-                            <h3>🚢 Ships & Events</h3>
-                            <button onclick="addShip()" class="btn btn-secondary">Add Ship</button>
-                        </div>
-                        
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label>Ships in Pattern Pack</label>
-                                <div id="shipList" class="ship-list">
-                                    <!-- Ships loaded via JS -->
-                                </div>
-                            </div>
-                            <div class="form-group" id="eventEditor" style="display: none;">
-                                <label>Events for Selected Ship</label>
-                                <div id="eventGrid" class="event-grid">
-                                    <!-- Events loaded via JS -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Right Sidebar: Validation & Controls -->
-            <aside class="editor-sidebar">
-                <div class="section">
-                    <h3>✅ Validation</h3>
-                    <div id="validationPanel" class="validation-panel">
-                        <p class="text-secondary">Click 'Validate' to check your pattern</p>
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>🎛️ Quick Actions</h3>
+                    
                     <div class="form-group">
-                        <button onclick="testCurrentPattern()" class="btn btn-test full-width">Test Current Pattern</button>
+                        <label for="finalAuthor">Your Username</label>
+                        <input type="text" id="finalAuthor" placeholder="CMDR YourName" required>
                     </div>
+                    
                     <div class="form-group">
-                        <button onclick="refreshPatternFiles()" class="btn btn-secondary full-width">
-                            <i class="fas fa-sync-alt"></i> Refresh All Patterns
-                        </button>
+                        <label for="finalDescription">Description (optional)</label>
+                        <textarea id="finalDescription" placeholder="Describe your custom patterns..."></textarea>
                     </div>
-                    <div class="form-group">
-                        <button onclick="importPattern()" class="btn btn-secondary full-width">Import Pattern File</button>
-                    </div>
-                    <div class="form-group">
-                        <button onclick="exportPattern()" class="btn btn-secondary full-width">Export Pattern Pack</button>
+                    
+                    <div class="pattern-summary" id="patternSummary">
+                        <!-- Summary loaded via JS -->
                     </div>
                 </div>
+                
+                <div class="step-actions">
+                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
+                    <button onclick="saveWizardPattern()" class="btn btn-success">💾 Save Pattern Pack</button>
+                </div>
+            </div>
 
-                <div class="section">
-                    <h3>💾 File Naming</h3>
-                    <p class="text-secondary small">Files will be saved as:</p>
-                    <code id="filenamePreview">YourUsername_PackName_timestamp.json</code>
-                    <p class="text-secondary small mt-2">
-                        Saved to: <strong>patterns/Custom/</strong>
-                    </p>
+            <!-- Success Screen -->
+            <div class="wizard-step" id="stepSuccess" style="display: none;">
+                <div class="success-content">
+                    <div class="success-icon">🎉</div>
+                    <h2>Pattern Pack Created Successfully!</h2>
+                    <p>Your custom haptic patterns have been saved and are ready to use.</p>
+                    
+                    <div class="success-actions">
+                        <button onclick="startOver()" class="btn btn-primary">Create Another Pack</button>
+                        <button onclick="testAllPatterns()" class="btn btn-secondary">Test All Patterns</button>
+                        <a href="index.html" class="btn btn-secondary">← Back to Main</a>
+                    </div>
                 </div>
-            </aside>
+            </div>
         </main>
     </div>
 
