@@ -274,8 +274,7 @@ public class AudioApiController
             return -1; // Default device
         }
         
-        // For now, map the first few devices directly
-        // This is not perfect but should work for most cases
-        return Math.Min(mmDeviceId, 3); // Cap at device ID 3 to avoid errors
+        // Return the actual device ID without capping to allow selection of all available devices
+        return mmDeviceId;
     }
 }

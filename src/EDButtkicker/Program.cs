@@ -8,6 +8,7 @@ using NAudio.Wasapi;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
+using EDButtkicker.Controllers;
 
 namespace EDButtkicker;
 
@@ -164,6 +165,9 @@ class Program
                 services.AddSingleton<ShipPatternService>();
                 // IntensityCurveProcessor is a static class, no need to register
                 // AdvancedWaveformGenerator and MultiLayerPatternGenerator are created as needed
+                
+                // Add API controllers
+                services.AddTransient<ContextualIntelligenceApiController>();
                 
                 // Add hosted services
                 services.AddHostedService<JournalMonitorService>();
