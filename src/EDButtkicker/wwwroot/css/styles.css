@@ -16,6 +16,19 @@
     --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     --border-radius: 8px;
     --transition: all 0.3s ease;
+
+    /* Timeline Editor Variables */
+    --timeline-bg: rgba(0, 0, 0, 0.3);
+    --timeline-grid: rgba(255, 255, 255, 0.1);
+    --timeline-cursor: rgba(255, 107, 53, 0.8);
+    --curve-point: var(--primary-color);
+    --curve-line: var(--accent-color);
+    --input-bg: rgba(255, 255, 255, 0.1);
+    --button-bg: rgba(255, 255, 255, 0.1);
+    --button-hover-bg: rgba(255, 255, 255, 0.2);
+    --text-muted: #888;
+    --primary-bg: rgba(255, 255, 255, 0.05);
+    --secondary-bg: rgba(255, 255, 255, 0.03);
 }
 
 * {

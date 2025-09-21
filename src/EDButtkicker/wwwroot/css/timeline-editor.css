@@ -1,0 +1,636 @@
+/* Timeline Editor Component Styles */
+
+.timeline-editor-main {
+    display: flex;
+    flex-direction: column;
+    height: 700px;
+    background: var(--secondary-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+/* Toolbar Styles */
+.timeline-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: var(--primary-bg);
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.timeline-controls,
+.duration-controls,
+.zoom-controls,
+.curve-tools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.control-btn {
+    background: var(--button-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.control-btn:hover {
+    background: var(--button-hover-bg);
+    border-color: var(--primary-color);
+}
+
+.control-btn:active {
+    background: var(--primary-color);
+    color: white;
+}
+
+.control-btn.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+.control-btn.danger {
+    background: #ff4757;
+    border-color: #ff3838;
+}
+
+.control-btn.danger:hover {
+    background: #ff3838;
+}
+
+.time-display {
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 0 8px;
+}
+
+.curve-tools label {
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+/* Duration Input Styling */
+#durationInput {
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    text-align: center;
+}
+
+#durationInput:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+.duration-controls label {
+    font-size: 12px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.duration-controls span {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+#curveTypeSelect,
+#layerWaveform,
+#layerCurve {
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    /* Force darker appearance for better contrast */
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 12px;
+    padding-right: 24px;
+}
+
+#curveTypeSelect option,
+#layerWaveform option,
+#layerCurve option {
+    background: #2a2a2a !important;
+    color: #ffffff !important;
+    padding: 4px 8px;
+}
+
+#curveTypeSelect option:hover,
+#layerWaveform option:hover,
+#layerCurve option:hover {
+    background: var(--primary-color) !important;
+    color: #ffffff !important;
+}
+
+#curveTypeSelect option:checked,
+#layerWaveform option:checked,
+#layerCurve option:checked {
+    background: var(--accent-color) !important;
+    color: #ffffff !important;
+}
+
+/* Main Content Area */
+.timeline-content {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Canvas Wrapper */
+.timeline-canvas-wrapper {
+    flex: 1;
+    background: var(--timeline-bg);
+    position: relative;
+    overflow: auto;
+}
+
+.timeline-canvas {
+    display: block;
+    background: transparent;
+    cursor: default;
+    width: 100%;
+    height: 100%;
+}
+
+.timeline-canvas.drawing {
+    cursor: crosshair;
+}
+
+.timeline-canvas.dragging {
+    cursor: grabbing;
+}
+
+.timeline-canvas.panning {
+    cursor: move;
+}
+
+/* Layer Panel */
+.layer-panel {
+    width: 280px;
+    background: var(--primary-bg);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.layer-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.layer-panel-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+
+/* Layer List */
+.layer-list {
+    flex: 1;
+    min-height: 200px;
+    max-height: 350px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.layer-item {
+    background: var(--secondary-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.layer-item:hover {
+    border-color: var(--primary-color);
+    background: var(--button-hover-bg);
+}
+
+.layer-item.selected {
+    border-color: var(--primary-color);
+    background: var(--button-hover-bg);
+    box-shadow: 0 0 0 1px var(--primary-color);
+}
+
+.layer-header {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    gap: 8px;
+}
+
+.layer-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    flex-shrink: 0;
+}
+
+.layer-name {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.layer-toggles {
+    display: flex;
+    gap: 4px;
+}
+
+.toggle-btn {
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 3px;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    opacity: 1;
+}
+
+.toggle-btn.active {
+    background: var(--primary-color);
+    opacity: 1;
+}
+
+/* Layer Waveform Preview */
+.layer-preview {
+    padding: 0 10px 10px 10px;
+}
+
+.layer-waveform {
+    width: 100%;
+    height: 30px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 3px;
+    display: block;
+}
+
+/* Layer Controls */
+.layer-controls {
+    padding: 15px;
+    border-top: 1px solid var(--border-color);
+    background: var(--secondary-bg);
+    max-height: 300px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.layer-controls h4 {
+    margin: 0 0 15px 0;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.control-group {
+    margin-bottom: 12px;
+}
+
+.control-group label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.control-group input[type="range"] {
+    width: 100%;
+    margin: 4px 0;
+}
+
+#layerWaveform {
+    width: 100%;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+/* Layer Actions */
+.layer-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
+}
+
+.layer-actions .control-btn {
+    flex: 1;
+    text-align: center;
+}
+
+/* Editor Mode Selector */
+.editor-mode-selector {
+    display: flex;
+    gap: 0;
+    margin-bottom: 15px;
+    background: var(--secondary-bg);
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.mode-btn {
+    flex: 1;
+    background: transparent;
+    color: var(--text-primary);
+    border: none;
+    border-radius: 4px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s ease;
+}
+
+.mode-btn:hover {
+    background: var(--button-hover-bg);
+}
+
+.mode-btn.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Editor Panels */
+.editor-panel {
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
+
+.editor-panel.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .timeline-editor-main {
+        height: auto;
+        min-height: 400px;
+    }
+
+    .timeline-content {
+        flex-direction: column;
+    }
+
+    .layer-panel {
+        width: 100%;
+        order: -1;
+        max-height: 200px;
+    }
+
+    .timeline-canvas-wrapper {
+        height: 400px;
+    }
+
+    .timeline-toolbar {
+        padding: 8px 10px;
+    }
+
+    .timeline-controls,
+    .zoom-controls,
+    .curve-tools {
+        gap: 6px;
+    }
+
+    .control-btn {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
+
+    .layer-panel-header {
+        padding: 10px;
+    }
+
+    .layer-controls {
+        padding: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .timeline-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .timeline-controls,
+    .zoom-controls,
+    .curve-tools {
+        justify-content: center;
+    }
+
+    .editor-mode-selector {
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .mode-btn {
+        padding: 10px;
+    }
+}
+
+/* Scrollbar Styling */
+.layer-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.layer-list::-webkit-scrollbar-track {
+    background: var(--secondary-bg);
+    border-radius: 3px;
+}
+
+.layer-list::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.layer-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* Timeline Grid Overlay */
+.timeline-grid {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+}
+
+/* Curve Points and Lines */
+.curve-point {
+    fill: var(--primary-color);
+    stroke: white;
+    stroke-width: 2;
+    cursor: grab;
+}
+
+.curve-point:hover {
+    fill: var(--accent-color);
+    stroke-width: 3;
+}
+
+.curve-point.selected {
+    fill: var(--accent-color);
+    stroke: var(--accent-color);
+    stroke-width: 3;
+}
+
+.curve-line {
+    stroke: var(--accent-color);
+    stroke-width: 3;
+    fill: none;
+}
+
+/* Intensity Curve Selector */
+.intensity-curve-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.intensity-curve-selector select {
+    background: var(--input-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    /* Force darker appearance for better contrast */
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 12px;
+    padding-right: 24px;
+}
+
+.intensity-curve-selector select option {
+    background: #2a2a2a !important;
+    color: #ffffff !important;
+    padding: 4px 8px;
+}
+
+.intensity-curve-selector select option:hover {
+    background: var(--primary-color) !important;
+    color: #ffffff !important;
+}
+
+.intensity-curve-selector select option:checked {
+    background: var(--accent-color) !important;
+    color: #ffffff !important;
+}
+
+/* Loading States */
+.timeline-editor-main.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.timeline-editor-main.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    margin: -12px 0 0 -12px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Drag and Drop Visual Feedback */
+.layer-item.dragging {
+    opacity: 0.5;
+    transform: scale(0.95);
+}
+
+.layer-item.drop-target {
+    border-style: dashed;
+    border-color: var(--primary-color);
+    background: rgba(255, 107, 53, 0.1);
+}
+
+/* Accessibility Improvements */
+.control-btn:focus,
+.toggle-btn:focus,
+.mode-btn:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.layer-item:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 1px;
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+    .timeline-canvas {
+        border: 1px solid var(--text-primary);
+    }
+
+    .layer-item {
+        border-width: 2px;
+    }
+
+    .control-btn,
+    .toggle-btn,
+    .mode-btn {
+        border-width: 2px;
+    }
+}

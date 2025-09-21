@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Elite Dangerous Buttkicker - Pattern Editor</title>
     <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/timeline-editor.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         /* Pattern Editor Specific Styles */
@@ -951,18 +952,56 @@
             <!-- Step 1: Ship Selection -->
             <div class="wizard-step active" id="step1">
                 <div class="step-header">
-                    <h2>🚢 What ship are you flying?</h2>
-                    <p class="step-description">Choose your ship to create custom haptic feedback patterns</p>
+                    <h2>🚢 Create New or Edit Existing Pattern</h2>
+                    <p class="step-description">Choose to create a new pattern pack or edit an existing one</p>
                 </div>
-                
-                <div class="ship-search">
-                    <input type="text" id="shipSearch" placeholder="Search for your ship..." class="search-input">
+
+                <!-- Mode Selection -->
+                <div class="section">
+                    <h3>Choose Mode</h3>
+                    <div class="form-group">
+                        <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 1.5rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="editorMode" value="create" checked onclick="wizard.toggleMode('create')">
+                                <span>Create New Pattern</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="editorMode" value="edit" onclick="wizard.toggleMode('edit')">
+                                <span>Edit Existing Pattern</span>
+                            </label>
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="ship-grid" id="shipGrid">
-                    <!-- Ships loaded via JS -->
+
+                <!-- File Selection (hidden by default) -->
+                <div class="section" id="fileSelectionSection" style="display: none;">
+                    <h3>Load Existing Pattern</h3>
+                    <div class="form-group">
+                        <label for="authorInput">Your Username</label>
+                        <input type="text" id="authorInput" placeholder="CMDR YourName" style="margin-bottom: 0.75rem;">
+                        <button onclick="wizard.loadUserFiles()" class="btn btn-primary" id="loadFilesBtn">Load My Files</button>
+                    </div>
+
+                    <div class="form-group" id="fileListContainer" style="display: none;">
+                        <label>Select Pattern File to Edit</label>
+                        <div class="user-files" id="userFilesList">
+                            <!-- User files will be populated here -->
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Ship Selection (for create mode) -->
+                <div class="section" id="shipSelectionSection">
+                    <h3>Choose Your Ship</h3>
+                    <div class="ship-search">
+                        <input type="text" id="shipSearch" placeholder="Search for your ship..." class="search-input">
+                    </div>
                 
+                    <div class="ship-grid" id="shipGrid">
+                        <!-- Ships loaded via JS -->
+                    </div>
+                </div>
+
                 <div class="step-actions">
                     <button onclick="nextStep()" class="btn btn-primary" id="step1Next" disabled>Next: Select Events →</button>
                 </div>
@@ -1045,11 +1084,30 @@
                     <h2>🎛️ Fine-tune your patterns</h2>
                     <p class="step-description">Adjust intensity, duration, and other settings for each event</p>
                 </div>
-                
-                <div class="tuning-panel" id="tuningPanel">
-                    <!-- Fine-tuning controls loaded via JS -->
+
+                <!-- Editor Mode Selector -->
+                <div class="editor-mode-selector">
+                    <button class="mode-btn active" data-mode="simple">Simple Editor</button>
+                    <button class="mode-btn" data-mode="advanced">Advanced Timeline</button>
                 </div>
-                
+
+                <!-- Simple Editor Panel -->
+                <div id="simpleEditor" class="editor-panel active">
+                    <div class="tuning-panel" id="tuningPanel">
+                        <!-- Fine-tuning controls loaded via JS -->
+                    </div>
+                </div>
+
+                <!-- Advanced Timeline Editor Panel -->
+                <div id="advancedEditor" class="editor-panel">
+                    <div id="timelineEditorContainer" class="timeline-editor-main"
+                         role="application"
+                         aria-label="Timeline Pattern Editor"
+                         tabindex="0">
+                        <!-- Timeline editor will be initialized here -->
+                    </div>
+                </div>
+
                 <div class="step-actions">
                     <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
                     <button onclick="nextStep()" class="btn btn-primary">Next: Save →</button>
@@ -1153,6 +1211,7 @@
         </div>
     </div>
 
+    <script src="js/timeline-editor.js"></script>
     <script src="js/pattern-editor.js"></script>
 </body>
 </html>

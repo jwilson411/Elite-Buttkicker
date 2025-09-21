@@ -19,7 +19,8 @@
       "Bash(curl:*)",
       "Bash(dotnet run:*)",
       "Bash(git add:*)",
-      "Bash(./EDButtkicker.exe --help)"
+      "Bash(./EDButtkicker.exe --help)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

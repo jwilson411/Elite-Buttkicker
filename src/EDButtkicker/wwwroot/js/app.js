@@ -702,8 +702,8 @@ window.testPattern = async (eventType) => {
 };
 
 window.editPattern = (eventType) => {
-    // TODO: Implement pattern editor modal
-    app.showToast(`Pattern editor for ${eventType} - Coming soon!`, 'warning');
+    // Navigate to pattern editor with the specific event type
+    window.location.href = `pattern-editor.html?event=${encodeURIComponent(eventType)}&mode=edit`;
 };
 
 window.createNewPattern = () => {

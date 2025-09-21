@@ -106,3 +106,98 @@ The project follows the specifications in `claude.md` and implements:
 - Extensible pattern system
 
 For advanced configuration, modify the JSON files in `config/` and `patterns/` directories.
+
+## Building and Publishing
+
+### Development Build
+For local development and testing:
+```bash
+dotnet build
+dotnet run --project src/EDButtkicker
+```
+
+### Release Build
+For optimized performance:
+```bash
+dotnet build -c Release
+dotnet run -c Release --project src/EDButtkicker
+```
+
+### Publishing for Distribution
+
+#### Self-Contained Executable (Recommended)
+Creates a single-file executable with all dependencies included:
+```bash
+# Windows x64 (most common)
+dotnet publish src/EDButtkicker -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x64
+
+# Windows x86 (32-bit systems)
+dotnet publish src/EDButtkicker -c Release -r win-x86 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x86
+
+# Windows ARM64 (newer ARM-based Windows devices)
+dotnet publish src/EDButtkicker -c Release -r win-arm64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-arm64
+```
+
+#### Framework-Dependent Build
+Smaller file size, requires .NET 8.0 Runtime to be installed:
+```bash
+dotnet publish src/EDButtkicker -c Release -o publish/framework-dependent
+```
+
+### Distribution Files
+After publishing, your `publish/` folder will contain:
+- `EDButtkicker.exe` - Main executable
+- `appsettings.json` - Configuration file
+- `wwwroot/` - Web interface files (pattern editor, etc.)
+- Additional runtime files (if self-contained)
+
+### Sharing with Friends
+
+1. **Build the self-contained version** (recommended):
+   ```bash
+   dotnet publish src/EDButtkicker -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/elite-buttkicker-release
+   ```
+
+2. **Create a distributable package**:
+   - Copy the entire `publish/elite-buttkicker-release/` folder
+   - Rename it to something like `Elite-Buttkicker-v1.0`
+   - Zip the folder for easy sharing
+
+3. **Include instructions for your friends**:
+   ```
+   Elite Dangerous Buttkicker Setup:
+   1. Extract the zip file to any folder
+   2. Run EDButtkicker.exe
+   3. Follow the setup wizard to select your audio device
+   4. Start Elite Dangerous and enjoy haptic feedback!
+
+   Note: Windows may show a security warning for unsigned executables.
+   Click "More info" then "Run anyway" to continue.
+   ```
+
+### Build Script (Optional)
+Create a `build.cmd` file for easy building:
+```cmd
+@echo off
+echo Building Elite Dangerous Buttkicker...
+dotnet publish src/EDButtkicker -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/elite-buttkicker-release
+echo Build complete! Files are in publish/elite-buttkicker-release/
+pause
+```
+
+### Troubleshooting Build Issues
+
+**"dotnet command not found"**:
+- Install .NET 8.0 SDK from https://dotnet.microsoft.com/download
+
+**Build errors**:
+- Ensure you're in the project root directory
+- Run `dotnet clean` then `dotnet restore` before building
+
+**Large file sizes**:
+- Use `PublishTrimmed=true` to reduce size
+- Consider framework-dependent builds if .NET runtime is acceptable
+
+**Antivirus warnings**:
+- Self-built executables may trigger false positives
+- Add build folder to antivirus exclusions during development
