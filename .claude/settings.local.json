@@ -20,7 +20,12 @@
       "Bash(dotnet run:*)",
       "Bash(git add:*)",
       "Bash(./EDButtkicker.exe --help)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(timeout:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(tasklist:*)",
+      "Bash(./EDButtkicker.exe)"
     ],
     "deny": [],
     "ask": []

@@ -47,7 +47,7 @@
           "intensity": 95,
           "duration": 800,
           "fadeOut": 500,
-          "intensityCurve": "EaseOut"
+          "intensityCurve": "Exponential"
         },
         "Undocked": {
           "name": "Heavy Undocking",
@@ -109,7 +109,7 @@
           "duration": 4000,
           "fadeIn": 500,
           "fadeOut": 1000,
-          "intensityCurve": "EaseInOut"
+          "intensityCurve": "Sine"
         },
         "Docked": {
           "name": "Warship Docking", 
@@ -161,7 +161,7 @@
           "intensity": 85,
           "duration": 700,
           "fadeOut": 400,
-          "intensityCurve": "EaseOut"
+          "intensityCurve": "Exponential"
         },
         "HullDamage": {
           "name": "Imperial Hull Damage",

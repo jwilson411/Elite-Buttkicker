@@ -22,7 +22,7 @@
           "duration": 2100,
           "fadeIn": 300,
           "fadeOut": 600,
-          "intensityCurve": "EaseInOut"
+          "intensityCurve": "Sine"
         },
         "Docked": {
           "name": "Light Docking",
@@ -34,7 +34,7 @@
         },
         "Undocked": {
           "name": "Light Undocking",
-          "pattern": "Pulse",
+          "pattern": "SharpPulse",
           "frequency": 48,
           "intensity": 55,
           "duration": 350,
@@ -73,7 +73,7 @@
           "duration": 2000,
           "fadeIn": 250,
           "fadeOut": 550,
-          "intensityCurve": "EaseIn"
+          "intensityCurve": "Exponential"
         },
         "Docked": {
           "name": "Precision Docking",
@@ -120,7 +120,7 @@
         },
         "CargoScoop": {
           "name": "Small Cargo Scoop",
-          "pattern": "Pulse",
+          "pattern": "SharpPulse",
           "frequency": 38,
           "intensity": 50,
           "duration": 300,

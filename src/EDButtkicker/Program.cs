@@ -262,7 +262,7 @@ class Program
     {
         Console.WriteLine("✓ Elite Dangerous Buttkicker Extension is running!");
         Console.WriteLine();
-        Console.WriteLine("🌍 Web Interface: http://localhost:5000");
+        Console.WriteLine("🌍 Web Interface: http://localhost:47811");
         Console.WriteLine("🎵 Audio: Using system default device (can be changed in web UI)");
         Console.WriteLine("📁 Journal: Auto-detecting Elite Dangerous folder");
         Console.WriteLine();
@@ -288,7 +288,7 @@ class Program
         Console.WriteLine("│  • Interdicted/Interdiction (Interdiction events)");
         Console.WriteLine("└─");
         Console.WriteLine();
-        Console.WriteLine("🔧 Open http://localhost:5000 to configure audio device and test patterns");
+        Console.WriteLine("🔧 Open http://localhost:47811 to configure audio device and test patterns");
         Console.WriteLine("⏹️  Press Ctrl+C to stop");
         Console.WriteLine();
     }
@@ -306,7 +306,7 @@ class Program
                 Console.WriteLine("🎵 Audio Configuration:");
                 Console.WriteLine("----------------------");
                 Console.WriteLine("✓ Using system default audio device");
-                Console.WriteLine("  (Can be changed via web interface at http://localhost:5000)");
+                Console.WriteLine("  (Can be changed via web interface at http://localhost:47811)");
                 Console.WriteLine();
                 
                 // Still show device enumeration in debug mode

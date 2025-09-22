@@ -60,31 +60,7 @@
           "frequency": 45,
           "intensity": 95,
           "duration": 2500,
-          "chainedPatterns": [
-            {
-              "name": "Initial Shock",
-              "pattern": "SharpPulse",
-              "frequency": 50,
-              "intensity": 100,
-              "duration": 300
-            },
-            {
-              "name": "Struggle",
-              "pattern": "Oscillating", 
-              "frequency": 42,
-              "intensity": 85,
-              "duration": 1500,
-              "fadeOut": 300
-            },
-            {
-              "name": "Final Impact",
-              "pattern": "Impact",
-              "frequency": 38,
-              "intensity": 90,
-              "duration": 700,
-              "fadeOut": 400
-            }
-          ]
+          "chainedPatterns": []
         },
         "HullDamage": {
           "name": "Cinematic Damage",
@@ -96,13 +72,9 @@
           "minIntensity": 50,
           "maxIntensity": 100,
           "fadeOut": 400,
-          "conditions": [
-            {
-              "property": "Health",
-              "operator": "less_than",
-              "value": 0.5
-            }
-          ]
+          "conditions": {
+            "health_below": 0.5
+          }
         }
       }
     },
@@ -131,7 +103,7 @@
           "duration": 2000,
           "fadeIn": 500,
           "fadeOut": 1500,
-          "intensityCurve": "EaseIn"
+          "intensityCurve": "Exponential"
         }
       }
     }

@@ -128,14 +128,14 @@ dotnet run -c Release --project src/EDButtkicker
 #### Self-Contained Executable (Recommended)
 Creates a single-file executable with all dependencies included:
 ```bash
-# Windows x64 (most common)
-dotnet publish src/EDButtkicker -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x64
+# Windows x64 (most common) - Single file without trimming (recommended)
+dotnet publish src/EDButtkicker -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish/win-x64
 
 # Windows x86 (32-bit systems)
-dotnet publish src/EDButtkicker -c Release -r win-x86 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-x86
+dotnet publish src/EDButtkicker -c Release -r win-x86 --self-contained -p:PublishSingleFile=true -o publish/win-x86
 
 # Windows ARM64 (newer ARM-based Windows devices)
-dotnet publish src/EDButtkicker -c Release -r win-arm64 --self-contained -p:PublishSingleFile=true -p:PublishTrimmed=true -o publish/win-arm64
+dotnet publish src/EDButtkicker -c Release -r win-arm64 --self-contained -p:PublishSingleFile=true -o publish/win-arm64
 ```
 
 #### Framework-Dependent Build

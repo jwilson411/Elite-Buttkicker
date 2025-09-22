@@ -148,7 +148,7 @@
         },
         "intensityCurve": {
           "type": "string",
-          "enum": ["Linear", "EaseIn", "EaseOut", "EaseInOut", "Exponential", "Logarithmic", "Sine", "Custom"],
+          "enum": ["Linear", "Exponential", "Logarithmic", "Sine", "Bounce", "Custom"],
           "default": "Linear",
           "description": "Intensity curve type"
         },

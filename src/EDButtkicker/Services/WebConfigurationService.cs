@@ -294,8 +294,8 @@ public class WebConfigurationService : BackgroundService
                             {
                                 context.Response.ContentType = "text/html";
                                 var html = await GetMainHtmlPage();
-                                using var writer = new StreamWriter(context.Response.Body);
-                                await writer.WriteAsync(html);
+                                var bytes = System.Text.Encoding.UTF8.GetBytes(html);
+                                await context.Response.Body.WriteAsync(bytes, 0, bytes.Length);
                                 return;
                             }
                         }
@@ -303,8 +303,8 @@ public class WebConfigurationService : BackgroundService
                         {
                             _logger.LogError(ex, "Error handling request: {Path}", path);
                             context.Response.StatusCode = 500;
-                            using var writer = new StreamWriter(context.Response.Body);
-                            await writer.WriteAsync("Internal server error");
+                            var errorBytes = System.Text.Encoding.UTF8.GetBytes("Internal server error");
+                            await context.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length);
                             return;
                         }
                         
