@@ -39,33 +39,32 @@ public class AudioEngineService : IDisposable
             {
                 _logger.LogInformation("Initializing Audio Engine");
                 LogSystemAudioInfo();
-                
                 // Create wave output device
-                if (_settings.Audio.AudioDeviceId >= 0)
-                {
-                    _logger.LogDebug("Attempting to use specific audio device - ID: {DeviceId}, Name: '{DeviceName}'", 
-                        _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName);
-                    
-                    // Validate device still exists
-                    if (ValidateAudioDevice(_settings.Audio.AudioDeviceId))
-                    {
-                        _waveOut = new WaveOutEvent { DeviceNumber = _settings.Audio.AudioDeviceId };
-                        _logger.LogInformation("✓ Successfully configured audio device {DeviceId}: {DeviceName}", 
-                            _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("⚠ Configured audio device {DeviceId} '{DeviceName}' not available, falling back to default", 
-                            _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName);
-                        _waveOut = new WaveOutEvent();
-                    }
-                }
-                else
-                {
-                    _waveOut = new WaveOutEvent();
-                    var defaultDevice = GetDefaultAudioDevice();
-                    _logger.LogInformation("Using default audio device: {DefaultDevice}", defaultDevice ?? "Unknown");
-                }
+				if (!string.IsNullOrEmpty(_settings.Audio.AudioDeviceName))
+				{
+					_logger.LogDebug("Attempting to find audio device by name: '{DeviceName}'", _settings.Audio.AudioDeviceName);
+					
+					var deviceEnumerator = new MMDeviceEnumerator();
+					var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+					var matchedDevice = devices.FirstOrDefault(d => d.FriendlyName == _settings.Audio.AudioDeviceName);
+					
+					if (matchedDevice != null)
+					{
+						_waveOut = new WasapiOut(matchedDevice, AudioClientShareMode.Shared, true, 200);
+						_logger.LogInformation("✓ Using audio device: {DeviceName}", matchedDevice.FriendlyName);
+					}
+					else
+					{
+						_logger.LogWarning("⚠ Device '{DeviceName}' not found, falling back to default", _settings.Audio.AudioDeviceName);
+						_waveOut = new WaveOutEvent();
+					}
+				}
+				else
+				{
+					_waveOut = new WaveOutEvent();
+					var defaultDevice = GetDefaultAudioDevice();
+					_logger.LogInformation("Using default audio device: {DefaultDevice}", defaultDevice ?? "Unknown");
+				}
 
                 // Log wave output configuration
                 LogWaveOutConfiguration();
