@@ -1,5 +1,7 @@
 # Elite Dangerous Buttkicker Extension
 
+[![License: MIT](https://img.shields.io/github/license/jwilson411/Elite-Buttkicker)](LICENSE)
+
 A C# application that monitors Elite Dangerous journal files and generates bass audio signals for buttkicker haptic feedback.
 
 ## Features
