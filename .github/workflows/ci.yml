@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-audit:
+    name: Dependency vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore src/EDButtkicker/EDButtkicker.csproj
+
+      - name: Fail on known vulnerable packages
+        shell: pwsh
+        run: |
+          dotnet list src/EDButtkicker/EDButtkicker.csproj package --vulnerable --include-transitive --format json | Set-Content audit.json
+          $audit = Get-Content audit.json -Raw | ConvertFrom-Json
+          $vulnerable = @(
+            foreach ($project in $audit.projects) {
+              foreach ($framework in $project.frameworks) {
+                @($framework.topLevelPackages)
+                @($framework.transitivePackages)
+              }
+            }
+          ) | Where-Object { $_ -ne $null }
+          if ($vulnerable.Count -gt 0) {
+            $vulnerable | ForEach-Object { Write-Error "$($_.id) $($_.resolvedVersion) has known vulnerabilities" }
+            throw "Dependency vulnerability audit failed"
+          }
+
+  build-and-package:
+    name: Build and package (${{ matrix.rid }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, win-arm64, win-x86]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore src/EDButtkicker/EDButtkicker.csproj --runtime "${{ matrix.rid }}"
+
+      - name: Build
+        run: dotnet build src/EDButtkicker/EDButtkicker.csproj --configuration Release --runtime "${{ matrix.rid }}" --no-restore
+
+      - name: Publish self-contained application
+        shell: pwsh
+        run: |
+          dotnet publish src/EDButtkicker/EDButtkicker.csproj `
+            --configuration Release `
+            --runtime "${{ matrix.rid }}" `
+            --self-contained true `
+            --no-restore `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:ContinuousIntegrationBuild=true `
+            --output "publish/${{ matrix.rid }}"
+
+      - name: Verify distributable contents
+        shell: pwsh
+        run: |
+          $required = @(
+            "publish/${{ matrix.rid }}/EDButtkicker.exe",
+            "publish/${{ matrix.rid }}/wwwroot/index.html",
+            "publish/${{ matrix.rid }}/patterns/default-patterns.json"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              throw "Required publish output is missing: $path"
+            }
+          }
