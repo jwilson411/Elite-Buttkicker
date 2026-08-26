@@ -155,3 +155,20 @@ public class GameContext
         return Math.Min(multiplier, 2.5); // Cap at 2.5x
     }
 }
+
+/// <summary>
+/// Persisted slice of <see cref="GameContext"/> — learned behavioural data that should
+/// survive a restart. Transient state (current system activity, threat level, ...) is not saved.
+/// </summary>
+public class GameContextSnapshot
+{
+    public double PlayerAggressiveness { get; set; }
+    public double PlayerCautiousness { get; set; }
+    public int SystemsVisited { get; set; }
+    public int BodiesScanned { get; set; }
+    public double LastHullIntegrity { get; set; } = 1.0;
+    public string? LastKnownSystem { get; set; }
+    public Dictionary<string, int> RecentEventFrequency { get; set; } = new();
+    public Dictionary<string, TimeSpan> StateTimeSpent { get; set; } = new();
+    public DateTime SavedAt { get; set; }
+}
