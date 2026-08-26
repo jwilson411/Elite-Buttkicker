@@ -416,3 +416,7 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Claude local folders (keep claude.md files tracked)
+**/.[Cc][Ll][Aa][Uu][Dd][Ee]/
+**/[Cc][Ll][Aa][Uu][Dd][Ee]/
