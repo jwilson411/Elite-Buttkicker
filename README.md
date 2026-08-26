@@ -14,6 +14,23 @@ A C# application that monitors Elite Dangerous journal files and generates bass 
 
 ## Quick Start
 
+### Download a ready-to-run Windows build
+
+1. Open the [latest GitHub Release](https://github.com/jwilson411/Elite-Buttkicker/releases/latest).
+2. Download the ZIP for your Windows architecture. Most users should choose `win-x64`; Windows on ARM users should choose `win-arm64`.
+3. Extract the entire ZIP to a writable folder.
+4. Run `EDButtkicker.exe`, then use the automatically opened browser interface to select your audio device and verify the journal path.
+
+Each ZIP has a matching `.sha256` file. You can verify it in PowerShell with:
+
+```powershell
+(Get-FileHash .\Elite-Buttkicker-vX.Y.Z-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+```
+
+The value must match the first value in the downloaded `.sha256` file. Windows may warn about the unsigned executable; verify the checksum and that the download came from this repository before choosing to run it.
+
+### Build from source
+
 1. **Build the project**:
    ```bash
    dotnet build

@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vMAJOR.MINOR.PATCH tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Resolve and validate version
+        id: version
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="${INPUT_TAG:-$REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match vMAJOR.MINOR.PATCH; got: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish ${{ matrix.rid }}
+    needs: validate
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [win-x64, win-arm64, win-x86]
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish and package
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          dotnet restore src/EDButtkicker/EDButtkicker.csproj -r $env:RID
+          dotnet publish src/EDButtkicker/EDButtkicker.csproj `
+            --configuration Release `
+            --runtime $env:RID `
+            --self-contained true `
+            --no-restore `
+            -p:Version=$env:VERSION `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:ContinuousIntegrationBuild=true `
+            --output "publish/$env:RID"
+
+          $required = @(
+            "publish/$env:RID/EDButtkicker.exe",
+            "publish/$env:RID/wwwroot/index.html",
+            "publish/$env:RID/patterns/default-patterns.json"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Required publish output is missing: $path" }
+          }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $archive = "dist/Elite-Buttkicker-v$env:VERSION-$env:RID.zip"
+          Compress-Archive -Path "publish/$env:RID/*" -DestinationPath $archive
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $archive -Leaf)" | Set-Content -NoNewline "$archive.sha256"
+
+      - name: Upload packaged build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Elite-Buttkicker-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged builds
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: Elite-Buttkicker-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          gh release view "$TAG" --repo "$REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$REPOSITORY" --verify-tag --generate-notes --title "$TAG"
+          gh release upload "$TAG" dist/* --repo "$REPOSITORY" --clobber
