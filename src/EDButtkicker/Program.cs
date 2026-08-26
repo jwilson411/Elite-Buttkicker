@@ -172,6 +172,7 @@ class Program
                 // Add hosted services
                 services.AddHostedService<JournalMonitorService>();
                 services.AddHostedService<WebConfigurationService>();
+				services.AddHostedService<StatusMonitorService>();
             })
             .ConfigureLogging(logging =>
             {
