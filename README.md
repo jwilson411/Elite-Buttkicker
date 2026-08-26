@@ -111,6 +111,7 @@ The value must match the first value in the downloaded `.sha256` file. Windows m
 ## Safety Notes
 
 - Audio levels are capped at configured maximum
+- The cap is applied after mixing for all pattern types and honors `Audio.MaxIntensity`
 - Smooth sine waves prevent speaker damage
 - Rate limiting prevents audio spam
 - Graceful error handling for device disconnection

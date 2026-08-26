@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using EDButtkicker.Configuration;
+using EDButtkicker.Models;
 
 namespace EDButtkicker.Services;
 
@@ -8,6 +9,7 @@ public class UserSettingsService
 {
     private readonly ILogger<UserSettingsService> _logger;
     private readonly string _userSettingsPath;
+    private readonly string _gameContextPath;
     private readonly JsonSerializerOptions _jsonOptions;
 
     public UserSettingsService(ILogger<UserSettingsService> logger)
@@ -20,6 +22,7 @@ public class UserSettingsService
         Directory.CreateDirectory(settingsDir);
         
         _userSettingsPath = Path.Combine(settingsDir, "user-settings.json");
+        _gameContextPath = Path.Combine(settingsDir, "game-context.json");
         
         _jsonOptions = new JsonSerializerOptions
         {
@@ -190,7 +193,52 @@ public class UserSettingsService
     public string GetUserSettingsPath() => _userSettingsPath;
 
     public bool UserSettingsExist() => File.Exists(_userSettingsPath);
+
+    public async Task<GameContextSnapshot?> LoadGameContextAsync()
+    {
+        try
+        {
+            if (!File.Exists(_gameContextPath))
+            {
+                _logger.LogDebug("No saved game context found at {GameContextPath}", _gameContextPath);
+                return null;
+            }
+
+            var json = await File.ReadAllTextAsync(_gameContextPath);
+            var snapshot = JsonSerializer.Deserialize<GameContextSnapshot>(json, _jsonOptions);
+
+            if (snapshot == null)
+            {
+                _logger.LogWarning("Failed to deserialize game context, starting fresh");
+                return null;
+            }
+
+            _logger.LogDebug("Loaded game context saved at {SavedAt}", snapshot.SavedAt);
+            return snapshot;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading game context, starting fresh");
+            return null;
+        }
+    }
+
+    public async Task SaveGameContextAsync(GameContextSnapshot snapshot)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(snapshot, _jsonOptions);
+            await File.WriteAllTextAsync(_gameContextPath, json);
+
+            _logger.LogDebug("Saved game context to {GameContextPath}", _gameContextPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving game context");
+        }
+    }
 }
+
 
 public class UserPreferences
 {
