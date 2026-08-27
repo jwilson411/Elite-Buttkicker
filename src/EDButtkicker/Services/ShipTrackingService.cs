@@ -72,7 +72,9 @@ public class ShipTrackingService
     {
         try
         {
-            var shipType = ExtractStringProperty(journalEvent, "Ship");
+            // "Ship" binds to the typed property when the line is deserialized, so it is not
+            // in AdditionalData - check both.
+            var shipType = journalEvent.Ship ?? ExtractStringProperty(journalEvent, "Ship");
             var shipName = ExtractStringProperty(journalEvent, "ShipName");
             var shipIdent = ExtractStringProperty(journalEvent, "ShipIdent");
             var shipId = journalEvent.ShipID ?? ExtractLongProperty(journalEvent, "ShipID");
@@ -137,7 +139,7 @@ public class ShipTrackingService
     {
         try
         {
-            var shipType = ExtractStringProperty(journalEvent, "Ship");
+            var shipType = journalEvent.Ship ?? ExtractStringProperty(journalEvent, "Ship");
             var shipName = ExtractStringProperty(journalEvent, "ShipName");
             var shipIdent = ExtractStringProperty(journalEvent, "ShipIdent");
             var shipId = journalEvent.ShipID ?? ExtractLongProperty(journalEvent, "ShipID");

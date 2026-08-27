@@ -4,7 +4,7 @@ using EDButtkicker.Models;
 
 namespace EDButtkicker.Services;
 
-public class ShipPatternService
+public class ShipPatternService : IShipPatternProvider
 {
     private readonly ILogger<ShipPatternService> _logger;
     private readonly EventMappingService _eventMappingService;

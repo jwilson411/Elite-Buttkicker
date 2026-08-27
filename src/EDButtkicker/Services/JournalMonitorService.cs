@@ -12,29 +12,46 @@ public class JournalMonitorService : BackgroundService
 
     private readonly ILogger<JournalMonitorService> _logger;
     private readonly AppSettings _settings;
-    private readonly EventMappingService _eventMappingService;
+    private readonly IJournalEventPipeline _pipeline;
     private readonly ShipTrackingService _shipTrackingService;
+    private readonly ShipPatternService _shipPatternService;
+    private readonly PatternSelectionService _patternSelectionService;
+    private readonly PatternFileService _patternFileService;
+    private readonly PatternSourceCatalogReconciler _catalogReconciler;
     private FileSystemWatcher? _fileWatcher;
     private JournalSignalPump? _pump;
     private JournalTailReader? _reader;
+    private bool _subscribed;
 
     public event Action<JournalEvent>? JournalEventReceived;
 
     public JournalMonitorService(
         ILogger<JournalMonitorService> logger,
         AppSettings settings,
-        EventMappingService eventMappingService,
-        ShipTrackingService shipTrackingService)
+        IJournalEventPipeline pipeline,
+        ShipTrackingService shipTrackingService,
+        ShipPatternService shipPatternService,
+        PatternSelectionService patternSelectionService,
+        PatternFileService patternFileService,
+        PatternSourceCatalogReconciler catalogReconciler)
     {
         _logger = logger;
         _settings = settings;
-        _eventMappingService = eventMappingService;
+        _pipeline = pipeline;
         _shipTrackingService = shipTrackingService;
+        _shipPatternService = shipPatternService;
+        _patternSelectionService = patternSelectionService;
+        _patternFileService = patternFileService;
+        _catalogReconciler = catalogReconciler;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Starting Journal Monitor Service");
+
+        // Saved ship libraries and pattern selections must be in memory before the first
+        // journal event is processed, otherwise early events use default patterns only.
+        await LoadPatternStateAsync();
 
         var journalPath = _settings.EliteDangerous.JournalPath;
         if (!Directory.Exists(journalPath))
@@ -44,6 +61,56 @@ public class JournalMonitorService : BackgroundService
         }
 
         await StartMonitoring(journalPath, stoppingToken);
+    }
+
+    private async Task LoadPatternStateAsync()
+    {
+        try
+        {
+            await _shipPatternService.LoadShipPatternsAsync();
+            await _patternSelectionService.LoadSelectionsAsync();
+            await _catalogReconciler.ReconcileAsync();
+
+            if (!_subscribed)
+            {
+                // Ship swaps keep the active library current even if a pipeline step is skipped,
+                // and new/edited pattern files re-enter the selection catalog automatically.
+                _shipTrackingService.ShipChanged += OnShipChanged;
+                _patternFileService.PatternFilesChanged += OnPatternFilesChanged;
+                _subscribed = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading ship patterns and selections; continuing with defaults");
+        }
+    }
+
+    private void OnShipChanged(CurrentShip ship)
+    {
+        try
+        {
+            _shipPatternService.SetCurrentShip(ship);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error applying ship change to pattern library");
+        }
+    }
+
+    private void OnPatternFilesChanged(PatternFileChangeEventArgs args)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _catalogReconciler.ReconcileAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reconciling pattern sources after catalog change");
+            }
+        });
     }
 
     private async Task StartMonitoring(string journalPath, CancellationToken stoppingToken)
@@ -149,8 +216,8 @@ public class JournalMonitorService : BackgroundService
             // Raise event for subscribers
             JournalEventReceived?.Invoke(journalEvent);
 
-            // Process through event mapping service
-            await _eventMappingService.ProcessEvent(journalEvent);
+            // History -> ship state -> ship pattern selection -> context + audio
+            await _pipeline.ProcessAsync(journalEvent);
         }
         catch (JsonException ex)
         {
@@ -165,6 +232,13 @@ public class JournalMonitorService : BackgroundService
 
     public override void Dispose()
     {
+        if (_subscribed)
+        {
+            _shipTrackingService.ShipChanged -= OnShipChanged;
+            _patternFileService.PatternFilesChanged -= OnPatternFilesChanged;
+            _subscribed = false;
+        }
+
         _fileWatcher?.Dispose();
         _pump?.Dispose();
         base.Dispose();

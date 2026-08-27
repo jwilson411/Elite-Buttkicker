@@ -6,7 +6,7 @@ using System.IO;
 
 namespace EDButtkicker.Services;
 
-public class PatternFileService
+public class PatternFileService : IPatternCatalog
 {
     private readonly ILogger<PatternFileService> _logger;
     private readonly string _patternsPath;

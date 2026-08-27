@@ -163,6 +163,15 @@ class Program
                 services.AddSingleton<PatternFileService>();
                 services.AddSingleton<PatternSelectionService>();
                 services.AddSingleton<ShipPatternService>();
+
+                // Journal event pipeline: one ordered path for history, ship state,
+                // pattern selection and audio, shared by live monitoring and replay.
+                services.AddSingleton<IJournalEventStore, JournalEventStore>();
+                services.AddSingleton<IJournalEventAudioSink>(sp => sp.GetRequiredService<EventMappingService>());
+                services.AddSingleton<IShipPatternProvider>(sp => sp.GetRequiredService<ShipPatternService>());
+                services.AddSingleton<IPatternCatalog>(sp => sp.GetRequiredService<PatternFileService>());
+                services.AddSingleton<PatternSourceCatalogReconciler>();
+                services.AddSingleton<IJournalEventPipeline, JournalEventPipeline>();
                 // IntensityCurveProcessor is a static class, no need to register
                 // AdvancedWaveformGenerator and MultiLayerPatternGenerator are created as needed
                 

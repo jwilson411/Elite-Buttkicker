@@ -6,7 +6,7 @@ using EDButtkicker.Models;
 
 namespace EDButtkicker.Services;
 
-public class EventMappingService
+public class EventMappingService : IJournalEventAudioSink
 {
     private readonly ILogger<EventMappingService> _logger;
     private readonly AudioEngineService _audioEngine;
@@ -36,7 +36,13 @@ public class EventMappingService
             _eventMappings.EventMappings.Count);
     }
 
-    public async Task ProcessEvent(JournalEvent journalEvent)
+    public Task ProcessEvent(JournalEvent journalEvent) => ProcessEvent(journalEvent, null);
+
+    /// <summary>
+    /// Processes one event. <paramref name="preferredPattern"/> - typically the active
+    /// ship-specific pattern - is used as the base pattern instead of the default mapping.
+    /// </summary>
+    public async Task ProcessEvent(JournalEvent journalEvent, HapticPattern? preferredPattern)
     {
         try
         {
@@ -44,19 +50,20 @@ public class EventMappingService
                 return;
 
             var eventType = journalEvent.Event;
-            
+
             // Process for contextual intelligence first (even for unmapped events)
             _contextualIntelligence.ProcessEvent(journalEvent);
-            
+
             // Check if we have a mapping for this event
-            if (!_eventMappings.EventMappings.TryGetValue(eventType, out var mapping))
+            var hasMapping = _eventMappings.EventMappings.TryGetValue(eventType, out var mapping);
+            if (!hasMapping && preferredPattern == null)
             {
                 // Log unmapped events occasionally to avoid spam
                 LogUnmappedEvent(eventType);
                 return;
             }
 
-            if (!mapping.Enabled)
+            if (hasMapping && !mapping!.Enabled)
             {
                 _logger.LogDebug("Event mapping disabled for: {EventType}", eventType);
                 return;
@@ -76,7 +83,8 @@ public class EventMappingService
             _eventCounts.AddOrUpdate(eventType, 1, (key, value) => value + 1);
 
             // Apply any event-specific modifications to the pattern
-            var basePattern = CreatePatternForEvent(mapping.Pattern, journalEvent);
+            var sourcePattern = preferredPattern ?? mapping!.Pattern;
+            var basePattern = CreatePatternForEvent(sourcePattern, journalEvent);
             
             // Apply contextual intelligence adjustments
             var pattern = _contextualIntelligence.GetContextuallyAdjustedPattern(basePattern, journalEvent);
