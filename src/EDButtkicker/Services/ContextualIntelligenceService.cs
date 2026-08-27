@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
-using System.Text.Json;
 
 namespace EDButtkicker.Services;
 
@@ -438,7 +437,6 @@ public class ContextualIntelligenceService : IDisposable
 
 	private HapticPattern ClonePattern(HapticPattern original)
 	{
-		var json = JsonSerializer.Serialize(original);
-		return JsonSerializer.Deserialize<HapticPattern>(json) ?? original;
+		return original.Clone();
 	}
 }

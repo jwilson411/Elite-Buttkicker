@@ -34,22 +34,23 @@ public class MultiLayerPatternGenerator : ISampleProvider
         _totalSamples = (int)((pattern.Duration / 1000.0) * sampleRate);
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(sampleRate, channels);
 
-        // Create base layer if no layers defined
-        if (!pattern.Layers.Any())
-        {
-            var baseLayer = new PatternLayer
+        // Synthesize a base layer locally when none are defined - never write into the caller's pattern.
+        var layers = pattern.Layers.Any()
+            ? (IReadOnlyList<PatternLayer>)pattern.Layers
+            : new[]
             {
-                Waveform = pattern.Waveform,
-                Frequency = pattern.Frequency,
-                Amplitude = 1.0f,
-                PhaseOffset = 0,
-                Curve = pattern.IntensityCurve
+                new PatternLayer
+                {
+                    Waveform = pattern.Waveform,
+                    Frequency = pattern.Frequency,
+                    Amplitude = 1.0f,
+                    PhaseOffset = 0,
+                    Curve = pattern.IntensityCurve
+                }
             };
-            pattern.Layers.Add(baseLayer);
-        }
 
         // Initialize layer generators
-        foreach (var layer in pattern.Layers)
+        foreach (var layer in layers)
         {
             var generator = new AdvancedWaveformGenerator(
                 sampleRate, 
