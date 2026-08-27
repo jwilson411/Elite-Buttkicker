@@ -44,6 +44,19 @@ public class PatternLayer
     public int Duration { get; set; } = 0; // milliseconds (0 = use pattern duration)
     public int FadeIn { get; set; } = 0; // milliseconds
     public int FadeOut { get; set; } = 0; // milliseconds
+
+    public PatternLayer Clone() => new()
+    {
+        Waveform = Waveform,
+        Frequency = Frequency,
+        Amplitude = Amplitude,
+        PhaseOffset = PhaseOffset,
+        Curve = Curve,
+        StartTime = StartTime,
+        Duration = Duration,
+        FadeIn = FadeIn,
+        FadeOut = FadeOut
+    };
 }
 
 public class HapticPattern
@@ -76,12 +89,44 @@ public class HapticPattern
     
     // Custom Curve Points (for Custom curve type)
     public List<CurvePoint> CustomCurvePoints { get; set; } = new();
+
+    /// <summary>
+    /// Deep copy of the whole pattern, including every advanced field. Callers that adjust a pattern
+    /// for a single event work on a clone so the stored mapping keeps its defaults.
+    /// Nested lists and their elements are copied; <see cref="Conditions"/> gets a fresh dictionary
+    /// (its values are JSON scalars/elements, which are not mutated anywhere).
+    /// </summary>
+    public HapticPattern Clone() => new()
+    {
+        Name = Name,
+        Pattern = Pattern,
+        Frequency = Frequency,
+        Duration = Duration,
+        Intensity = Intensity,
+        FadeIn = FadeIn,
+        FadeOut = FadeOut,
+        IntensityFromDamage = IntensityFromDamage,
+        MaxIntensity = MaxIntensity,
+        MinIntensity = MinIntensity,
+        IntensityCurve = IntensityCurve,
+        Waveform = Waveform,
+        Layers = Layers.Select(layer => layer.Clone()).ToList(),
+        ChainedPatterns = new List<string>(ChainedPatterns),
+        Conditions = new Dictionary<string, object>(Conditions),
+        EnableVoiceAnnouncement = EnableVoiceAnnouncement,
+        VoiceMessage = VoiceMessage,
+        EnableAudioCue = EnableAudioCue,
+        AudioCueFile = AudioCueFile,
+        CustomCurvePoints = CustomCurvePoints.Select(point => point.Clone()).ToList()
+    };
 }
 
 public class CurvePoint
 {
     public float Time { get; set; } // 0.0 to 1.0 (percentage of duration)
     public float Intensity { get; set; } // 0.0 to 1.0 (percentage of max intensity)
+
+    public CurvePoint Clone() => new() { Time = Time, Intensity = Intensity };
 }
 
 public class EventMapping
