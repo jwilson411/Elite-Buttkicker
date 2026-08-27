@@ -8,13 +8,15 @@ namespace EDButtkicker.Services;
 
 public class JournalMonitorService : BackgroundService
 {
+    private static readonly TimeSpan RotationCheckInterval = TimeSpan.FromSeconds(1);
+
     private readonly ILogger<JournalMonitorService> _logger;
     private readonly AppSettings _settings;
     private readonly EventMappingService _eventMappingService;
     private readonly ShipTrackingService _shipTrackingService;
     private FileSystemWatcher? _fileWatcher;
-    private string? _currentJournalFile;
-    private long _lastPosition = 0;
+    private JournalSignalPump? _pump;
+    private JournalTailReader? _reader;
 
     public event Action<JournalEvent>? JournalEventReceived;
 
@@ -34,179 +36,100 @@ public class JournalMonitorService : BackgroundService
     {
         _logger.LogInformation("Starting Journal Monitor Service");
 
-        if (!Directory.Exists(_settings.EliteDangerous.JournalPath))
+        var journalPath = _settings.EliteDangerous.JournalPath;
+        if (!Directory.Exists(journalPath))
         {
-            _logger.LogError("Journal path does not exist: {Path}", _settings.EliteDangerous.JournalPath);
+            _logger.LogError("Journal path does not exist: {Path}", journalPath);
             return;
         }
 
-        // Find and monitor the latest journal file
-        await StartMonitoring(stoppingToken);
+        await StartMonitoring(journalPath, stoppingToken);
     }
 
-    private async Task StartMonitoring(CancellationToken stoppingToken)
+    private async Task StartMonitoring(string journalPath, CancellationToken stoppingToken)
     {
+        _reader = new JournalTailReader(journalPath, _settings.EliteDangerous.MonitorLatestOnly, _logger);
+        _pump = new JournalSignalPump(DrainJournalAsync, _logger);
+
+        if (_reader.FindLatestJournalFile() == null)
+        {
+            _logger.LogWarning("No journal files found in {Path}; waiting for one to appear", journalPath);
+        }
+
+        // Watcher signals and the periodic rotation check both feed the same single-reader queue,
+        // so overlapping Changed callbacks can never run two reads (or two cursor updates) at once.
+        SetupFileWatcher(journalPath);
+
+        var pumpTask = _pump.RunAsync(stoppingToken);
+
         try
         {
-            // Find the latest journal file
-            var latestJournal = FindLatestJournalFile();
-            if (latestJournal == null)
-            {
-                _logger.LogWarning("No journal files found in {Path}", _settings.EliteDangerous.JournalPath);
-                await Task.Delay(5000, stoppingToken);
-                return;
-            }
+            // Kick off an initial pass so we attach to the current journal immediately.
+            _pump.Signal();
 
-            _currentJournalFile = latestJournal;
-            _logger.LogInformation("Monitoring journal file: {File}", Path.GetFileName(_currentJournalFile));
-
-            // Read existing entries if monitoring latest only
-            if (_settings.EliteDangerous.MonitorLatestOnly)
-            {
-                _lastPosition = new FileInfo(_currentJournalFile).Length;
-                _logger.LogInformation("Starting from end of file (position {Position})", _lastPosition);
-            }
-            else
-            {
-                // Process entire file
-                await ProcessExistingEntries(_currentJournalFile, stoppingToken);
-            }
-
-            // Set up file watcher
-            SetupFileWatcher();
-
-            // Keep service running
             while (!stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(1000, stoppingToken);
-                
-                // Check for new journal files periodically
-                var newLatestJournal = FindLatestJournalFile();
-                if (newLatestJournal != _currentJournalFile)
-                {
-                    _logger.LogInformation("New journal file detected: {File}", Path.GetFileName(newLatestJournal));
-                    _currentJournalFile = newLatestJournal;
-                    _lastPosition = 0;
-                    SetupFileWatcher();
-                }
+                await Task.Delay(RotationCheckInterval, stoppingToken);
+                _pump.Signal();
             }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal shutdown.
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in journal monitoring");
             throw;
         }
-    }
-
-    private string? FindLatestJournalFile()
-    {
-        try
+        finally
         {
-            var journalFiles = Directory.GetFiles(_settings.EliteDangerous.JournalPath, "Journal.*.log")
-                                      .OrderByDescending(f => new FileInfo(f).CreationTime)
-                                      .ToList();
-
-            return journalFiles.FirstOrDefault();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error finding journal files");
-            return null;
+            _fileWatcher?.Dispose();
+            _fileWatcher = null;
+            _pump.Dispose();
+            await pumpTask.ConfigureAwait(false);
         }
     }
 
-    private void SetupFileWatcher()
+    private void SetupFileWatcher(string journalPath)
     {
         _fileWatcher?.Dispose();
 
-        if (_currentJournalFile == null) return;
-
-        var directory = Path.GetDirectoryName(_currentJournalFile)!;
-        var fileName = Path.GetFileName(_currentJournalFile);
-
-        _fileWatcher = new FileSystemWatcher(directory, fileName)
+        // Watching the directory (rather than one file) means rotation needs no watcher rebuild.
+        _fileWatcher = new FileSystemWatcher(journalPath, JournalTailReader.JournalSearchPattern)
         {
-            NotifyFilter = NotifyFilters.Size | NotifyFilters.LastWrite,
+            NotifyFilter = NotifyFilters.Size | NotifyFilters.LastWrite | NotifyFilters.FileName,
             EnableRaisingEvents = true
         };
 
-        _fileWatcher.Changed += async (sender, e) =>
-        {
-            try
-            {
-                await ProcessNewEntries(e.FullPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing file changes");
-            }
-        };
+        _fileWatcher.Changed += (_, _) => _pump?.Signal();
+        _fileWatcher.Created += (_, _) => _pump?.Signal();
+        _fileWatcher.Renamed += (_, _) => _pump?.Signal();
+        _fileWatcher.Error += (_, e) => _logger.LogWarning(e.GetException(), "Journal file watcher error");
 
-        _logger.LogDebug("File watcher setup for: {File}", fileName);
+        _logger.LogDebug("File watcher setup for: {Path}", journalPath);
     }
 
-    private async Task ProcessExistingEntries(string filePath, CancellationToken stoppingToken)
+    private async Task DrainJournalAsync(CancellationToken cancellationToken)
     {
-        try
+        if (_reader == null)
+            return;
+
+        var lines = await _reader.ReadNewLinesAsync(cancellationToken).ConfigureAwait(false);
+
+        foreach (var line in lines)
         {
-            using var reader = new StreamReader(filePath);
-            string? line;
-            int lineCount = 0;
-
-            while ((line = await reader.ReadLineAsync()) != null && !stoppingToken.IsCancellationRequested)
-            {
-                lineCount++;
-                await ProcessJournalLine(line, lineCount);
-            }
-
-            _lastPosition = reader.BaseStream.Position;
-            _logger.LogInformation("Processed {Count} existing journal entries", lineCount);
+            cancellationToken.ThrowIfCancellationRequested();
+            await ProcessJournalLine(line);
         }
-        catch (Exception ex)
+
+        if (lines.Count > 0)
         {
-            _logger.LogError(ex, "Error processing existing entries");
+            _logger.LogDebug("Processed {Count} new journal entries", lines.Count);
         }
     }
 
-    private async Task ProcessNewEntries(string filePath)
-    {
-        try
-        {
-            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            
-            if (fileStream.Length <= _lastPosition)
-                return;
-
-            fileStream.Seek(_lastPosition, SeekOrigin.Begin);
-            using var reader = new StreamReader(fileStream);
-
-            string? line;
-            int newLines = 0;
-            while ((line = await reader.ReadLineAsync()) != null)
-            {
-                newLines++;
-                await ProcessJournalLine(line, -1); // -1 indicates new entry
-            }
-
-            _lastPosition = fileStream.Position;
-            
-            if (newLines > 0)
-            {
-                _logger.LogDebug("Processed {Count} new journal entries", newLines);
-            }
-        }
-        catch (IOException)
-        {
-            // File might be locked, try again later
-            await Task.Delay(100);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing new entries");
-        }
-    }
-
-    private async Task ProcessJournalLine(string line, int lineNumber)
+    private async Task ProcessJournalLine(string line)
     {
         try
         {
@@ -231,18 +154,19 @@ public class JournalMonitorService : BackgroundService
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning("Failed to parse journal line {LineNumber}: {Error}", lineNumber, ex.Message);
+            _logger.LogWarning("Failed to parse journal line: {Error}", ex.Message);
             _logger.LogDebug("Problematic line: {Line}", line);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing journal line {LineNumber}", lineNumber);
+            _logger.LogError(ex, "Error processing journal line");
         }
     }
 
     public override void Dispose()
     {
         _fileWatcher?.Dispose();
+        _pump?.Dispose();
         base.Dispose();
     }
 }
