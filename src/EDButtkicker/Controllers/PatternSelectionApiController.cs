@@ -11,16 +11,16 @@ public class PatternSelectionController : ControllerBase
 {
     private readonly ILogger<PatternSelectionController> _logger;
     private readonly PatternSelectionService _patternSelectionService;
-    private readonly PatternFileService _patternFileService;
+    private readonly PatternSourceCatalogReconciler _catalogReconciler;
 
     public PatternSelectionController(
         ILogger<PatternSelectionController> logger,
         PatternSelectionService patternSelectionService,
-        PatternFileService patternFileService)
+        PatternSourceCatalogReconciler catalogReconciler)
     {
         _logger = logger;
         _patternSelectionService = patternSelectionService;
-        _patternFileService = patternFileService;
+        _catalogReconciler = catalogReconciler;
     }
 
     [HttpGet("conflicts")]
@@ -195,76 +195,17 @@ public class PatternSelectionController : ControllerBase
     {
         try
         {
-            // Get all current pattern sources from various places
-            var allSourceIds = new HashSet<string>();
-            
-            // Add sources from pattern files by getting all ship types
-            var allShipTypes = new HashSet<string>();
-            
-            // Get all available ship types from the pattern file service
-            var allPacks = _patternFileService.GetAllPatternPacks();
-            foreach (var pack in allPacks)
-            {
-                // We need to iterate through all pattern data to find ship types
-                // This is a limitation of the current pattern file structure
-            }
-            
-            // For now, we'll use a more direct approach by getting patterns for known ship types
-            // In a real implementation, we'd want the pattern service to provide a list of all ship types
-            var knownShipTypes = new[]
-            {
-                "sidewinder", "eagle", "hauler", "adder", "viper", "cobra_mkiii", "type6", 
-                "asp", "vulture", "python", "type7", "anaconda", "federation_corvette", 
-                "cutter", "type9", "krait_mkii", "chieftain", "challenger"
-                // Add more as needed
-            };
-            
-            foreach (var shipType in knownShipTypes)
-            {
-                var shipPatterns = _patternFileService.GetPatternsForShip(shipType);
-                foreach (var shipPattern in shipPatterns)
-                {
-                    foreach (var eventName in shipPattern.Events.Keys)
-                    {
-                        var sourceId = GenerateSourceId(PatternSourceType.FileSystem, shipPattern.PackName, shipType, eventName);
-                        allSourceIds.Add(sourceId);
-                        
-                        // Register this pattern source
-                        var sourceInfo = new PatternSourceInfo
-                        {
-                            SourceId = sourceId,
-                            SourceName = $"{shipPattern.PackName} - {shipPattern.DisplayName}",
-                            SourceType = PatternSourceType.FileSystem,
-                            PackName = shipPattern.PackName,
-                            Author = shipPattern.Author,
-                            Version = shipPattern.Version,
-                            LastModified = DateTime.UtcNow, // Would be file modified time in real implementation
-                            Description = "", // ShipPatternDefinition doesn't have description
-                            Tags = shipPattern.Tags,
-                            PatternType = shipPattern.Events[eventName].Pattern.ToString(),
-                            Frequency = shipPattern.Events[eventName].Frequency,
-                            Intensity = shipPattern.Events[eventName].Intensity,
-                            Duration = shipPattern.Events[eventName].Duration
-                        };
-                        
-                        _patternSelectionService.RegisterPatternSource(shipType, eventName, sourceInfo);
-                    }
-                }
-            }
-            
-            // Clean up any sources that no longer exist
-            _patternSelectionService.CleanupMissingSources(allSourceIds);
-            
-            // Save the updated selections
-            await _patternSelectionService.SaveSelectionsAsync();
-            
+            // Registers every ship type the pattern catalog knows about, cleans up dead
+            // selections and saves - the same reconcile that runs at startup and on file changes.
+            var totalSources = await _catalogReconciler.ReconcileAsync();
+
             var stats = _patternSelectionService.GetStats();
             var conflicts = _patternSelectionService.GetConflicts();
-            
+
             return Ok(new RefreshSourcesResponse
             {
                 Message = "Pattern sources refreshed successfully",
-                TotalSources = allSourceIds.Count,
+                TotalSources = totalSources,
                 TotalConflicts = conflicts.TotalConflicts,
                 Stats = stats
             });
@@ -274,11 +215,6 @@ public class PatternSelectionController : ControllerBase
             _logger.LogError(ex, "Error refreshing pattern sources");
             return StatusCode(500, new { error = "Failed to refresh sources", details = ex.Message });
         }
-    }
-
-    private static string GenerateSourceId(PatternSourceType sourceType, string packName, string shipType, string eventName)
-    {
-        return $"{sourceType}:{packName}:{shipType}:{eventName}".ToLowerInvariant();
     }
 }
 

@@ -11,20 +11,24 @@ public class JournalApiController
 {
     private readonly ILogger<JournalApiController> _logger;
     private readonly AppSettings _settings;
-    private readonly EventMappingService _eventMappingService;
-    private static readonly List<JournalEvent> RecentEvents = new();
-    private static readonly object EventsLock = new object();
-    
-    // Replay functionality
-    private static CancellationTokenSource? _replayTokenSource;
-    private static Task? _replayTask;
-    private static readonly object ReplayLock = new object();
+    private readonly IJournalEventStore _eventStore;
+    private readonly IJournalEventPipeline _pipeline;
 
-    public JournalApiController(ILogger<JournalApiController> logger, AppSettings settings, EventMappingService eventMappingService)
+    // Replay functionality
+    private CancellationTokenSource? _replayTokenSource;
+    private Task? _replayTask;
+    private readonly object ReplayLock = new object();
+
+    public JournalApiController(
+        ILogger<JournalApiController> logger,
+        AppSettings settings,
+        IJournalEventStore eventStore,
+        IJournalEventPipeline pipeline)
     {
         _logger = logger;
         _settings = settings;
-        _eventMappingService = eventMappingService;
+        _eventStore = eventStore;
+        _pipeline = pipeline;
     }
 
     public async Task GetJournalStatus(HttpContext context)
@@ -175,25 +179,19 @@ public class JournalApiController
                 }
             }
 
-            List<object> events;
-            lock (EventsLock)
-            {
-                events = RecentEvents
-                    .OrderByDescending(e => e.Timestamp)
-                    .Take(limit)
-                    .Select(e => new
-                    {
-                        timestamp = e.Timestamp,
-                        @event = e.Event,
-                        star_system = e.StarSystem,
-                        station_name = e.StationName,
-                        health = e.Health,
-                        hull_damage = e.HullDamage,
-                        additional_data = e.AdditionalData
-                    })
-                    .Cast<object>()
-                    .ToList();
-            }
+            var events = _eventStore.GetRecent(limit)
+                .Select(e => new
+                {
+                    timestamp = e.Timestamp,
+                    @event = e.Event,
+                    star_system = e.StarSystem,
+                    station_name = e.StationName,
+                    health = e.Health,
+                    hull_damage = e.HullDamage,
+                    additional_data = e.AdditionalData
+                })
+                .Cast<object>()
+                .ToList();
 
             var response = new
             {
@@ -221,35 +219,9 @@ public class JournalApiController
         }
     }
 
-    public static void AddRecentEvent(JournalEvent journalEvent)
-    {
-        lock (EventsLock)
-        {
-            RecentEvents.Insert(0, journalEvent);
-            
-            // Keep only recent events (last 1000)
-            if (RecentEvents.Count > 1000)
-            {
-                RecentEvents.RemoveRange(1000, RecentEvents.Count - 1000);
-            }
-        }
-    }
+    private int GetRecentEventsCount() => _eventStore.Count;
 
-    private int GetRecentEventsCount()
-    {
-        lock (EventsLock)
-        {
-            return RecentEvents.Count;
-        }
-    }
-
-    private DateTime? GetLastEventTime()
-    {
-        lock (EventsLock)
-        {
-            return RecentEvents.FirstOrDefault()?.Timestamp;
-        }
-    }
+    private DateTime? GetLastEventTime() => _eventStore.LastTimestamp;
 
     public async Task StartJournalReplay(HttpContext context)
     {
@@ -281,13 +253,7 @@ public class JournalApiController
             {
                 // Fallback to recent events from memory (last 5 minutes of real time)
                 var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
-                lock (EventsLock)
-                {
-                    eventsToReplay = RecentEvents
-                        .Where(e => e.Timestamp >= cutoffTime)
-                        .OrderBy(e => e.Timestamp)
-                        .ToList();
-                }
+                eventsToReplay = _eventStore.GetSince(cutoffTime).ToList();
             }
             
             // Now handle replay start/stop in lock
@@ -410,8 +376,9 @@ public class JournalApiController
                 if (cancellationToken.IsCancellationRequested)
                     break;
 
-                // Process the event through the normal event mapping system
-                await Task.Run(() => _eventMappingService.ProcessEvent(journalEvent), cancellationToken);
+                // Same ordered pipeline as live monitoring, minus the history write - these
+                // events are historical and (for the in-memory source) already in the store.
+                await _pipeline.ProcessAsync(journalEvent, skipHistory: true);
                 
                 _logger.LogDebug("Replayed event: {EventType} at {Timestamp}", journalEvent.Event, journalEvent.Timestamp);
 
@@ -431,22 +398,12 @@ public class JournalApiController
         }
     }
 
-    private int GetEventsToReplayCount()
-    {
-        var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
-        lock (EventsLock)
-        {
-            return RecentEvents.Count(e => e.Timestamp >= cutoffTime);
-        }
-    }
+    private int GetEventsToReplayCount() => GetEventsInLast5Minutes();
 
     private int GetEventsInLast5Minutes()
     {
         var cutoffTime = DateTime.UtcNow.AddMinutes(-5);
-        lock (EventsLock)
-        {
-            return RecentEvents.Count(e => e.Timestamp >= cutoffTime);
-        }
+        return _eventStore.GetSince(cutoffTime).Count;
     }
 
     private async Task<List<JournalEvent>> ReadLastFiveMinutesFromJournalFile(string journalFileName)

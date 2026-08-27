@@ -20,6 +20,10 @@ public class WebConfigurationService : BackgroundService
     private readonly EventMappingService _eventMapping;
     private readonly PatternSequencer _patternSequencer;
     private readonly ContextualIntelligenceService _contextualIntelligence;
+    private readonly IJournalEventStore _journalEventStore;
+    private readonly IJournalEventPipeline _journalEventPipeline;
+    private readonly PatternSelectionService _patternSelectionService;
+    private readonly PatternSourceCatalogReconciler _catalogReconciler;
     private IWebHost? _webHost;
     private readonly int _port = 47811; // Elite Dangerous Buttkicker - uncommon port
 
@@ -29,7 +33,11 @@ public class WebConfigurationService : BackgroundService
         AudioEngineService audioEngine,
         EventMappingService eventMapping,
         PatternSequencer patternSequencer,
-        ContextualIntelligenceService contextualIntelligence)
+        ContextualIntelligenceService contextualIntelligence,
+        IJournalEventStore journalEventStore,
+        IJournalEventPipeline journalEventPipeline,
+        PatternSelectionService patternSelectionService,
+        PatternSourceCatalogReconciler catalogReconciler)
     {
         _logger = logger;
         _settings = settings;
@@ -37,6 +45,10 @@ public class WebConfigurationService : BackgroundService
         _eventMapping = eventMapping;
         _patternSequencer = patternSequencer;
         _contextualIntelligence = contextualIntelligence;
+        _journalEventStore = journalEventStore;
+        _journalEventPipeline = journalEventPipeline;
+        _patternSelectionService = patternSelectionService;
+        _catalogReconciler = catalogReconciler;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -56,6 +68,12 @@ public class WebConfigurationService : BackgroundService
                     services.AddSingleton(_audioEngine);
                     services.AddSingleton(_eventMapping);
                     services.AddSingleton(_patternSequencer);
+                    // Same instances as the root container - the API must see live journal
+                    // history and share the pipeline with journal monitoring.
+                    services.AddSingleton(_journalEventStore);
+                    services.AddSingleton(_journalEventPipeline);
+                    services.AddSingleton(_patternSelectionService);
+                    services.AddSingleton(_catalogReconciler);
                     services.AddSingleton<PatternFileService>();
                     services.AddSingleton<ConfigurationApiController>();
                     services.AddSingleton<PatternApiController>();
