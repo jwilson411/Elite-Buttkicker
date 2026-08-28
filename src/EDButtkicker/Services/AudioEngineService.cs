@@ -46,11 +46,11 @@ public class AudioEngineService : IDisposable
 				if (!string.IsNullOrEmpty(_settings.Audio.AudioDeviceName))
 				{
 					_logger.LogDebug("Attempting to find audio device by name: '{DeviceName}'", _settings.Audio.AudioDeviceName);
-					
+
 					var deviceEnumerator = new MMDeviceEnumerator();
 					var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
 					var matchedDevice = devices.FirstOrDefault(d => d.FriendlyName == _settings.Audio.AudioDeviceName);
-					
+
 					if (matchedDevice != null)
 					{
 						_waveOut = new WasapiOut(matchedDevice, AudioClientShareMode.Shared, true, 200);
