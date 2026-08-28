@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 
@@ -200,15 +199,8 @@ public class JournalMonitorService : BackgroundService
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(line))
-                return;
-
-            var journalEvent = JsonSerializer.Deserialize<JournalEvent>(line, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (journalEvent == null)
+            // A malformed or truncated line is skipped and logged by the parser; monitoring stays up.
+            if (!JournalEventParser.TryParse(line, out var journalEvent, _logger) || journalEvent == null)
                 return;
 
             _logger.LogDebug("Journal Event: {Event} at {Timestamp}", journalEvent.Event, journalEvent.Timestamp);
@@ -218,11 +210,6 @@ public class JournalMonitorService : BackgroundService
 
             // History -> ship state -> ship pattern selection -> context + audio
             await _pipeline.ProcessAsync(journalEvent);
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogWarning("Failed to parse journal line: {Error}", ex.Message);
-            _logger.LogDebug("Problematic line: {Line}", line);
         }
         catch (Exception ex)
         {

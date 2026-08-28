@@ -21,6 +21,10 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton(appSettings);
 
+        // The clock is injected so time-dependent behaviour (event rate limits) is deterministic
+        // in tests; the process always runs on the system clock.
+        services.AddSingleton(TimeProvider.System);
+
         // Add core services
         services.AddSingleton<AudioEngineService>();
         services.AddSingleton<PatternSequencer>();

@@ -13,19 +13,21 @@ public class EventMappingService : IJournalEventAudioSink
     private readonly PatternSequencer _patternSequencer;
     private readonly ContextualIntelligenceService _contextualIntelligence;
     private EventMappingsConfig _eventMappings;
-    private readonly ConcurrentDictionary<string, DateTime> _lastEventTimes = new();
+    private readonly EventRateLimiter _rateLimiter;
     private readonly ConcurrentDictionary<string, int> _eventCounts = new();
 
     public EventMappingService(
         ILogger<EventMappingService> logger,
         AudioEngineService audioEngine,
         PatternSequencer patternSequencer,
-        ContextualIntelligenceService contextualIntelligence)
+        ContextualIntelligenceService contextualIntelligence,
+        TimeProvider timeProvider)
     {
         _logger = logger;
         _audioEngine = audioEngine;
         _patternSequencer = patternSequencer;
         _contextualIntelligence = contextualIntelligence;
+        _rateLimiter = new EventRateLimiter(timeProvider);
         _eventMappings = EventMappingsConfig.GetDefault();
 
         // No audio device work here: the engine opens itself on first playback so that building
@@ -69,17 +71,16 @@ public class EventMappingService : IJournalEventAudioSink
                 return;
             }
 
-            // Check for rate limiting to prevent audio spam
-            if (ShouldRateLimit(eventType))
+            // Check for rate limiting to prevent audio spam. Acquiring also records the acceptance,
+            // so the next occurrence inside the window is refused.
+            if (!_rateLimiter.TryAcquire(eventType))
             {
                 _logger.LogDebug("Rate limiting event: {EventType}", eventType);
                 return;
             }
 
             _logger.LogInformation("Processing mapped event: {EventType}", eventType);
-            
-            // Track event timing (thread-safe)
-            _lastEventTimes[eventType] = DateTime.UtcNow;
+
             _eventCounts.AddOrUpdate(eventType, 1, (key, value) => value + 1);
 
             // Apply any event-specific modifications to the pattern
@@ -124,32 +125,6 @@ public class EventMappingService : IJournalEventAudioSink
     {
         // Deep clone first, then adjust the clone only - the stored mapping keeps its defaults.
         return EventPatternFactory.CreatePatternForEvent(basePattern, journalEvent, _logger);
-    }
-
-    private bool ShouldRateLimit(string eventType)
-    {
-        // Define rate limits for different event types
-        var rateLimits = new Dictionary<string, TimeSpan>
-        {
-            ["HullDamage"] = TimeSpan.FromMilliseconds(500), // Max once per 500ms
-            ["ShipTargeted"] = TimeSpan.FromMilliseconds(1000), // Max once per second
-            ["FuelScoop"] = TimeSpan.FromSeconds(2), // Max once per 2 seconds
-            ["HeatWarning"] = TimeSpan.FromSeconds(1), // Max once per second
-            ["HeatDamage"] = TimeSpan.FromMilliseconds(800), // Max once per 800ms
-            ["UnderAttack"] = TimeSpan.FromMilliseconds(300), // Max once per 300ms
-            ["Touchdown"] = TimeSpan.FromSeconds(3), // Max once per 3 seconds (prevent spam on bouncy landings)
-            ["Liftoff"] = TimeSpan.FromSeconds(3), // Max once per 3 seconds
-            ["ShieldDown"] = TimeSpan.FromSeconds(2), // Max once per 2 seconds
-            ["ShieldsUp"] = TimeSpan.FromSeconds(2) // Max once per 2 seconds
-        };
-
-        if (!rateLimits.TryGetValue(eventType, out var minInterval))
-            return false; // No rate limiting for this event type
-
-        if (!_lastEventTimes.TryGetValue(eventType, out var lastTime))
-            return false; // First occurrence
-
-        return DateTime.UtcNow - lastTime < minInterval;
     }
 
     private void LogUnmappedEvent(string eventType)
@@ -221,7 +196,7 @@ public class EventMappingService : IJournalEventAudioSink
     public void ResetStatistics()
     {
         _eventCounts.Clear();
-        _lastEventTimes.Clear();
+        _rateLimiter.Reset();
         _logger.LogInformation("Event statistics reset");
     }
 
