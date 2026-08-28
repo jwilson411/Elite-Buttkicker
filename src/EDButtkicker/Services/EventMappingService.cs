@@ -27,9 +27,9 @@ public class EventMappingService : IJournalEventAudioSink
         _patternSequencer = patternSequencer;
         _contextualIntelligence = contextualIntelligence;
         _eventMappings = EventMappingsConfig.GetDefault();
-        
-        // Initialize services
-        _audioEngine.Initialize();
+
+        // No audio device work here: the engine opens itself on first playback so that building
+        // the service graph never touches hardware.
         _patternSequencer.LoadPatterns(_eventMappings);
         
         _logger.LogInformation("Event Mapping Service initialized with {Count} default patterns", 
