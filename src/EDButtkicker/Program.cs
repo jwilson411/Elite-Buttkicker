@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -6,6 +7,7 @@ using NAudio.Wave;
 using NAudio.CoreAudioApi;
 using NAudio.Wasapi;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using EDButtkicker.Controllers;
@@ -146,42 +148,33 @@ class Program
                       .AddEnvironmentVariables()
                       .AddCommandLine(args);
             })
+            .UseDefaultServiceProvider(options =>
+            {
+                // One graph, and it has to be resolvable: a missing controller dependency is a
+                // startup failure instead of a 500 on the first request that needs it.
+                options.ValidateScopes = true;
+                options.ValidateOnBuild = true;
+            })
             .ConfigureServices((hostContext, services) =>
             {
                 // Bind configuration
                 var appSettings = new AppSettings();
                 hostContext.Configuration.Bind(appSettings);
-                services.AddSingleton(appSettings);
 
-                // Add core services
-                services.AddSingleton<AudioEngineService>();
-                services.AddSingleton<PatternSequencer>();
-                services.AddSingleton<ContextualIntelligenceService>();
-                services.AddSingleton<EventMappingService>();
-                services.AddSingleton<UserSettingsService>();
-                services.AddSingleton<ShipTrackingService>();
-                services.AddSingleton<PatternFileService>();
-                services.AddSingleton<PatternSelectionService>();
-                services.AddSingleton<ShipPatternService>();
+                // Runtime services, web controllers and their dependencies - one registration
+                // method, shared with the integration tests.
+                services.AddEliteButtkicker(appSettings);
 
-                // Journal event pipeline: one ordered path for history, ship state,
-                // pattern selection and audio, shared by live monitoring and replay.
-                services.AddSingleton<IJournalEventStore, JournalEventStore>();
-                services.AddSingleton<IJournalEventAudioSink>(sp => sp.GetRequiredService<EventMappingService>());
-                services.AddSingleton<IShipPatternProvider>(sp => sp.GetRequiredService<ShipPatternService>());
-                services.AddSingleton<IPatternCatalog>(sp => sp.GetRequiredService<PatternFileService>());
-                services.AddSingleton<PatternSourceCatalogReconciler>();
-                services.AddSingleton<IJournalEventPipeline, JournalEventPipeline>();
-                // IntensityCurveProcessor is a static class, no need to register
-                // AdvancedWaveformGenerator and MultiLayerPatternGenerator are created as needed
-                
-                // Add API controllers
-                services.AddTransient<ContextualIntelligenceApiController>();
-                
                 // Add hosted services
                 services.AddHostedService<JournalMonitorService>();
                 services.AddHostedService<WebConfigurationService>();
 				services.AddHostedService<StatusMonitorService>();
+            })
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                // The web app lives in the primary service provider - there is no second container.
+                webBuilder.UseKestrel(options => options.ListenLocalhost(WebUiConfiguration.Port));
+                webBuilder.Configure(WebUiConfiguration.Configure);
             })
             .ConfigureLogging(logging =>
             {

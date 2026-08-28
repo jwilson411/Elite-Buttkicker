@@ -16,6 +16,7 @@ public class AudioEngineService : IDisposable
     private MixingSampleProvider? _mixer;
     private readonly object _lock = new object();
     private bool _isInitialized = false;
+    private bool _initializationFailed = false;
     private readonly Dictionary<string, SignalGenerator> _activeGenerators = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeCancellations = new();
 
@@ -103,11 +104,39 @@ public class AudioEngineService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Opens the audio device on first use. Playback is the trigger, so nothing that merely
+    /// constructs or resolves this service touches audio hardware. Unlike <see cref="Initialize"/>
+    /// this never throws: a machine with no usable output device just gets no haptics, and one
+    /// failed attempt is remembered so every later pattern does not retry the device enumeration.
+    /// </summary>
+    public bool EnsureInitialized()
+    {
+        lock (_lock)
+        {
+            if (_isInitialized) return true;
+            if (_initializationFailed) return false;
+
+            try
+            {
+                Initialize();
+            }
+            catch (Exception ex)
+            {
+                _initializationFailed = true;
+                _logger.LogError(ex, "Audio engine unavailable, haptics are disabled for this session");
+                return false;
+            }
+
+            return _isInitialized;
+        }
+    }
+
     public Task PlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null)
     {
-        if (!_isInitialized)
+        if (!EnsureInitialized())
         {
-            _logger.LogWarning("⚠ Audio engine not initialized, skipping playbook for pattern: {PatternName}", pattern.Name);
+            _logger.LogWarning("⚠ Audio engine not initialized, skipping playback for pattern: {PatternName}", pattern.Name);
             return Task.CompletedTask;
         }
 
@@ -294,6 +323,8 @@ public class AudioEngineService : IDisposable
             
             _mixer = null;
             _isInitialized = false;
+            // A new device deserves a fresh attempt even if the previous one could not be opened.
+            _initializationFailed = false;
             
             // Clear active cancellations
             foreach (var cancellation in _activeCancellations.Values)
