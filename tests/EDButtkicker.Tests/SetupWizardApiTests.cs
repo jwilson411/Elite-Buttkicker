@@ -215,6 +215,82 @@ public class SetupWizardApiTests : IDisposable
         Assert.Contains("nothing was played", step.GetProperty("summary").GetString());
     }
 
+    /// <summary>
+    /// Occupying the settings path with a directory makes writing it fail the same way a read-only
+    /// or locked profile would, without needing platform-specific permissions.
+    /// </summary>
+    private void BlockUserSettingsFile()
+    {
+        var settingsFile = Path.Combine(_settingsDir.Path, "user-settings.json");
+
+        if (File.Exists(settingsFile))
+        {
+            File.Delete(settingsFile);
+        }
+
+        Directory.CreateDirectory(settingsFile);
+    }
+
+    [Fact]
+    public async Task JournalStep_IsNotRecordedWhenTheChoiceCannotBeSaved()
+    {
+        WriteJournalFile();
+        BlockUserSettingsFile();
+
+        using var host = NewHost();
+
+        var response = await host.PostAsync("/api/setup/journal", new { path = _journalDir.Path });
+        var result = await SetupTestHost.ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.False(result.GetProperty("saved").GetBoolean());
+        Assert.Contains("could not be saved", result.GetProperty("error").GetString());
+
+        // A step that will not survive a restart must not be reported as done.
+        Assert.False(result.GetProperty("setup").IsStepComplete("journal"));
+
+        var status = await host.GetJsonAsync("/api/setup/status");
+        Assert.False(status.IsStepComplete("journal"));
+        Assert.Equal("journal", status.GetProperty("current_step").GetString());
+    }
+
+    [Fact]
+    public async Task AudioStep_IsNotRecordedWhenTheChoiceCannotBeSaved()
+    {
+        BlockUserSettingsFile();
+
+        using var host = NewHost();
+
+        var response = await host.PostAsync("/api/setup/audio/device", new { deviceId = 0 });
+        var result = await SetupTestHost.ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.False(result.GetProperty("saved").GetBoolean());
+        Assert.False(result.GetProperty("setup").IsStepComplete("audio-device"));
+
+        Assert.False((await host.GetJsonAsync("/api/setup/status")).IsStepComplete("audio-device"));
+    }
+
+    [Fact]
+    public async Task AFailedSave_LeavesAnAlreadyConfirmedStepAsItWas()
+    {
+        WriteJournalFile();
+
+        using var host = NewHost();
+        Assert.True((await host.PostAsync("/api/setup/journal", new { path = _journalDir.Path })).IsSuccessStatusCode);
+
+        BlockUserSettingsFile();
+        var response = await host.PostAsync("/api/setup/audio/device", new { deviceId = 0 });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+
+        // The earlier, genuinely saved step is untouched by the failure of a later one.
+        var status = await host.GetJsonAsync("/api/setup/status");
+        Assert.True(status.IsStepComplete("journal"));
+        Assert.False(status.IsStepComplete("audio-device"));
+        Assert.Equal(_journalDir.Path, status.Step("journal").GetProperty("summary").GetString()!.Split(": ")[1]);
+    }
+
     [Fact]
     public async Task PartialConfiguration_ResumesAtTheNextStepAfterARestart()
     {

@@ -126,7 +126,17 @@ public class SetupApiController
             var candidate = JournalPathDiscovery.Inspect(journalPath, "confirmed", isConfigured: true);
 
             _settings.EliteDangerous.JournalPath = journalPath;
-            await PersistUserSettingsAsync();
+
+            // The watcher may have given up on a folder that did not exist at startup.
+            _journalStatus.RequestRecheck();
+
+            if (!await TryPersistUserSettingsAsync())
+            {
+                // The folder is in use for this session, but it will not come back after a restart,
+                // so the step must not be recorded as confirmed.
+                await WriteNotSavedAsync(context, "journal folder");
+                return;
+            }
 
             var confirmedAt = _timeProvider.GetUtcNow().UtcDateTime;
             await _setupState.UpdateAsync(state =>
@@ -134,9 +144,6 @@ public class SetupApiController
                 state.JournalConfirmedAtUtc = confirmedAt;
                 state.JournalPath = journalPath;
             });
-
-            // The watcher may have given up on a folder that did not exist at startup.
-            _journalStatus.RequestRecheck();
 
             _logger.LogInformation(
                 "Setup confirmed journal path {JournalPath} ({FileCount} journal file(s) present)",
@@ -204,7 +211,14 @@ public class SetupApiController
 
             _settings.Audio.AudioDeviceId = device.DeviceId;
             _settings.Audio.AudioDeviceName = isSystemDefault ? string.Empty : device.Name;
-            await PersistUserSettingsAsync();
+
+            if (!await TryPersistUserSettingsAsync())
+            {
+                // Same rule as the journal step: an output that will not survive a restart is not a
+                // confirmed step, and the previously recorded state stays as it was.
+                await WriteNotSavedAsync(context, "output device");
+                return;
+            }
 
             var confirmedAt = _timeProvider.GetUtcNow().UtcDateTime;
             await _setupState.UpdateAsync(state =>
@@ -417,17 +431,43 @@ public class SetupApiController
         };
     }
 
-    private async Task PersistUserSettingsAsync()
+    /// <summary>
+    /// Writes the running configuration to the user settings file. Returns false when it could not
+    /// be written: the caller must not then record the step as confirmed, because the choice would
+    /// be gone on the next run while the wizard claimed it was done.
+    /// </summary>
+    private async Task<bool> TryPersistUserSettingsAsync()
     {
         try
         {
             await _userSettings.SaveUserPreferencesAsync(_userSettings.CreatePreferencesFromAppSettings(_settings));
+            return true;
         }
         catch (Exception ex)
         {
-            // The running configuration is already updated; only the persistence failed.
-            _logger.LogError(ex, "Setup could not persist user settings");
+            _logger.LogError(ex, "Setup could not persist user settings to {SettingsPath}", _userSettings.GetUserSettingsPath());
+            return false;
         }
+    }
+
+    /// <summary>
+    /// Reports a choice that applied to this session but could not be saved, leaving the recorded
+    /// setup state exactly as it was.
+    /// </summary>
+    private async Task WriteNotSavedAsync(HttpContext context, string what)
+    {
+        var setup = await BuildStatusAsync();
+
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+
+        await context.Response.WriteAsync(JsonSerializer.Serialize(new
+        {
+            error = $"The {what} is in use for this session but could not be saved to {_userSettings.GetUserSettingsPath()}, " +
+                "so this step is not marked complete. Check that the file is writable and try again.",
+            saved = false,
+            setup
+        }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static async Task<Dictionary<string, JsonElement>?> ReadJsonAsync(HttpContext context)
