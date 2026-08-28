@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+using NAudio;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using NAudio.CoreAudioApi;
@@ -47,8 +49,9 @@ public class AudioEngineService : IDisposable
 					
 					var deviceEnumerator = new MMDeviceEnumerator();
 					var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+					LogWasapiEnumeration(devices);
 					var matchedDevice = devices.FirstOrDefault(d => d.FriendlyName == _settings.Audio.AudioDeviceName);
-					
+
 					if (matchedDevice != null)
 					{
 						_waveOut = new WasapiOut(matchedDevice, AudioClientShareMode.Shared, true, 200);
@@ -421,6 +424,54 @@ public class AudioEngineService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Logs every WASAPI render endpoint with both its list position and its DeviceId, then what the
+    /// saved settings resolve to. This is the record to read when a device selection appears to land
+    /// on the neighbouring device: it shows whether the saved name and the saved DeviceId disagree.
+    /// </summary>
+    private void LogWasapiEnumeration(MMDeviceCollection devices)
+    {
+        try
+        {
+            string? defaultDeviceId = null;
+            try
+            {
+                defaultDeviceId = new MMDeviceEnumerator()
+                    .GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug("No default render endpoint available: {Error}", ex.Message);
+            }
+
+            var enumerated = new List<AudioDevice>(devices.Count);
+            for (var i = 0; i < devices.Count; i++)
+            {
+                var device = devices[i];
+                enumerated.Add(new AudioDevice
+                {
+                    DeviceId = i,
+                    Name = device.FriendlyName,
+                    Driver = "WASAPI",
+                    IsDefault = defaultDeviceId != null && device.ID == defaultDeviceId,
+                    IsAvailable = device.State == DeviceState.Active
+                });
+            }
+
+            foreach (var line in AudioDeviceDiagnostics.DescribeEnumeration(enumerated, "WASAPI render"))
+            {
+                _logger.LogInformation("Audio devices - {Device}", line);
+            }
+
+            _logger.LogInformation("Audio devices - {Selection}", AudioDeviceDiagnostics.DescribeConfiguredSelection(
+                enumerated, _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to log WASAPI device enumeration");
+        }
+    }
+
     private void LogWaveOutConfiguration()
     {
         if (_waveOut == null)
@@ -433,21 +484,31 @@ public class AudioEngineService : IDisposable
         {
             if (_waveOut is WaveOutEvent waveOutEvent)
             {
-                _logger.LogDebug("WaveOut Configuration - Device Number: {DeviceNumber}, Volume: {Volume}", 
-                    waveOutEvent.DeviceNumber, waveOutEvent.Volume);
-                
-                // Get device capabilities using MMDevice API
+                // WaveOut device numbers are their own ordinal space: they do not index the WASAPI
+                // render endpoint list, so the name is read from the WaveOut capabilities rather
+                // than by using the device number as an index into the MMDevice collection.
+                // WaveOutEvent exposes no capability helpers on this target framework, so the
+                // WinMM entry points are called directly.
                 try
                 {
-                    var deviceEnumerator = new MMDeviceEnumerator();
-                    var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-                    
-                    if (waveOutEvent.DeviceNumber >= 0 && waveOutEvent.DeviceNumber < devices.Count)
+                    var deviceCount = WaveInterop.waveOutGetNumDevs();
+                    var productName = "system default";
+
+                    if (waveOutEvent.DeviceNumber >= 0 && waveOutEvent.DeviceNumber < deviceCount)
                     {
-                        var device = devices[waveOutEvent.DeviceNumber];
-                        _logger.LogDebug("Target Device Capabilities - Name: '{FriendlyName}', ID: {DeviceId}",
-                            device.FriendlyName, device.ID);
+                        var capsResult = WaveInterop.waveOutGetDevCaps(
+                            (IntPtr)waveOutEvent.DeviceNumber,
+                            out var capabilities,
+                            Marshal.SizeOf<WaveOutCapabilities>());
+
+                        productName = capsResult == MmResult.NoError
+                            ? capabilities.ProductName
+                            : $"unknown (waveOutGetDevCaps: {capsResult})";
                     }
+
+                    _logger.LogDebug(
+                        "WaveOut Configuration - WaveOut device number {DeviceNumber} of {DeviceCount} is '{ProductName}', Volume: {Volume}",
+                        waveOutEvent.DeviceNumber, deviceCount, productName, waveOutEvent.Volume);
                 }
                 catch (Exception ex)
                 {

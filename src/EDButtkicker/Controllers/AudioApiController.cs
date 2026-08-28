@@ -30,7 +30,17 @@ public class AudioApiController
         try
         {
             var devices = GetAvailableAudioDevices();
-            
+
+            // This list prepends a synthetic default entry, so a device's position in the web list is
+            // never its DeviceId. Log both so a mis-selection report can be read against the ids.
+            foreach (var line in AudioDeviceDiagnostics.DescribeEnumeration(devices, "web device list"))
+            {
+                _logger.LogInformation("Audio devices - {Device}", line);
+            }
+
+            _logger.LogInformation("Audio devices - {Selection}", AudioDeviceDiagnostics.DescribeConfiguredSelection(
+                devices, _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName));
+
             var response = new
             {
                 devices = devices.Select(d => new
