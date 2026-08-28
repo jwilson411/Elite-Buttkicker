@@ -10,8 +10,13 @@ namespace EDButtkicker.Controllers;
 [Route("api/[controller]")]
 public class PatternFilesController : ControllerBase
 {
+    private static readonly string[] DeletableSubdirectories = { "imports", "exports", "Custom" };
+    private static readonly string?[] SystemSubdirectories = { "Community", "Small_Ships", "Large_Ships", null };
+
     private readonly ILogger<PatternFilesController> _logger;
     private readonly PatternFileService _patternFileService;
+
+    private static string PatternsRoot => Path.Combine(Directory.GetCurrentDirectory(), "patterns");
 
     public PatternFilesController(
         ILogger<PatternFilesController> logger,
@@ -254,6 +259,12 @@ public class PatternFilesController : ControllerBase
                 return BadRequest(new { error = "Only JSON files are supported" });
             }
 
+            var safeFileName = PatternPathGuard.SanitizeFileName(file.FileName, requireJsonExtension: true);
+            if (safeFileName == null)
+            {
+                return BadRequest(new { error = "Invalid file name" });
+            }
+
             // Save to temporary location first
             var tempPath = Path.GetTempFileName();
             using (var stream = new FileStream(tempPath, FileMode.Create))
@@ -262,16 +273,16 @@ public class PatternFilesController : ControllerBase
             }
 
             // Import the file
-            var success = await _patternFileService.ImportPatternFileAsync(tempPath, file.FileName);
-            
+            var success = await _patternFileService.ImportPatternFileAsync(tempPath, safeFileName);
+
             // Clean up temp file
             System.IO.File.Delete(tempPath);
 
             if (success)
             {
-                return Ok(new { 
-                    message = $"Pattern file '{file.FileName}' imported successfully",
-                    fileName = file.FileName,
+                return Ok(new {
+                    message = $"Pattern file '{safeFileName}' imported successfully",
+                    fileName = safeFileName,
                     fileSize = file.Length
                 });
             }
@@ -292,15 +303,20 @@ public class PatternFilesController : ControllerBase
     {
         try
         {
-            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "patterns", "exports", fileName);
-            
+            var safeFileName = PatternPathGuard.SanitizeFileName(fileName);
+            var filePath = PatternPathGuard.ResolveUnderRoot(PatternsRoot, safeFileName, "exports");
+            if (safeFileName == null || filePath == null)
+            {
+                return BadRequest(new { error = "Invalid file name" });
+            }
+
             if (!System.IO.File.Exists(filePath))
             {
-                return NotFound(new { error = $"File not found: {fileName}" });
+                return NotFound(new { error = $"File not found: {safeFileName}" });
             }
 
             var fileBytes = System.IO.File.ReadAllBytes(filePath);
-            return base.File(fileBytes, "application/json", fileName);
+            return base.File(fileBytes, "application/json", safeFileName);
         }
         catch (Exception ex)
         {
@@ -314,25 +330,33 @@ public class PatternFilesController : ControllerBase
     {
         try
         {
-            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "patterns", fileName);
-            
-            if (!System.IO.File.Exists(filePath))
+            var safeFileName = PatternPathGuard.SanitizeFileName(fileName);
+            if (safeFileName == null)
             {
-                return NotFound(new { error = $"File not found: {fileName}" });
+                return BadRequest(new { error = "Invalid file name" });
             }
 
-            // Only allow deletion of files in certain directories for safety
-            var relativePath = Path.GetRelativePath(Path.Combine(Directory.GetCurrentDirectory(), "patterns"), filePath);
-            if (relativePath.StartsWith("..") || 
-                (!relativePath.StartsWith("imports") && 
-                 !relativePath.StartsWith("exports") && 
-                 !relativePath.StartsWith("custom", StringComparison.OrdinalIgnoreCase)))
+            // Only files in these directories may be deleted; the caller never picks the directory.
+            foreach (var subdirectory in DeletableSubdirectories)
             {
-                return BadRequest(new { error = "Cannot delete system pattern files" });
+                var candidate = PatternPathGuard.ResolveUnderRoot(PatternsRoot, safeFileName, subdirectory);
+                if (candidate != null && System.IO.File.Exists(candidate))
+                {
+                    System.IO.File.Delete(candidate);
+                    return Ok(new { message = $"Pattern file '{safeFileName}' deleted successfully" });
+                }
             }
 
-            System.IO.File.Delete(filePath);
-            return Ok(new { message = $"Pattern file '{fileName}' deleted successfully" });
+            foreach (var subdirectory in SystemSubdirectories)
+            {
+                var candidate = PatternPathGuard.ResolveUnderRoot(PatternsRoot, safeFileName, subdirectory);
+                if (candidate != null && System.IO.File.Exists(candidate))
+                {
+                    return BadRequest(new { error = "Cannot delete system pattern files" });
+                }
+            }
+
+            return NotFound(new { error = $"File not found: {safeFileName}" });
         }
         catch (Exception ex)
         {

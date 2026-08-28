@@ -331,8 +331,13 @@ public class PatternFileService : IPatternCatalog
             }
 
             var fileName = targetFileName ?? Path.GetFileName(sourceFilePath);
-            var targetPath = Path.Combine(_patternsPath, "imports", fileName);
-            
+            var targetPath = PatternPathGuard.ResolveUnderRoot(_patternsPath, fileName, "imports");
+            if (targetPath == null)
+            {
+                _logger.LogWarning("Rejected pattern import: unsafe target file name");
+                return false;
+            }
+
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             File.Copy(sourceFilePath, targetPath, overwrite: true);
             

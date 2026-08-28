@@ -191,23 +191,38 @@ public class PatternEditorController : ControllerBase
             }
 
             // Generate safe filename if not provided
-            var fileName = request.FileName;
-            if (string.IsNullOrEmpty(fileName))
+            var requestedFileName = request.FileName;
+            if (string.IsNullOrEmpty(requestedFileName))
             {
-                fileName = GenerateSafeFileName(
-                    request.PatternFile.Metadata.Name, 
+                requestedFileName = GenerateSafeFileName(
+                    request.PatternFile.Metadata.Name,
                     request.PatternFile.Metadata.Author);
+            }
+
+            var fileName = PatternPathGuard.SanitizeFileName(requestedFileName);
+            if (fileName == null)
+            {
+                return BadRequest(new { error = "Invalid file name" });
             }
 
             // Ensure .json extension
             if (!fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
             {
-                fileName += ".json";
+                fileName = PatternPathGuard.SanitizeFileName(fileName + ".json");
+                if (fileName == null)
+                {
+                    return BadRequest(new { error = "Invalid file name" });
+                }
             }
 
             // Determine save location
             var saveDirectory = request.SaveToCustom ? "Custom" : "patterns";
-            var fullPath = Path.Combine(Directory.GetCurrentDirectory(), "patterns", saveDirectory, fileName);
+            var fullPath = PatternPathGuard.ResolveUnderRoot(
+                Path.Combine(Directory.GetCurrentDirectory(), "patterns"), fileName, saveDirectory);
+            if (fullPath == null)
+            {
+                return BadRequest(new { error = "Invalid file name" });
+            }
 
             // Create directory if it doesn't exist
             var directory = Path.GetDirectoryName(fullPath);
@@ -254,22 +269,23 @@ public class PatternEditorController : ControllerBase
     {
         try
         {
-            // Try to find the file in various locations
-            var searchPaths = new[]
+            var safeFileName = PatternPathGuard.SanitizeFileName(fileName);
+            if (safeFileName == null)
             {
-                Path.Combine("patterns", "Custom", fileName),
-                Path.Combine("patterns", "Community", fileName),
-                Path.Combine("patterns", "Small_Ships", fileName),
-                Path.Combine("patterns", "Large_Ships", fileName),
-                Path.Combine("patterns", fileName)
-            };
+                return BadRequest(new { error = "Invalid file name" });
+            }
 
-            foreach (var searchPath in searchPaths)
+            // Try to find the file in the known pattern locations
+            var patternsRoot = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
+            var searchPaths = new string?[] { "Custom", "Community", "Small_Ships", "Large_Ships", null }
+                .Select(subdirectory => PatternPathGuard.ResolveUnderRoot(patternsRoot, safeFileName, subdirectory))
+                .Where(path => path != null);
+
+            foreach (var fullPath in searchPaths)
             {
-                var fullPath = Path.Combine(Directory.GetCurrentDirectory(), searchPath);
                 if (System.IO.File.Exists(fullPath))
                 {
-                    var json = await System.IO.File.ReadAllTextAsync(fullPath);
+                    var json = await System.IO.File.ReadAllTextAsync(fullPath!);
                     var patternFile = JsonSerializer.Deserialize<PatternFileDefinition>(json, new JsonSerializerOptions
                     {
                         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -280,7 +296,7 @@ public class PatternEditorController : ControllerBase
                 }
             }
 
-            return NotFound(new { error = $"Pattern file '{fileName}' not found" });
+            return NotFound(new { error = $"Pattern file '{safeFileName}' not found" });
         }
         catch (Exception ex)
         {
