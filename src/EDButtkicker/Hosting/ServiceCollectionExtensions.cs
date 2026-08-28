@@ -36,6 +36,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PatternSelectionService>();
         services.AddSingleton<ShipPatternService>();
 
+        // First-run setup and the health checklist. The monitor status object is shared state
+        // between the journal watcher and the health API, so it has to be one singleton; the device
+        // catalog is behind an interface so health checks work where WASAPI does not exist.
+        services.AddSingleton<JournalMonitorStatus>();
+        services.AddSingleton<IAudioDeviceCatalog, WasapiAudioDeviceCatalog>();
+        services.AddSingleton<JournalPathDiscovery>();
+        services.AddSingleton<SetupStateService>();
+        services.AddSingleton<SystemHealthService>();
+
         // Journal event pipeline: one ordered path for history, ship state,
         // pattern selection and audio, shared by live monitoring and replay.
         services.AddSingleton<IJournalEventStore, JournalEventStore>();
@@ -63,6 +72,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<PatternFilesController>();
         services.AddSingleton<PatternEditorController>();
         services.AddSingleton<ContextualIntelligenceApiController>();
+        services.AddSingleton<SetupApiController>();
+        services.AddSingleton<HealthApiController>();
 
         // Not routed today, but they belong to the same graph so they stay resolvable.
         services.AddSingleton<UserSettingsController>();

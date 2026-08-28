@@ -17,6 +17,8 @@ public class AudioEngineService : IDisposable
     private readonly object _lock = new object();
     private bool _isInitialized = false;
     private bool _initializationFailed = false;
+    private string? _lastInitializationError;
+    private DateTime? _openedAtUtc;
     private readonly Dictionary<string, SignalGenerator> _activeGenerators = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeCancellations = new();
 
@@ -44,11 +46,11 @@ public class AudioEngineService : IDisposable
 				if (!string.IsNullOrEmpty(_settings.Audio.AudioDeviceName))
 				{
 					_logger.LogDebug("Attempting to find audio device by name: '{DeviceName}'", _settings.Audio.AudioDeviceName);
-					
+
 					var deviceEnumerator = new MMDeviceEnumerator();
 					var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
 					var matchedDevice = devices.FirstOrDefault(d => d.FriendlyName == _settings.Audio.AudioDeviceName);
-					
+
 					if (matchedDevice != null)
 					{
 						_waveOut = new WasapiOut(matchedDevice, AudioClientShareMode.Shared, true, 200);
@@ -90,6 +92,8 @@ public class AudioEngineService : IDisposable
                 _logger.LogDebug("Wave output playback state: {PlaybackState}", playbackState);
 
                 _isInitialized = true;
+                _lastInitializationError = null;
+                _openedAtUtc = DateTime.UtcNow;
                 _logger.LogInformation("✓ Audio Engine initialized successfully");
                 _logger.LogInformation("Configuration: Sample Rate: {SampleRate}Hz, Buffer Size: {BufferSize}, Channels: 1", 
                     _settings.Audio.SampleRate, _settings.Audio.BufferSize);
@@ -97,6 +101,8 @@ public class AudioEngineService : IDisposable
             }
             catch (Exception ex)
             {
+                // Kept so the health API can name the actual failure rather than "offline".
+                _lastInitializationError = ex.Message;
                 _logger.LogError(ex, "❌ Failed to initialize audio engine: {ErrorMessage}", ex.Message);
                 LogDetailedAudioError(ex);
                 throw;
@@ -110,7 +116,7 @@ public class AudioEngineService : IDisposable
     /// this never throws: a machine with no usable output device just gets no haptics, and one
     /// failed attempt is remembered so every later pattern does not retry the device enumeration.
     /// </summary>
-    public bool EnsureInitialized()
+    public virtual bool EnsureInitialized()
     {
         lock (_lock)
         {
@@ -124,12 +130,45 @@ public class AudioEngineService : IDisposable
             catch (Exception ex)
             {
                 _initializationFailed = true;
+                _lastInitializationError = ex.Message;
                 _logger.LogError(ex, "Audio engine unavailable, haptics are disabled for this session");
                 return false;
             }
 
             return _isInitialized;
         }
+    }
+
+    /// <summary>
+    /// What the audio output is actually doing. Reading this never opens a device, so the health
+    /// API can report "not opened yet" honestly instead of guessing from an unrelated API call.
+    /// </summary>
+    public virtual AudioEngineStatus GetStatus()
+    {
+        lock (_lock)
+        {
+            return new AudioEngineStatus(
+                _isInitialized,
+                _initializationFailed,
+                _lastInitializationError,
+                _settings.Audio.AudioDeviceName,
+                _openedAtUtc);
+        }
+    }
+
+    /// <summary>
+    /// Forgets a previous failure and tries to open the device again. This is what the health
+    /// indicator's retry runs; it reports the real outcome rather than clearing the warning.
+    /// </summary>
+    public bool RetryInitialization()
+    {
+        lock (_lock)
+        {
+            _initializationFailed = false;
+            _lastInitializationError = null;
+        }
+
+        return EnsureInitialized();
     }
 
     /// <summary>
@@ -327,8 +366,10 @@ public class AudioEngineService : IDisposable
             
             _mixer = null;
             _isInitialized = false;
+            _openedAtUtc = null;
             // A new device deserves a fresh attempt even if the previous one could not be opened.
             _initializationFailed = false;
+            _lastInitializationError = null;
             
             // Clear active cancellations
             foreach (var cancellation in _activeCancellations.Values)
@@ -525,3 +566,14 @@ public class AudioEngineService : IDisposable
         _activeCancellations.Clear();
     }
 }
+
+/// <summary>
+/// A read of the audio output state that costs nothing: whether a device is open, whether opening
+/// one failed and why, and which device the settings ask for.
+/// </summary>
+public sealed record AudioEngineStatus(
+    bool Initialized,
+    bool InitializationFailed,
+    string? LastError,
+    string? ConfiguredDeviceName,
+    DateTime? OpenedAtUtc);

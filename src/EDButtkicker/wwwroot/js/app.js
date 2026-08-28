@@ -1,8 +1,10 @@
 // Elite Dangerous Buttkicker Configuration Interface
 class ButtkickerApp {
     constructor() {
+        this.setup = null;
         this.init();
         this.loadDashboard();
+        this.loadSetupState();
     }
 
     init() {
@@ -60,49 +62,287 @@ class ButtkickerApp {
         }
     }
 
+    // Health is read from the subsystems themselves - never inferred from an unrelated request
+    // returning 200 - so every row can say what state it is in and why.
     async updateSystemStatus() {
         try {
-            const [configResponse, journalResponse] = await Promise.all([
-                fetch('/api/config'),
-                fetch('/api/journal/status')
-            ]);
+            const response = await fetch('/api/health');
+            if (!response.ok) throw new Error(`/api/health returned ${response.status}`);
 
-            const config = await configResponse.json();
-            const journal = await journalResponse.json();
-
-            // Update header status
-            const statusElement = document.getElementById('systemStatus');
-            const statusIcon = statusElement.querySelector('.status-icon');
-            const statusText = statusElement.querySelector('.status-text');
-
-            if (configResponse.ok && journalResponse.ok) {
-                statusIcon.className = 'fas fa-circle status-icon online';
-                statusText.textContent = journal.monitoring ? 'Connected' : 'Ready';
-            } else {
-                statusIcon.className = 'fas fa-circle status-icon warning';
-                statusText.textContent = 'Partial Connection';
-            }
-
-            // Update dashboard status indicators
-            const audioStatus = document.getElementById('audioStatus');
-            const journalStatus = document.getElementById('journalStatus');
-            const voiceStatus = document.getElementById('voiceStatus');
-            const webStatus = document.getElementById('webStatus');
-
-            if (audioStatus) audioStatus.className = 'status-indicator online';
-            if (journalStatus) journalStatus.className = `status-indicator ${journal.monitoring ? 'online' : 'offline'}`;
-            if (voiceStatus) voiceStatus.className = 'status-indicator online';
-            if (webStatus) webStatus.className = 'status-indicator online';
-
+            this.renderHealth(await response.json());
         } catch (error) {
             console.error('Error updating system status:', error);
-            const statusElement = document.getElementById('systemStatus');
-            const statusIcon = statusElement.querySelector('.status-icon');
-            const statusText = statusElement.querySelector('.status-text');
-            
-            statusIcon.className = 'fas fa-circle status-icon offline';
-            statusText.textContent = 'Connection Error';
+
+            this.setHeaderStatus('offline', 'Connection Error');
+
+            const list = document.getElementById('systemHealthList');
+            if (list) {
+                list.innerHTML = '<div class="loading">Could not read system health from the local service.</div>';
+            }
         }
+    }
+
+    renderHealth(report) {
+        this.setHeaderStatus(
+            ButtkickerApp.statusIconClass(report.status),
+            ButtkickerApp.statusLabel(report.status));
+
+        const list = document.getElementById('systemHealthList');
+        if (!list) return;
+
+        list.innerHTML = (report.components || []).map(component => `
+            <div class="health-item">
+                <div class="health-summary">
+                    <span class="status-indicator ${ButtkickerApp.statusDotClass(component.status)}"></span>
+                    <div class="health-text">
+                        <div class="health-name">${component.name}</div>
+                        <div class="health-reason">${component.reason || ''}</div>
+                        ${component.detail ? `<div class="health-detail">${component.detail}</div>` : ''}
+                    </div>
+                </div>
+                ${component.retry ? `
+                    <button class="btn btn-sm" onclick="retryHealthComponent('${component.id}')">
+                        <i class="fas fa-redo"></i> ${component.retry.label}
+                    </button>` : ''}
+            </div>
+        `).join('');
+    }
+
+    setHeaderStatus(iconClass, text) {
+        const statusElement = document.getElementById('systemStatus');
+        if (!statusElement) return;
+
+        const statusIcon = statusElement.querySelector('.status-icon');
+        const statusText = statusElement.querySelector('.status-text');
+
+        if (statusIcon) statusIcon.className = `fas fa-circle status-icon ${iconClass}`;
+        if (statusText) statusText.textContent = text;
+    }
+
+    static statusDotClass(status) {
+        switch (status) {
+            case 'ok': return 'online';
+            case 'error': return 'offline';
+            case 'off': return 'muted';
+            default: return 'warning';
+        }
+    }
+
+    static statusIconClass(status) {
+        switch (status) {
+            case 'ok': return 'online';
+            case 'error': return 'offline';
+            default: return 'warning';
+        }
+    }
+
+    static statusLabel(status) {
+        switch (status) {
+            case 'ok': return 'All systems ready';
+            case 'error': return 'Needs attention';
+            case 'pending': return 'Setup incomplete';
+            case 'attention': return 'Needs attention';
+            default: return 'Checking...';
+        }
+    }
+
+    // ----- First-run setup wizard -----
+
+    async loadSetupState(forceOpen = false) {
+        try {
+            const response = await fetch('/api/setup/status');
+            if (!response.ok) throw new Error(`/api/setup/status returned ${response.status}`);
+
+            this.setup = await response.json();
+
+            if (this.setup.show_wizard || forceOpen) {
+                this.openSetupWizard();
+            }
+
+            if (this.setup.health) {
+                this.renderHealth(this.setup.health);
+            }
+        } catch (error) {
+            console.error('Error loading setup state:', error);
+        }
+    }
+
+    applySetupStatus(status) {
+        if (!status) return;
+
+        this.setup = status;
+        this.renderSetup();
+
+        if (status.health) {
+            this.renderHealth(status.health);
+        }
+    }
+
+    openSetupWizard(stepId = null) {
+        const modal = document.getElementById('setupWizard');
+        if (!modal) return;
+
+        this.activeStep = stepId || (this.setup ? this.setup.current_step : 'journal');
+        modal.classList.add('active');
+        this.renderSetup();
+    }
+
+    closeSetupWizard() {
+        const modal = document.getElementById('setupWizard');
+        if (modal) modal.classList.remove('active');
+    }
+
+    renderSetup() {
+        const stepsList = document.getElementById('setupSteps');
+        const panel = document.getElementById('setupPanel');
+        const note = document.getElementById('setupNote');
+        if (!stepsList || !panel || !this.setup) return;
+
+        const steps = this.setup.steps || [];
+        if (!steps.some(step => step.id === this.activeStep)) {
+            this.activeStep = this.setup.current_step;
+        }
+
+        stepsList.innerHTML = steps.map(step => `
+            <li class="setup-step ${step.complete ? 'complete' : ''} ${step.id === this.activeStep ? 'active' : ''}"
+                onclick="showSetupStep('${step.id}')">
+                <i class="fas ${step.complete ? 'fa-check-circle' : 'fa-circle-notch'}"></i>
+                <div>
+                    <div class="setup-step-title">${step.title}</div>
+                    <div class="setup-step-summary">${step.summary || ''}</div>
+                </div>
+            </li>
+        `).join('');
+
+        if (note) {
+            note.textContent = this.setup.completed
+                ? `Setup was completed${this.setup.completed_at ? ' on ' + this.formatDateTime(this.setup.completed_at) : ''}. Reopening it changes nothing until you confirm a step.`
+                : 'Nothing is saved until you confirm each step.';
+        }
+
+        switch (this.activeStep) {
+            case 'journal':
+                this.renderJournalStep(panel);
+                break;
+            case 'audio-device':
+                this.renderAudioDeviceStep(panel);
+                break;
+            case 'audio-test':
+                this.renderAudioTestStep(panel);
+                break;
+            default:
+                this.renderFinishStep(panel);
+                break;
+        }
+    }
+
+    async renderJournalStep(panel) {
+        panel.innerHTML = '<div class="loading">Looking for your Elite Dangerous journal folder...</div>';
+
+        try {
+            const response = await fetch('/api/setup/journal/candidates');
+            const data = await response.json();
+            const candidates = data.candidates || [];
+
+            panel.innerHTML = `
+                <h4>1. Find your Elite Dangerous journal</h4>
+                <p class="setup-help">Elite Dangerous writes a <code>Journal.*.log</code> file every session.
+                   These are the folders found on this machine.</p>
+                <div class="setup-candidates">
+                    ${candidates.length === 0 ? '<div class="loading">No candidate folders found - enter the path below.</div>' : ''}
+                    ${candidates.map(candidate => `
+                        <div class="setup-candidate ${candidate.is_configured ? 'active' : ''}">
+                            <div>
+                                <div class="setup-candidate-path">${candidate.path}</div>
+                                <div class="setup-candidate-detail">
+                                    ${candidate.exists ? `${candidate.journal_files_found} journal file(s)` : 'Folder does not exist'}
+                                    ${candidate.is_recommended ? ' &middot; recommended' : ''}
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-primary" ${candidate.exists ? '' : 'disabled'}
+                                    onclick="confirmJournalPath(${JSON.stringify(candidate.path).replace(/"/g, '&quot;')})">
+                                Use this folder
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+                <div class="form-group">
+                    <label for="setupJournalPath">Or enter the folder yourself</label>
+                    <input type="text" id="setupJournalPath" value="${data.configured_path || ''}">
+                </div>
+                <button class="btn btn-primary" onclick="confirmJournalPath()">Confirm journal folder</button>
+            `;
+        } catch (error) {
+            console.error('Error loading journal candidates:', error);
+            panel.innerHTML = '<div class="loading">Could not search for journal folders.</div>';
+        }
+    }
+
+    async renderAudioDeviceStep(panel) {
+        panel.innerHTML = '<div class="loading">Reading output devices...</div>';
+
+        try {
+            const response = await fetch('/api/audio/devices');
+            const data = await response.json();
+            const devices = data.devices || [];
+
+            panel.innerHTML = `
+                <h4>2. Choose your output device</h4>
+                <p class="setup-help">Pick the device your buttkicker amplifier is connected to. The device
+                   name is saved, so the choice survives devices being plugged in or removed.</p>
+                <div class="setup-candidates">
+                    ${devices.length === 0 ? '<div class="loading">No output devices reported.</div>' : ''}
+                    ${devices.map(device => `
+                        <div class="setup-candidate ${device.id === data.current.id ? 'active' : ''}">
+                            <div>
+                                <div class="setup-candidate-path">${device.name}</div>
+                                <div class="setup-candidate-detail">
+                                    ${device.driver}${device.isDefault ? ' &middot; system default' : ''}
+                                    ${device.isAvailable ? '' : ' &middot; not active'}
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-primary" ${device.isAvailable ? '' : 'disabled'}
+                                    onclick="selectSetupAudioDevice(${device.id})">
+                                Use this device
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } catch (error) {
+            console.error('Error loading audio devices:', error);
+            panel.innerHTML = '<div class="loading">Could not read the output devices.</div>';
+        }
+    }
+
+    renderAudioTestStep(panel) {
+        const step = (this.setup.steps || []).find(s => s.id === 'audio-test');
+
+        panel.innerHTML = `
+            <h4>3. Run a quiet test</h4>
+            <p class="setup-help">This plays a short, deliberately quiet low-frequency tone so you can set
+               your amplifier gain from silence upwards rather than being surprised at full intensity.</p>
+            <div class="setup-result" id="setupTestResult">${step && step.complete ? step.summary : 'No test has been run yet.'}</div>
+            <button class="btn btn-primary" onclick="runSetupAudioTest()">
+                <i class="fas fa-volume-down"></i> Play test tone
+            </button>
+        `;
+    }
+
+    renderFinishStep(panel) {
+        const incomplete = this.setup.incomplete_steps || [];
+        const remaining = incomplete.filter(id => id !== 'finish');
+
+        panel.innerHTML = `
+            <h4>4. Finish setup</h4>
+            ${remaining.length > 0 ? `
+                <p class="setup-help">These steps have not been confirmed yet: ${remaining.join(', ')}.
+                   You can still finish - the dashboard will keep showing what is missing.</p>` : `
+                <p class="setup-help">Every step has been confirmed.</p>`}
+            <button class="btn btn-primary" onclick="completeSetup()">
+                <i class="fas fa-check"></i> ${this.setup.completed ? 'Save and close' : 'Finish setup'}
+            </button>
+        `;
     }
 
     async loadDashboard() {
@@ -1286,6 +1526,147 @@ window.refreshJournalFiles = async () => {
         if (journalFileSelect) {
             journalFileSelect.innerHTML = '<option value="">Error loading journal files</option>';
         }
+    }
+};
+
+// ----- First-run setup wizard controls -----
+
+// Reopening is explicit and non-destructive: the persisted completion record stays as it is.
+window.openSetupWizard = async () => {
+    try {
+        const response = await fetch('/api/setup/reopen', { method: 'POST' });
+        if (response.ok) {
+            const result = await response.json();
+            app.applySetupStatus(result.setup);
+        }
+    } catch (error) {
+        console.error('Error reopening setup wizard:', error);
+    }
+
+    app.openSetupWizard();
+};
+
+window.closeSetupWizard = () => app.closeSetupWizard();
+
+window.showSetupStep = (stepId) => app.openSetupWizard(stepId);
+
+window.refreshHealth = () => app.updateSystemStatus();
+
+window.confirmJournalPath = async (path) => {
+    const input = document.getElementById('setupJournalPath');
+    const chosen = path || (input ? input.value.trim() : '');
+
+    if (!chosen) {
+        app.showToast('Enter or pick a journal folder first', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/setup/journal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: chosen })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            app.showToast(result.error || 'Could not use that folder', 'error');
+            return;
+        }
+
+        app.showToast(result.warning || `Journal folder set to ${result.path}`, result.warning ? 'warning' : 'success');
+        app.applySetupStatus(result.setup);
+        app.openSetupWizard('audio-device');
+    } catch (error) {
+        console.error('Error confirming journal path:', error);
+        app.showToast('Error confirming journal folder', 'error');
+    }
+};
+
+window.selectSetupAudioDevice = async (deviceId) => {
+    try {
+        const response = await fetch('/api/setup/audio/device', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deviceId })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            app.showToast(result.error || 'Could not select that device', 'error');
+            return;
+        }
+
+        app.showToast(`Output set to ${result.device.name}`, 'success');
+        app.applySetupStatus(result.setup);
+        app.openSetupWizard('audio-test');
+    } catch (error) {
+        console.error('Error selecting audio device:', error);
+        app.showToast('Error selecting the output device', 'error');
+    }
+};
+
+window.runSetupAudioTest = async () => {
+    const resultBox = document.getElementById('setupTestResult');
+    if (resultBox) resultBox.textContent = 'Playing the test tone...';
+
+    try {
+        const response = await fetch('/api/setup/audio/test', { method: 'POST' });
+        const result = await response.json();
+
+        if (!response.ok) {
+            app.showToast(result.error || 'Audio test failed', 'error');
+            if (resultBox) resultBox.textContent = result.error || 'Audio test failed.';
+            return;
+        }
+
+        // played is false when no device could be opened; say so rather than claiming success.
+        if (resultBox) resultBox.textContent = result.reason;
+        app.showToast(result.reason, result.played ? 'success' : 'warning');
+        app.applySetupStatus(result.setup);
+        app.openSetupWizard(result.played ? 'finish' : 'audio-test');
+    } catch (error) {
+        console.error('Error running the audio test:', error);
+        app.showToast('Error running the audio test', 'error');
+    }
+};
+
+window.completeSetup = async () => {
+    try {
+        const response = await fetch('/api/setup/complete', { method: 'POST' });
+        const result = await response.json();
+
+        if (!response.ok) {
+            app.showToast(result.error || 'Could not save setup', 'error');
+            return;
+        }
+
+        app.applySetupStatus(result.setup);
+        app.closeSetupWizard();
+        app.showToast('Setup saved. Reopen it any time from the dashboard.', 'success');
+    } catch (error) {
+        console.error('Error completing setup:', error);
+        app.showToast('Error saving setup', 'error');
+    }
+};
+
+window.retryHealthComponent = async (componentId) => {
+    try {
+        const response = await fetch(`/api/health/${componentId}/retry`, { method: 'POST' });
+        const result = await response.json();
+
+        if (!response.ok) {
+            app.showToast(result.error || 'Retry failed', 'error');
+            return;
+        }
+
+        app.renderHealth(result.health);
+        app.showToast(result.component.reason, result.component.status === 'ok' ? 'success' : 'warning');
+    } catch (error) {
+        console.error('Error retrying health component:', error);
+        app.showToast('Error retrying', 'error');
     }
 };
 

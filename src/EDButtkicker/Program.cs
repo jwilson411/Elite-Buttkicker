@@ -60,7 +60,8 @@ class Program
 
             // Start services and web UI
             logger.LogInformation("Starting services and web interface...");
-            ShowStartupInfo(debugMode);
+            var setupState = await host.Services.GetRequiredService<SetupStateService>().LoadAsync();
+            ShowStartupInfo(appSettings, setupState, debugMode);
             await host.RunAsync();
         }
         catch (Exception ex)
@@ -261,13 +262,21 @@ class Program
         }
     }
 
-    static void ShowStartupInfo(bool debugMode = false)
+    static void ShowStartupInfo(AppSettings settings, SetupState setupState, bool debugMode = false)
     {
+        var journalPath = settings.EliteDangerous.JournalPath;
+        var journalFolderExists = !string.IsNullOrWhiteSpace(journalPath) && Directory.Exists(journalPath);
+
         Console.WriteLine("✓ Elite Dangerous Buttkicker Extension is running!");
         Console.WriteLine();
-        Console.WriteLine("🌍 Web Interface: http://localhost:47811");
-        Console.WriteLine("🎵 Audio: Using system default device (can be changed in web UI)");
-        Console.WriteLine("📁 Journal: Auto-detecting Elite Dangerous folder");
+        Console.WriteLine($"🌍 Web Interface: http://localhost:{WebUiConfiguration.Port}");
+        Console.WriteLine($"🎵 Audio: {(string.IsNullOrWhiteSpace(settings.Audio.AudioDeviceName) ? "System default device" : settings.Audio.AudioDeviceName)}");
+        // Say what the journal folder actually is, and whether it is there - the old text claimed
+        // auto-detection had worked no matter what.
+        Console.WriteLine($"📁 Journal: {journalPath} ({(journalFolderExists ? "found" : "not found yet")})");
+        Console.WriteLine(setupState.Completed
+            ? "🧭 Setup: completed - reopen the wizard from the dashboard whenever you need it"
+            : "🧭 Setup: not completed - the first-run wizard opens in the web interface");
         Console.WriteLine();
         Console.WriteLine("Supported Events:");
         Console.WriteLine("┌─ Core Events:");

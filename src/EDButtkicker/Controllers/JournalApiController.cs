@@ -13,6 +13,7 @@ public class JournalApiController
     private readonly AppSettings _settings;
     private readonly IJournalEventStore _eventStore;
     private readonly IJournalEventPipeline _pipeline;
+    private readonly JournalMonitorStatus _monitorStatus;
 
     // Replay functionality
     private CancellationTokenSource? _replayTokenSource;
@@ -23,12 +24,14 @@ public class JournalApiController
         ILogger<JournalApiController> logger,
         AppSettings settings,
         IJournalEventStore eventStore,
-        IJournalEventPipeline pipeline)
+        IJournalEventPipeline pipeline,
+        JournalMonitorStatus monitorStatus)
     {
         _logger = logger;
         _settings = settings;
         _eventStore = eventStore;
         _pipeline = pipeline;
+        _monitorStatus = monitorStatus;
     }
 
     public async Task GetJournalStatus(HttpContext context)
@@ -57,17 +60,25 @@ public class JournalApiController
                 }
             }
 
+            // Monitoring means a watcher is attached, not merely that the folder is there: the two
+            // came apart whenever the folder existed but the monitor could not start on it.
+            var monitor = _monitorStatus.Current;
+            var monitoring = monitor.State == JournalWatchState.Watching;
+
             var status = new
             {
                 journal_path = journalPath,
                 path_exists = pathExists,
-                monitoring = pathExists,
+                monitoring,
+                monitor_state = monitor.State.ToString(),
+                monitor_reason = monitor.Reason,
+                monitor_active_file = monitor.ActiveFile,
                 monitor_latest_only = _settings.EliteDangerous.MonitorLatestOnly,
                 recent_files = journalFiles,
                 events_processed = GetRecentEventsCount(),
                 last_event_time = GetLastEventTime(),
-                status = pathExists ? "Connected" : "Disconnected",
-                health = pathExists ? "Healthy" : "Configuration Required"
+                status = monitoring ? "Connected" : "Disconnected",
+                health = monitoring ? "Healthy" : "Configuration Required"
             };
 
             context.Response.ContentType = "application/json";
