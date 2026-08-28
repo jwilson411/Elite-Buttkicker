@@ -9,8 +9,12 @@ public class JournalMonitorService : BackgroundService
 {
     private static readonly TimeSpan RotationCheckInterval = TimeSpan.FromSeconds(1);
 
+    /// <summary>How long to wait before looking at an unusable journal folder again.</summary>
+    private static readonly TimeSpan FolderRecheckInterval = TimeSpan.FromSeconds(5);
+
     private readonly ILogger<JournalMonitorService> _logger;
     private readonly AppSettings _settings;
+    private readonly JournalMonitorStatus _status;
     private readonly IJournalEventPipeline _pipeline;
     private readonly ShipTrackingService _shipTrackingService;
     private readonly ShipPatternService _shipPatternService;
@@ -27,6 +31,7 @@ public class JournalMonitorService : BackgroundService
     public JournalMonitorService(
         ILogger<JournalMonitorService> logger,
         AppSettings settings,
+        JournalMonitorStatus status,
         IJournalEventPipeline pipeline,
         ShipTrackingService shipTrackingService,
         ShipPatternService shipPatternService,
@@ -36,6 +41,7 @@ public class JournalMonitorService : BackgroundService
     {
         _logger = logger;
         _settings = settings;
+        _status = status;
         _pipeline = pipeline;
         _shipTrackingService = shipTrackingService;
         _shipPatternService = shipPatternService;
@@ -52,14 +58,43 @@ public class JournalMonitorService : BackgroundService
         // journal event is processed, otherwise early events use default patterns only.
         await LoadPatternStateAsync();
 
-        var journalPath = _settings.EliteDangerous.JournalPath;
-        if (!Directory.Exists(journalPath))
+        try
         {
-            _logger.LogError("Journal path does not exist: {Path}", journalPath);
-            return;
+            // A folder that does not exist yet is not fatal any more: the setup wizard can point us
+            // somewhere else, and Elite Dangerous creates the folder on its first run. The monitor
+            // keeps re-checking (and re-checks immediately when the health retry asks it to) instead
+            // of giving up for the lifetime of the process.
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var journalPath = _settings.EliteDangerous.JournalPath;
+
+                if (string.IsNullOrWhiteSpace(journalPath) || !Directory.Exists(journalPath))
+                {
+                    var reason = string.IsNullOrWhiteSpace(journalPath)
+                        ? "No journal folder is configured yet."
+                        : $"The journal folder does not exist yet: {journalPath}";
+
+                    _status.ReportWaiting(journalPath, reason);
+                    _logger.LogWarning("Journal folder unavailable, waiting: {Reason}", reason);
+
+                    await _status.WaitForRecheckAsync(FolderRecheckInterval, stoppingToken);
+                    continue;
+                }
+
+                await StartMonitoring(journalPath, stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal shutdown.
+        }
+        catch (Exception ex)
+        {
+            _status.ReportFaulted($"Journal monitoring stopped after an error: {ex.Message}");
+            throw;
         }
 
-        await StartMonitoring(journalPath, stoppingToken);
+        _status.ReportStopped("Journal monitoring stopped.");
     }
 
     private async Task LoadPatternStateAsync()
@@ -117,7 +152,8 @@ public class JournalMonitorService : BackgroundService
         _reader = new JournalTailReader(journalPath, _settings.EliteDangerous.MonitorLatestOnly, _logger);
         _pump = new JournalSignalPump(DrainJournalAsync, _logger);
 
-        if (_reader.FindLatestJournalFile() == null)
+        var latestFile = _reader.FindLatestJournalFile();
+        if (latestFile == null)
         {
             _logger.LogWarning("No journal files found in {Path}; waiting for one to appear", journalPath);
         }
@@ -125,6 +161,7 @@ public class JournalMonitorService : BackgroundService
         // Watcher signals and the periodic rotation check both feed the same single-reader queue,
         // so overlapping Changed callbacks can never run two reads (or two cursor updates) at once.
         SetupFileWatcher(journalPath);
+        _status.ReportWatching(journalPath, latestFile == null ? null : Path.GetFileName(latestFile));
 
         var pumpTask = _pump.RunAsync(stoppingToken);
 
@@ -135,7 +172,17 @@ public class JournalMonitorService : BackgroundService
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(RotationCheckInterval, stoppingToken);
+                // The wait ends early when a health retry asks for a re-check, so "Retry" acts now
+                // rather than at the end of the next rotation interval.
+                await _status.WaitForRecheckAsync(RotationCheckInterval, stoppingToken);
+
+                if (!Directory.Exists(journalPath) || !IsStillConfigured(journalPath))
+                {
+                    // The folder went away, or setup pointed us at a different one: hand back to the
+                    // outer loop, which reports why and re-attaches.
+                    break;
+                }
+
                 _pump.Signal();
             }
         }
@@ -153,9 +200,14 @@ public class JournalMonitorService : BackgroundService
             _fileWatcher?.Dispose();
             _fileWatcher = null;
             _pump.Dispose();
+            _pump = null;
+            _reader = null;
             await pumpTask.ConfigureAwait(false);
         }
     }
+
+    private bool IsStillConfigured(string journalPath) =>
+        string.Equals(_settings.EliteDangerous.JournalPath, journalPath, StringComparison.OrdinalIgnoreCase);
 
     private void SetupFileWatcher(string journalPath)
     {
@@ -178,10 +230,18 @@ public class JournalMonitorService : BackgroundService
 
     private async Task DrainJournalAsync(CancellationToken cancellationToken)
     {
-        if (_reader == null)
+        var reader = _reader;
+        if (reader == null)
             return;
 
-        var lines = await _reader.ReadNewLinesAsync(cancellationToken).ConfigureAwait(false);
+        var lines = await reader.ReadNewLinesAsync(cancellationToken).ConfigureAwait(false);
+
+        // Which file the watcher is on is part of the health story: "attached, no journal file yet"
+        // and "reading Journal.2026-08-28.log" are different states.
+        var currentFile = reader.CurrentFile;
+        _status.ReportWatching(
+            _settings.EliteDangerous.JournalPath,
+            currentFile == null ? null : Path.GetFileName(currentFile));
 
         foreach (var line in lines)
         {
@@ -191,6 +251,7 @@ public class JournalMonitorService : BackgroundService
 
         if (lines.Count > 0)
         {
+            _status.ReportLinesRead();
             _logger.LogDebug("Processed {Count} new journal entries", lines.Count);
         }
     }

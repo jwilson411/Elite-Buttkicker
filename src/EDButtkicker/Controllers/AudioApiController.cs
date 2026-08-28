@@ -14,15 +14,18 @@ public class AudioApiController
     private readonly ILogger<AudioApiController> _logger;
     private readonly AppSettings _settings;
     private readonly AudioEngineService _audioEngine;
+    private readonly IAudioDeviceCatalog _deviceCatalog;
 
     public AudioApiController(
-        ILogger<AudioApiController> logger, 
+        ILogger<AudioApiController> logger,
         AppSettings settings,
-        AudioEngineService audioEngine)
+        AudioEngineService audioEngine,
+        IAudioDeviceCatalog deviceCatalog)
     {
         _logger = logger;
         _settings = settings;
         _audioEngine = audioEngine;
+        _deviceCatalog = deviceCatalog;
     }
 
     public async Task GetAudioDevices(HttpContext context)
@@ -208,60 +211,9 @@ public class AudioApiController
         }
     }
 
-    private List<AudioDevice> GetAvailableAudioDevices()
-    {
-        var devices = new List<AudioDevice>();
-
-        try
-        {
-            // Add default device option
-            devices.Add(new AudioDevice
-            {
-                DeviceId = -1,
-                Name = "Default Audio Device",
-                Driver = "WaveOut",
-                Channels = 2,
-                IsDefault = true,
-                IsAvailable = true
-            });
-
-            // For now, use a simple mapping of MMDevice names to WaveOut-compatible IDs
-            // This is a temporary workaround for the device ID mismatch issue
-            var deviceEnumerator = new MMDeviceEnumerator();
-            var devicesCollection = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-            
-            for (int i = 0; i < devicesCollection.Count; i++)
-            {
-                var device = devicesCollection[i];
-                devices.Add(new AudioDevice
-                {
-                    DeviceId = i,
-                    Name = device.FriendlyName,
-                    Driver = "WASAPI",
-                    Channels = 2, // Default assumption
-                    IsDefault = device.ID == deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID,
-                    IsAvailable = true
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error enumerating audio devices, using fallback");
-            
-            // Fallback - add a default device entry
-            devices.Add(new AudioDevice
-            {
-                DeviceId = -1,
-                Name = "Default Audio Device",
-                Driver = "Default",
-                Channels = 2,
-                IsDefault = true,
-                IsAvailable = true
-            });
-        }
-
-        return devices;
-    }
+    // One enumeration for the whole app: the setup wizard, the health checks and this API all read
+    // the same catalog, so they can never disagree about which devices exist.
+    private List<AudioDevice> GetAvailableAudioDevices() => _deviceCatalog.GetDevices().ToList();
 
     private int ConvertToWaveOutDeviceId(int mmDeviceId, string deviceName)
     {

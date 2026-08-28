@@ -8,8 +8,10 @@ using EDButtkicker.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace EDButtkicker.Tests;
@@ -162,6 +164,16 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         { "GET", "/api/context/status" },
         { "POST", "/api/context/config" },
         { "GET", "/api/context/predictions" },
+        { "GET", "/api/setup/status" },
+        { "GET", "/api/setup/journal/candidates" },
+        { "POST", "/api/setup/journal" },
+        { "POST", "/api/setup/audio/device" },
+        { "POST", "/api/setup/audio/test" },
+        { "POST", "/api/setup/complete" },
+        { "POST", "/api/setup/reopen" },
+        { "GET", "/api/health" },
+        { "POST", "/api/health/journal/retry" },
+        { "POST", "/api/health/audio/retry" },
         { "GET", "/" }
     };
 
@@ -175,6 +187,9 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         "/api/PatternFiles/packs",
         "/api/PatternEditor/templates",
         "/api/context/predictions",
+        "/api/setup/status",
+        "/api/setup/journal/candidates",
+        "/api/health",
         "/"
     };
 
@@ -219,6 +234,7 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
 public sealed class WebUiTestServerFixture : IDisposable
 {
     private readonly IWebHost _host;
+    private readonly TempDirectory _setupStateDir = new("edbk-di-setup");
 
     public WebUiTestServerFixture()
     {
@@ -233,6 +249,11 @@ public sealed class WebUiTestServerFixture : IDisposable
 
                 // The one composition root, exactly as Program registers it.
                 services.AddEliteButtkicker(settings);
+
+                // The only redirection: setup completion is written to a temp directory so probing
+                // the setup routes cannot mark a developer's own first run as done.
+                services.Replace(ServiceDescriptor.Singleton(
+                    new SetupStateService(NullLogger<SetupStateService>.Instance, _setupStateDir.Path)));
 
                 // Deliberately no AddHostedService: no JournalMonitorService, no StatusMonitorService,
                 // no WebConfigurationService, and AudioEngineService is never Initialize()d.
@@ -253,5 +274,6 @@ public sealed class WebUiTestServerFixture : IDisposable
     {
         Client.Dispose();
         _host.Dispose();
+        _setupStateDir.Dispose();
     }
 }

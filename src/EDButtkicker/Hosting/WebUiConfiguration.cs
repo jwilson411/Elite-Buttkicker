@@ -231,6 +231,63 @@ public static class WebUiConfiguration
                     await controller!.GetUserFilesHttpContext(context, author);
                     return;
                 }
+                // First-run setup API
+                else if (path == "/api/setup/status" && method == "GET")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.GetStatus(context);
+                    return;
+                }
+                else if (path == "/api/setup/journal/candidates" && method == "GET")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.GetJournalCandidates(context);
+                    return;
+                }
+                else if (path == "/api/setup/journal" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.ConfirmJournalPath(context);
+                    return;
+                }
+                else if (path == "/api/setup/audio/device" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.SelectAudioDevice(context);
+                    return;
+                }
+                else if (path == "/api/setup/audio/test" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.RunAudioTest(context);
+                    return;
+                }
+                else if (path == "/api/setup/complete" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.CompleteSetup(context);
+                    return;
+                }
+                else if (path == "/api/setup/reopen" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<SetupApiController>();
+                    await controller!.ReopenSetup(context);
+                    return;
+                }
+                // Health API
+                else if (path == "/api/health" && method == "GET")
+                {
+                    var controller = context.RequestServices.GetService<HealthApiController>();
+                    await controller!.GetHealth(context);
+                    return;
+                }
+                else if (path.StartsWith("/api/health/") && path.EndsWith("/retry") && method == "POST")
+                {
+                    var componentId = path["/api/health/".Length..^"/retry".Length];
+                    var controller = context.RequestServices.GetService<HealthApiController>();
+                    await controller!.RetryComponent(context, componentId);
+                    return;
+                }
                 // Contextual Intelligence API
                 else if (path == "/api/context/status" && method == "GET")
                 {
