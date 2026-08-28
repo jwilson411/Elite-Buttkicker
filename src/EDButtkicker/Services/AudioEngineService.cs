@@ -132,7 +132,11 @@ public class AudioEngineService : IDisposable
         }
     }
 
-    public Task PlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null)
+    /// <summary>
+    /// Plays one pattern. Virtual so tests can observe what would be played without opening a device;
+    /// when no audio device is available this degrades to a no-op instead of throwing.
+    /// </summary>
+    public virtual Task PlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null)
     {
         if (!EnsureInitialized())
         {

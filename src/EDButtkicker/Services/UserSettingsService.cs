@@ -12,15 +12,29 @@ public class UserSettingsService
     private readonly string _gameContextPath;
     private readonly JsonSerializerOptions _jsonOptions;
 
+    /// <summary>Per-user settings directory used by the running application.</summary>
+    public static string DefaultSettingsDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "EDButtkicker");
+
     public UserSettingsService(ILogger<UserSettingsService> logger)
+        : this(logger, DefaultSettingsDirectory)
+    {
+    }
+
+    /// <summary>
+    /// Overload that puts the settings files under an explicit directory, so tests can round trip
+    /// settings through a temporary directory instead of the real per-user profile.
+    /// </summary>
+    public UserSettingsService(ILogger<UserSettingsService> logger, string settingsDirectory)
     {
         _logger = logger;
-        
-        // Create user-specific settings directory
-        var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var settingsDir = Path.Combine(appDataPath, "EDButtkicker");
+
+        if (string.IsNullOrWhiteSpace(settingsDirectory))
+            throw new ArgumentException("Settings directory must be provided", nameof(settingsDirectory));
+
+        var settingsDir = settingsDirectory;
         Directory.CreateDirectory(settingsDir);
-        
+
         _userSettingsPath = Path.Combine(settingsDir, "user-settings.json");
         _gameContextPath = Path.Combine(settingsDir, "game-context.json");
         

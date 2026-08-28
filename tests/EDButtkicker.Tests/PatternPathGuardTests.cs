@@ -143,29 +143,3 @@ public class PatternPathGuardTests
         Assert.Null(PatternPathGuard.ResolveUnderRoot("", "my-pack.json"));
     }
 }
-
-/// <summary>A scratch directory that removes itself, so no test writes into the repo tree.</summary>
-internal sealed class TempDirectory : IDisposable
-{
-    public TempDirectory()
-    {
-        Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "edbk-guard-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path);
-    }
-
-    public string Path { get; }
-
-    public void Dispose()
-    {
-        try
-        {
-            if (Directory.Exists(Path))
-            {
-                Directory.Delete(Path, recursive: true);
-            }
-        }
-        catch (IOException)
-        {
-        }
-    }
-}
