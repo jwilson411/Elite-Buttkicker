@@ -324,11 +324,11 @@ class Program
                 // Still show device enumeration in debug mode
                 var devices = GetAvailableAudioDevices(debugMode);
                 Console.WriteLine($"Available devices ({devices.Count} found):");
-                for (int i = 0; i < devices.Count; i++)
+                foreach (var line in AudioDeviceDiagnostics.DescribeEnumeration(devices, "WASAPI render"))
                 {
-                    var marker = devices[i].IsDefault ? "✓ " : "  ";
-                    Console.WriteLine($"{marker}{i + 1}. {devices[i].Name}");
+                    Console.WriteLine($"  {line}");
                 }
+                Console.WriteLine($"  {AudioDeviceDiagnostics.DescribeConfiguredSelection(devices, settings.Audio.AudioDeviceId, settings.Audio.AudioDeviceName)}");
                 Console.WriteLine();
             }
             
@@ -397,7 +397,8 @@ class Program
             Console.WriteLine("Available audio devices:");
             for (int i = 0; i < devices.Count; i++)
             {
-                Console.WriteLine($"{i + 1}. {devices[i]}");
+                // Menu numbers are 1-based for input; the DeviceId that gets saved is not.
+                Console.WriteLine($"{i + 1}. {devices[i]} [DeviceId={devices[i].DeviceId}]");
             }
 
             Console.WriteLine($"{devices.Count + 1}. Use default device");
