@@ -9,6 +9,7 @@ public class UserSettingsService
 {
     private readonly ILogger<UserSettingsService> _logger;
     private readonly string _userSettingsPath;
+    private readonly string _userSettingsBackupPath;
     private readonly string _gameContextPath;
     private readonly JsonSerializerOptions _jsonOptions;
 
@@ -36,6 +37,7 @@ public class UserSettingsService
         Directory.CreateDirectory(settingsDir);
 
         _userSettingsPath = Path.Combine(settingsDir, "user-settings.json");
+        _userSettingsBackupPath = Path.Combine(settingsDir, "user-settings.backup.json");
         _gameContextPath = Path.Combine(settingsDir, "game-context.json");
         
         _jsonOptions = new JsonSerializerOptions
@@ -50,51 +52,125 @@ public class UserSettingsService
 
     public async Task<UserPreferences> LoadUserPreferencesAsync()
     {
-        try
+        var preferences = await TryReadPreferencesAsync(_userSettingsPath);
+
+        if (preferences != null)
         {
-            if (!File.Exists(_userSettingsPath))
-            {
-                _logger.LogInformation("No user settings file found, using defaults");
-                return new UserPreferences();
-            }
-
-            var json = await File.ReadAllTextAsync(_userSettingsPath);
-            var preferences = JsonSerializer.Deserialize<UserPreferences>(json, _jsonOptions);
-            
-            if (preferences == null)
-            {
-                _logger.LogWarning("Failed to deserialize user preferences, using defaults");
-                return new UserPreferences();
-            }
-
             _logger.LogInformation("Loaded user preferences from {SettingsPath}", _userSettingsPath);
-            _logger.LogDebug("Audio Device: {DeviceName} (ID: {DeviceId})", 
+            _logger.LogDebug("Audio Device: {DeviceName} (ID: {DeviceId})",
                 preferences.AudioDeviceName, preferences.AudioDeviceId);
-            
+
             return preferences;
         }
-        catch (Exception ex)
+
+        // A settings file that cannot be read is exactly what the backup exists for: reverting a
+        // working configuration to defaults because of one damaged file is the outcome to avoid.
+        var lastKnownGood = await TryReadPreferencesAsync(_userSettingsBackupPath);
+
+        if (lastKnownGood != null)
         {
-            _logger.LogError(ex, "Error loading user preferences, using defaults");
-            return new UserPreferences();
+            _logger.LogWarning(
+                "Settings at {SettingsPath} could not be read; using the last known good copy from {BackupPath}",
+                _userSettingsPath, _userSettingsBackupPath);
+
+            return lastKnownGood;
         }
+
+        _logger.LogInformation("No usable user settings file found, using defaults");
+        return new UserPreferences();
     }
 
+    /// <summary>
+    /// Writes the settings file atomically and keeps the copy it replaced as the last known good
+    /// one. Throws when the file could not be written: the caller has to be able to tell the user
+    /// that their change only applies to this session.
+    /// </summary>
     public async Task SaveUserPreferencesAsync(UserPreferences preferences)
     {
         try
         {
             var json = JsonSerializer.Serialize(preferences, _jsonOptions);
-            await File.WriteAllTextAsync(_userSettingsPath, json);
-            
+            await WriteAtomicallyAsync(_userSettingsPath, json, _userSettingsBackupPath);
+
             _logger.LogInformation("Saved user preferences to {SettingsPath}", _userSettingsPath);
-            _logger.LogDebug("Saved Audio Device: {DeviceName} (ID: {DeviceId})", 
+            _logger.LogDebug("Saved Audio Device: {DeviceName} (ID: {DeviceId})",
                 preferences.AudioDeviceName, preferences.AudioDeviceId);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving user preferences");
             throw;
+        }
+    }
+
+    private async Task<UserPreferences?> TryReadPreferencesAsync(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = await File.ReadAllTextAsync(path);
+            var preferences = JsonSerializer.Deserialize<UserPreferences>(json, _jsonOptions);
+
+            if (preferences == null)
+            {
+                _logger.LogWarning("Settings file {Path} deserialized to nothing", path);
+            }
+
+            return preferences;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading settings file {Path}", path);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Fills a temporary file first and then replaces the target in one step, so an interrupted
+    /// write - a crash, a full disk, a process kill - can never leave half a settings file behind.
+    /// When <paramref name="backupPath"/> is given, the file being replaced is kept there.
+    /// </summary>
+    private static async Task WriteAtomicallyAsync(string path, string json, string? backupPath = null)
+    {
+        var tempPath = path + ".tmp";
+
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, json);
+
+            if (File.Exists(path))
+            {
+                if (backupPath != null)
+                {
+                    File.Replace(tempPath, path, backupPath, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(tempPath, path, overwrite: true);
+                }
+            }
+            else
+            {
+                File.Move(tempPath, path);
+            }
+        }
+        finally
+        {
+            // Only ever reached with the temporary file still present when the replace failed, and
+            // a leftover .tmp would be read by nothing but would confuse the next look at the folder.
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch (IOException) { /* best effort cleanup */ }
+            catch (UnauthorizedAccessException) { /* best effort cleanup */ }
         }
     }
 
@@ -135,6 +211,20 @@ public class UserSettingsService
                 _logger.LogDebug("Applied default frequency: {DefaultFrequency}", preferences.DefaultFrequency.Value);
             }
 
+            // The output format is only read when the device is opened, which is why a change to it
+            // is reported as needing a restart - but it still has to come back after one.
+            if (preferences.SampleRate.HasValue)
+            {
+                appSettings.Audio.SampleRate = preferences.SampleRate.Value;
+                _logger.LogDebug("Applied sample rate: {SampleRate}", preferences.SampleRate.Value);
+            }
+
+            if (preferences.BufferSize.HasValue)
+            {
+                appSettings.Audio.BufferSize = preferences.BufferSize.Value;
+                _logger.LogDebug("Applied buffer size: {BufferSize}", preferences.BufferSize.Value);
+            }
+
             // Apply journal preferences
             if (!string.IsNullOrEmpty(preferences.JournalPath))
             {
@@ -170,6 +260,21 @@ public class UserSettingsService
                 {
                     appSettings.ContextualIntelligence.EnableContextualVoice = preferences.ContextualIntelligence.EnableContextualVoice.Value;
                 }
+
+                if (preferences.ContextualIntelligence.LearningRate.HasValue)
+                {
+                    appSettings.ContextualIntelligence.LearningRate = preferences.ContextualIntelligence.LearningRate.Value;
+                }
+
+                if (preferences.ContextualIntelligence.PredictionThreshold.HasValue)
+                {
+                    appSettings.ContextualIntelligence.PredictionThreshold = preferences.ContextualIntelligence.PredictionThreshold.Value;
+                }
+
+                if (preferences.ContextualIntelligence.LogContextAnalysis.HasValue)
+                {
+                    appSettings.ContextualIntelligence.LogContextAnalysis = preferences.ContextualIntelligence.LogContextAnalysis.Value;
+                }
             }
 
             _logger.LogInformation("Applied user preferences to app settings");
@@ -191,6 +296,8 @@ public class UserSettingsService
                 AudioDeviceName = appSettings.Audio.AudioDeviceName,
                 MaxIntensity = appSettings.Audio.MaxIntensity,
                 DefaultFrequency = appSettings.Audio.DefaultFrequency,
+                SampleRate = appSettings.Audio.SampleRate,
+                BufferSize = appSettings.Audio.BufferSize,
                 JournalPath = appSettings.EliteDangerous.JournalPath,
                 MonitorLatestOnly = appSettings.EliteDangerous.MonitorLatestOnly,
                 ContextualIntelligence = appSettings.ContextualIntelligence != null ? new UserContextualIntelligencePreferences
@@ -198,7 +305,10 @@ public class UserSettingsService
                     Enabled = appSettings.ContextualIntelligence.Enabled,
                     EnableAdaptiveIntensity = appSettings.ContextualIntelligence.EnableAdaptiveIntensity,
                     EnablePredictivePatterns = appSettings.ContextualIntelligence.EnablePredictivePatterns,
-                    EnableContextualVoice = appSettings.ContextualIntelligence.EnableContextualVoice
+                    EnableContextualVoice = appSettings.ContextualIntelligence.EnableContextualVoice,
+                    LearningRate = appSettings.ContextualIntelligence.LearningRate,
+                    PredictionThreshold = appSettings.ContextualIntelligence.PredictionThreshold,
+                    LogContextAnalysis = appSettings.ContextualIntelligence.LogContextAnalysis
                 } : null,
                 LastSaved = DateTime.UtcNow
             };
@@ -214,6 +324,12 @@ public class UserSettingsService
     }
 
     public string GetUserSettingsPath() => _userSettingsPath;
+
+    /// <summary>
+    /// Where the previous settings file is kept whenever a new one replaces it. A damaged or
+    /// truncated settings file is read from here rather than silently reverting to defaults.
+    /// </summary>
+    public string GetUserSettingsBackupPath() => _userSettingsBackupPath;
 
     public bool UserSettingsExist() => File.Exists(_userSettingsPath);
 
@@ -277,6 +393,10 @@ public class UserPreferences
     public int? MaxIntensity { get; set; }
     public int? DefaultFrequency { get; set; }
 
+    /// <summary>Output format the audio device is opened with; only read when it is opened.</summary>
+    public int? SampleRate { get; set; }
+    public int? BufferSize { get; set; }
+
     // Elite Dangerous preferences
     public string? JournalPath { get; set; }
     public bool? MonitorLatestOnly { get; set; }
@@ -295,4 +415,7 @@ public class UserContextualIntelligencePreferences
     public bool? EnableAdaptiveIntensity { get; set; }
     public bool? EnablePredictivePatterns { get; set; }
     public bool? EnableContextualVoice { get; set; }
+    public double? LearningRate { get; set; }
+    public double? PredictionThreshold { get; set; }
+    public bool? LogContextAnalysis { get; set; }
 }

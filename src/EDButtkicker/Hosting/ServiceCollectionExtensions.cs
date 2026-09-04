@@ -32,6 +32,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<AudioEngineService>();
         services.AddSingleton<PatternSequencer>();
         services.AddSingleton<UserSettingsService>();
+
+        // Every settings mutation is validated, applied and written through this one service, so a
+        // successful settings API call always means the same thing - and always survives a restart.
+        services.AddSingleton<SettingsPersistenceService>();
         services.AddSingleton<ContextualIntelligenceService>();
         services.AddSingleton<EventMappingService>();
         services.AddSingleton<ShipTrackingService>();

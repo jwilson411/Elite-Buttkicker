@@ -14,6 +14,7 @@ public class JournalApiController
     private readonly IJournalEventStore _eventStore;
     private readonly IJournalEventPipeline _pipeline;
     private readonly JournalMonitorStatus _monitorStatus;
+    private readonly SettingsPersistenceService _settingsPersistence;
 
     // Replay functionality
     private CancellationTokenSource? _replayTokenSource;
@@ -25,13 +26,15 @@ public class JournalApiController
         AppSettings settings,
         IJournalEventStore eventStore,
         IJournalEventPipeline pipeline,
-        JournalMonitorStatus monitorStatus)
+        JournalMonitorStatus monitorStatus,
+        SettingsPersistenceService settingsPersistence)
     {
         _logger = logger;
         _settings = settings;
         _eventStore = eventStore;
         _pipeline = pipeline;
         _monitorStatus = monitorStatus;
+        _settingsPersistence = settingsPersistence;
     }
 
     public async Task GetJournalStatus(HttpContext context)
@@ -128,12 +131,9 @@ public class JournalApiController
                 return;
             }
 
-            // Expand environment variables
-            if (journalPath.Contains("%USERPROFILE%"))
-            {
-                journalPath = journalPath.Replace("%USERPROFILE%", 
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-            }
+            // Expand environment variables the same way the persistence service will, so the folder
+            // that is checked here is the folder that gets saved.
+            journalPath = SettingsPersistenceService.ExpandJournalPath(journalPath);
 
             if (!Directory.Exists(journalPath))
             {
@@ -159,21 +159,36 @@ public class JournalApiController
                 return;
             }
 
-            _settings.EliteDangerous.JournalPath = journalPath;
+            // One validated path for the change: it is applied to the running configuration, the
+            // live watcher is asked to re-attach, and the folder is written to the settings file -
+            // so the choice is still there after a restart.
+            var result = await _settingsPersistence.ApplyAsync(new SettingsUpdate { JournalPath = journalPath });
 
-            // The live watcher is still attached to the old folder; ask it to re-check now so the
-            // new path takes effect without a restart, the same way the setup wizard does.
-            _monitorStatus.RequestRecheck();
+            if (!result.Valid)
+            {
+                context.Response.StatusCode = 400;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new
+                {
+                    error = result.Message,
+                    path = journalPath,
+                    validation_errors = result.ValidationErrors
+                }));
+                return;
+            }
 
-            _logger.LogInformation("Journal path updated to: {JournalPath}", journalPath);
+            _logger.LogInformation("Journal path updated to {JournalPath}: {Message}", journalPath, result.Message);
 
+            // Not saved means the folder is in use for this session only; that is not a success.
+            context.Response.StatusCode = result.Saved ? 200 : 500;
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
-                message = "Journal path updated successfully",
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new
+            {
+                success = result.Saved,
+                message = result.Message,
                 path = journalPath,
-                journal_files_found = journalFiles.Length
+                journal_files_found = journalFiles.Length,
+                settings = result.ToPayload()
             }));
         }
         catch (Exception ex)

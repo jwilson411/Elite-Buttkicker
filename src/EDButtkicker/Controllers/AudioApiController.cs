@@ -13,17 +13,20 @@ public class AudioApiController
     private readonly AppSettings _settings;
     private readonly AudioEngineService _audioEngine;
     private readonly IAudioDeviceCatalog _deviceCatalog;
+    private readonly SettingsPersistenceService _settingsPersistence;
 
     public AudioApiController(
         ILogger<AudioApiController> logger,
         AppSettings settings,
         AudioEngineService audioEngine,
-        IAudioDeviceCatalog deviceCatalog)
+        IAudioDeviceCatalog deviceCatalog,
+        SettingsPersistenceService settingsPersistence)
     {
         _logger = logger;
         _settings = settings;
         _audioEngine = audioEngine;
         _deviceCatalog = deviceCatalog;
+        _settingsPersistence = settingsPersistence;
     }
 
     public async Task GetAudioDevices(HttpContext context)
@@ -140,41 +143,40 @@ public class AudioApiController
             // endpoint id and empty name the audio engine already reads as "use the default".
             var isSystemDefault = selectedDevice.DeviceId == WasapiAudioDeviceCatalog.SystemDefaultDeviceId;
 
-            _settings.Audio.AudioDeviceEndpointId = isSystemDefault ? string.Empty : selectedDevice.EndpointId;
-            _settings.Audio.AudioDeviceName = isSystemDefault ? string.Empty : selectedDevice.Name;
-            _settings.Audio.AudioDeviceId = selectedDevice.DeviceId;
-
-            _logger.LogInformation("Audio device changed to: {DeviceName} (endpoint {EndpointId}, ordinal {DeviceId})",
-                selectedDevice.Name, _settings.Audio.AudioDeviceEndpointId, selectedDevice.DeviceId);
-
-            // Reinitialize the audio engine with the new device
-            try
+            // The selection is applied, taken live (the engine releases the open output so the next
+            // pattern opens this one) and written to the settings file by the one persistence
+            // service, so the device is still selected after a restart.
+            var result = await _settingsPersistence.ApplyAsync(new SettingsUpdate
             {
-                _audioEngine.Reinitialize();
-                _logger.LogInformation("Audio engine reinitialized successfully with endpoint {EndpointId}",
-                    _settings.Audio.AudioDeviceEndpointId);
-            }
-            catch (Exception ex)
+                AudioDeviceEndpointId = isSystemDefault ? string.Empty : selectedDevice.EndpointId,
+                AudioDeviceName = isSystemDefault ? string.Empty : selectedDevice.Name,
+                AudioDeviceId = selectedDevice.DeviceId
+            });
+
+            if (!result.Valid)
             {
-                _logger.LogError(ex, "Failed to reinitialize audio engine with new device");
-                context.Response.StatusCode = 500;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Failed to initialize new audio device: " + ex.Message }));
+                context.Response.StatusCode = 400;
+                await WriteJsonAsync(context, new { error = result.Message, validation_errors = result.ValidationErrors });
                 return;
             }
 
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
-                message = "Audio device updated successfully",
+            _logger.LogInformation("Audio device changed to: {DeviceName} (endpoint {EndpointId}, ordinal {DeviceId}): {Message}",
+                selectedDevice.Name, _settings.Audio.AudioDeviceEndpointId, selectedDevice.DeviceId, result.Message);
+
+            context.Response.StatusCode = result.Saved ? 200 : 500;
+            await WriteJsonAsync(context, new
+            {
+                success = result.Saved,
+                message = result.Message,
                 device = new
                 {
                     id = selectedDevice.DeviceId,
                     endpointId = selectedDevice.EndpointId,
                     name = selectedDevice.Name,
                     driver = selectedDevice.Driver
-                }
-            }));
+                },
+                settings = result.ToPayload()
+            });
         }
         catch (Exception ex)
         {
