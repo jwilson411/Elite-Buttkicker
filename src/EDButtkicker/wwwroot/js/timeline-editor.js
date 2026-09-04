@@ -61,110 +61,130 @@ class TimelineEditor {
     }
 
     createUI() {
-        this.container.innerHTML = `
-            <div class="timeline-editor-main">
-                <div class="timeline-toolbar" role="toolbar" aria-label="Timeline Editor Controls">
-                    <div class="timeline-controls" role="group" aria-label="Playback Controls">
-                        <button id="playBtn" class="control-btn" aria-label="Play timeline">▶️</button>
-                        <button id="pauseBtn" class="control-btn" style="display: none;" aria-label="Pause timeline">⏸️</button>
-                        <button id="stopBtn" class="control-btn" aria-label="Stop timeline">⏹️</button>
-                        <span class="time-display" aria-live="polite" aria-label="Current time">0.0s / ${(this.duration / 1000).toFixed(1)}s</span>
-                    </div>
-                    <div class="duration-controls" role="group" aria-label="Pattern Duration Controls">
-                        <label for="durationInput">Duration:</label>
-                        <input type="number" id="durationInput" min="100" max="30000" step="100" value="${this.duration}"
-                               aria-label="Pattern duration in milliseconds" style="width: 80px;">
-                        <span>ms</span>
-                    </div>
-                    <div class="zoom-controls" role="group" aria-label="Zoom Controls">
-                        <button id="zoomInBtn" class="control-btn" aria-label="Zoom in">🔍+</button>
-                        <button id="zoomOutBtn" class="control-btn" aria-label="Zoom out">🔍-</button>
-                        <button id="resetZoomBtn" class="control-btn" aria-label="Reset zoom">↻</button>
-                    </div>
-                    <div class="curve-tools" role="group" aria-label="Curve Tools">
-                        <label for="curveTypeSelect">Curve Type:</label>
-                        <select id="curveTypeSelect" aria-label="Select curve type">
-                            ${this.curveTypes.map(type => `<option value="${type}">${type}</option>`).join('')}
-                        </select>
-                        <button id="addPointBtn" class="control-btn" aria-label="Add control point">+ Point</button>
-                    </div>
-                </div>
+        const { el, replace } = window.dom;
 
-                <div class="timeline-content">
-                    <div class="timeline-canvas-wrapper">
-                        <canvas id="timelineCanvas" class="timeline-canvas"
-                                role="img"
-                                aria-label="Timeline visualization canvas. Use arrow keys to navigate, Space to pan, mouse to add control points"
-                                tabindex="0"></canvas>
-                    </div>
+        const button = (id, label, text, extra) => el('button', {
+            id,
+            className: 'control-btn' + (extra && extra.className ? ' ' + extra.className : ''),
+            text,
+            attrs: { 'aria-label': label },
+            style: extra && extra.style
+        });
 
-                    <div class="layer-panel" role="complementary" aria-label="Layer Management Panel">
-                        <div class="layer-panel-header">
-                            <h3>Layers</h3>
-                            <button id="addLayerBtn" class="control-btn" aria-label="Add new layer">+ Add Layer</button>
-                        </div>
-                        <div id="layerList" class="layer-list" role="list" aria-label="Timeline layers"></div>
+        const options = values => values.map(type => el('option', { value: type, text: type }));
 
-                        <div class="layer-controls" id="layerControls" style="display: none;" role="region" aria-label="Layer Properties">
-                            <h4>Layer Properties</h4>
-                            <div class="control-group">
-                                <label for="layerWaveform">Waveform:</label>
-                                <select id="layerWaveform" aria-label="Select waveform type">
-                                    ${this.waveformTypes.map(type => `<option value="${type}">${type}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="control-group">
-                                <label for="frequencySlider">Frequency: <span id="frequencyValue" aria-live="polite">40</span>Hz</label>
-                                <input type="range" id="frequencySlider" min="20" max="120" value="40" step="1"
-                                       aria-label="Frequency slider" aria-describedby="frequencyValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="amplitudeSlider">Amplitude: <span id="amplitudeValue" aria-live="polite">100</span>%</label>
-                                <input type="range" id="amplitudeSlider" min="0" max="100" value="100" step="1"
-                                       aria-label="Amplitude slider" aria-describedby="amplitudeValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="phaseSlider">Phase: <span id="phaseValue" aria-live="polite">0</span>°</label>
-                                <input type="range" id="phaseSlider" min="0" max="360" value="0" step="1"
-                                       aria-label="Phase slider" aria-describedby="phaseValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="startTimeSlider">Start Time: <span id="startTimeValue" aria-live="polite">0</span>ms</label>
-                                <input type="range" id="startTimeSlider" min="0" max="${this.duration}" value="0" step="10"
-                                       aria-label="Start time slider" aria-describedby="startTimeValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="layerDurationSlider">Duration: <span id="layerDurationValue" aria-live="polite">${this.duration}</span>ms</label>
-                                <input type="range" id="layerDurationSlider" min="100" max="${this.duration}" value="${this.duration}" step="10"
-                                       aria-label="Duration slider" aria-describedby="layerDurationValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="fadeInSlider">Fade In: <span id="fadeInValue" aria-live="polite">0</span>ms</label>
-                                <input type="range" id="fadeInSlider" min="0" max="1000" value="0" step="10"
-                                       aria-label="Fade in slider" aria-describedby="fadeInValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="fadeOutSlider">Fade Out: <span id="fadeOutValue" aria-live="polite">0</span>ms</label>
-                                <input type="range" id="fadeOutSlider" min="0" max="1000" value="0" step="10"
-                                       aria-label="Fade out slider" aria-describedby="fadeOutValue">
-                            </div>
-                            <div class="control-group">
-                                <label for="layerCurve">Curve Type:</label>
-                                <select id="layerCurve" aria-label="Select layer curve type">
-                                    ${this.curveTypes.map(type => `<option value="${type}">${type}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="layer-actions" role="group" aria-label="Layer Actions">
-                                <button id="duplicateLayerBtn" class="control-btn" aria-label="Duplicate current layer">Duplicate</button>
-                                <button id="removeLayerBtn" class="control-btn danger" aria-label="Remove current layer">Remove</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Offscreen aria-live element for control point selection announcements -->
-                <div class="sr-only-announce" role="status" aria-live="polite" style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;"></div>
-            </div>
-        `;
+        /// Slider whose label carries a live-updating value readout.
+        const slider = (id, valueId, label, unit, initial, attrs) => el('div', { className: 'control-group' }, [
+            el('label', { attrs: { for: id } }, [
+                label + ': ',
+                el('span', { id: valueId, text: initial, attrs: { 'aria-live': 'polite' } }),
+                unit
+            ]),
+            el('input', {
+                id,
+                // Bounds land before the value: a range input clamps whatever it is given to the
+                // min/max in force at the time.
+                attrs: { type: 'range', step: 10, ...attrs, value: initial, 'aria-label': label + ' slider', 'aria-describedby': valueId }
+            })
+        ]);
+
+        replace(this.container, el('div', { className: 'timeline-editor-main' }, [
+            el('div', { className: 'timeline-toolbar', attrs: { role: 'toolbar', 'aria-label': 'Timeline Editor Controls' } }, [
+                el('div', { className: 'timeline-controls', attrs: { role: 'group', 'aria-label': 'Playback Controls' } }, [
+                    button('playBtn', 'Play timeline', '▶️'),
+                    button('pauseBtn', 'Pause timeline', '⏸️', { style: { display: 'none' } }),
+                    button('stopBtn', 'Stop timeline', '⏹️'),
+                    el('span', {
+                        className: 'time-display',
+                        text: `0.0s / ${(this.duration / 1000).toFixed(1)}s`,
+                        attrs: { 'aria-live': 'polite', 'aria-label': 'Current time' }
+                    })
+                ]),
+                el('div', { className: 'duration-controls', attrs: { role: 'group', 'aria-label': 'Pattern Duration Controls' } }, [
+                    el('label', { text: 'Duration:', attrs: { for: 'durationInput' } }),
+                    el('input', {
+                        id: 'durationInput',
+                        style: { width: '80px' },
+                        attrs: {
+                            type: 'number', min: 100, max: 30000, step: 100, value: this.duration,
+                            'aria-label': 'Pattern duration in milliseconds'
+                        }
+                    }),
+                    el('span', { text: 'ms' })
+                ]),
+                el('div', { className: 'zoom-controls', attrs: { role: 'group', 'aria-label': 'Zoom Controls' } }, [
+                    button('zoomInBtn', 'Zoom in', '🔍+'),
+                    button('zoomOutBtn', 'Zoom out', '🔍-'),
+                    button('resetZoomBtn', 'Reset zoom', '↻')
+                ]),
+                el('div', { className: 'curve-tools', attrs: { role: 'group', 'aria-label': 'Curve Tools' } }, [
+                    el('label', { text: 'Curve Type:', attrs: { for: 'curveTypeSelect' } }),
+                    el('select', { id: 'curveTypeSelect', attrs: { 'aria-label': 'Select curve type' } }, options(this.curveTypes)),
+                    button('addPointBtn', 'Add control point', '+ Point')
+                ])
+            ]),
+
+            el('div', { className: 'timeline-content' }, [
+                el('div', { className: 'timeline-canvas-wrapper' }, [
+                    el('canvas', {
+                        id: 'timelineCanvas',
+                        className: 'timeline-canvas',
+                        attrs: {
+                            role: 'img',
+                            tabindex: '0',
+                            'aria-label': 'Timeline visualization canvas. Use arrow keys to navigate, Space to pan, mouse to add control points'
+                        }
+                    })
+                ]),
+
+                el('div', { className: 'layer-panel', attrs: { role: 'complementary', 'aria-label': 'Layer Management Panel' } }, [
+                    el('div', { className: 'layer-panel-header' }, [
+                        el('h3', { text: 'Layers' }),
+                        button('addLayerBtn', 'Add new layer', '+ Add Layer')
+                    ]),
+                    el('div', {
+                        id: 'layerList',
+                        className: 'layer-list',
+                        attrs: { role: 'list', 'aria-label': 'Timeline layers' }
+                    }),
+
+                    el('div', {
+                        id: 'layerControls',
+                        className: 'layer-controls',
+                        style: { display: 'none' },
+                        attrs: { role: 'region', 'aria-label': 'Layer Properties' }
+                    }, [
+                        el('h4', { text: 'Layer Properties' }),
+                        el('div', { className: 'control-group' }, [
+                            el('label', { text: 'Waveform:', attrs: { for: 'layerWaveform' } }),
+                            el('select', { id: 'layerWaveform', attrs: { 'aria-label': 'Select waveform type' } }, options(this.waveformTypes))
+                        ]),
+                        slider('frequencySlider', 'frequencyValue', 'Frequency', 'Hz', 40, { min: 20, max: 120, step: 1 }),
+                        slider('amplitudeSlider', 'amplitudeValue', 'Amplitude', '%', 100, { min: 0, max: 100, step: 1 }),
+                        slider('phaseSlider', 'phaseValue', 'Phase', '°', 0, { min: 0, max: 360, step: 1 }),
+                        slider('startTimeSlider', 'startTimeValue', 'Start Time', 'ms', 0, { min: 0, max: this.duration }),
+                        slider('layerDurationSlider', 'layerDurationValue', 'Duration', 'ms', this.duration, { min: 100, max: this.duration }),
+                        slider('fadeInSlider', 'fadeInValue', 'Fade In', 'ms', 0, { min: 0, max: 1000 }),
+                        slider('fadeOutSlider', 'fadeOutValue', 'Fade Out', 'ms', 0, { min: 0, max: 1000 }),
+                        el('div', { className: 'control-group' }, [
+                            el('label', { text: 'Curve Type:', attrs: { for: 'layerCurve' } }),
+                            el('select', { id: 'layerCurve', attrs: { 'aria-label': 'Select layer curve type' } }, options(this.curveTypes))
+                        ]),
+                        el('div', { className: 'layer-actions', attrs: { role: 'group', 'aria-label': 'Layer Actions' } }, [
+                            button('duplicateLayerBtn', 'Duplicate current layer', 'Duplicate'),
+                            button('removeLayerBtn', 'Remove current layer', 'Remove', { className: 'danger' })
+                        ])
+                    ])
+                ])
+            ]),
+
+            // Offscreen aria-live element for control point selection announcements.
+            el('div', {
+                className: 'sr-only-announce',
+                attrs: { role: 'status', 'aria-live': 'polite' },
+                style: { position: 'absolute', left: '-10000px', width: '1px', height: '1px', overflow: 'hidden' }
+            })
+        ]));
     }
 
     setupCanvas() {
@@ -410,34 +430,62 @@ class TimelineEditor {
             return;
         }
 
-        layerList.innerHTML = this.layers.map((layer, index) => `
-            <div class="layer-item ${this.selectedLayer?.id === layer.id ? 'selected' : ''}"
-                 data-layer-id="${layer.id}"
-                 role="listitem"
-                 tabindex="0"
-                 aria-label="Layer ${index + 1}: ${layer.waveform} waveform, ${layer.visible ? 'visible' : 'hidden'}, ${layer.muted ? 'muted' : 'unmuted'}"
-                 ${this.selectedLayer?.id === layer.id ? 'aria-selected="true"' : 'aria-selected="false"'}>
-                <div class="layer-header">
-                    <div class="layer-color" style="background-color: ${layer.color}" aria-hidden="true"></div>
-                    <span class="layer-name">Layer ${index + 1} (${layer.waveform})</span>
-                    <div class="layer-toggles" role="group" aria-label="Layer visibility controls">
-                        <button class="toggle-btn ${layer.visible ? 'active' : ''}"
-                                data-action="toggle-visible"
-                                aria-label="${layer.visible ? 'Hide layer' : 'Show layer'}"
-                                aria-pressed="${layer.visible}">👁️</button>
-                        <button class="toggle-btn ${layer.muted ? 'active' : ''}"
-                                data-action="toggle-muted"
-                                aria-label="${layer.muted ? 'Unmute layer' : 'Mute layer'}"
-                                aria-pressed="${layer.muted}">🔇</button>
-                    </div>
-                </div>
-                <div class="layer-preview">
-                    <canvas class="layer-waveform" width="200" height="30"
-                            role="img"
-                            aria-label="Waveform preview for layer ${index + 1}"></canvas>
-                </div>
-            </div>
-        `).join('');
+        const { el, replace } = window.dom;
+
+        replace(layerList, this.layers.map((layer, index) => {
+            const selected = this.selectedLayer?.id === layer.id;
+
+            return el('div', {
+                className: 'layer-item' + (selected ? ' selected' : ''),
+                dataset: { 'layer-id': layer.id },
+                attrs: {
+                    role: 'listitem',
+                    tabindex: '0',
+                    'aria-label': `Layer ${index + 1}: ${layer.waveform} waveform, ${layer.visible ? 'visible' : 'hidden'}, ${layer.muted ? 'muted' : 'unmuted'}`,
+                    'aria-selected': selected ? 'true' : 'false'
+                }
+            }, [
+                el('div', { className: 'layer-header' }, [
+                    el('div', {
+                        className: 'layer-color',
+                        style: { backgroundColor: layer.color },
+                        attrs: { 'aria-hidden': 'true' }
+                    }),
+                    el('span', { className: 'layer-name', text: `Layer ${index + 1} (${layer.waveform})` }),
+                    el('div', { className: 'layer-toggles', attrs: { role: 'group', 'aria-label': 'Layer visibility controls' } }, [
+                        el('button', {
+                            className: 'toggle-btn' + (layer.visible ? ' active' : ''),
+                            text: '👁️',
+                            dataset: { action: 'toggle-visible' },
+                            attrs: {
+                                'aria-label': layer.visible ? 'Hide layer' : 'Show layer',
+                                'aria-pressed': String(!!layer.visible)
+                            }
+                        }),
+                        el('button', {
+                            className: 'toggle-btn' + (layer.muted ? ' active' : ''),
+                            text: '🔇',
+                            dataset: { action: 'toggle-muted' },
+                            attrs: {
+                                'aria-label': layer.muted ? 'Unmute layer' : 'Mute layer',
+                                'aria-pressed': String(!!layer.muted)
+                            }
+                        })
+                    ])
+                ]),
+                el('div', { className: 'layer-preview' }, [
+                    el('canvas', {
+                        className: 'layer-waveform',
+                        attrs: {
+                            width: 200,
+                            height: 30,
+                            role: 'img',
+                            'aria-label': `Waveform preview for layer ${index + 1}`
+                        }
+                    })
+                ])
+            ]);
+        }));
 
         // Add layer selection event listeners
         layerList.querySelectorAll('.layer-item').forEach(item => {

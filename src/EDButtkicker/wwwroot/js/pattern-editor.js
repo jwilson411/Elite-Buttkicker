@@ -1,4 +1,10 @@
 // Pattern Editor Wizard JavaScript
+//
+// Ship names, event types, template names and pattern pack metadata all arrive from the API, which
+// reads them off disk. None of them is concatenated into markup: nodes are built with dom.el and
+// handlers are attached with addEventListener, since the page's CSP allows no inline script. See
+// js/dom.js.
+const { el, replace, clear, icon, num } = window.dom;
 
 // Helper function for formatting server errors
 async function formatServerError(response) {
@@ -568,24 +574,26 @@ class PatternWizard {
 
     displayValidationResults(container, errors) {
         if (errors.length === 0) {
-            container.innerHTML = `
-                <div class="validation-success">
-                    <i class="fas fa-check-circle"></i>
-                    All advanced patterns are valid and ready to save.
-                </div>
-            `;
-            container.style.display = 'block';
+            replace(container, el('div', { className: 'validation-success' }, [
+                icon('fa-check-circle'),
+                ' All advanced patterns are valid and ready to save.'
+            ]));
         } else {
-            container.innerHTML = `
-                <h4>Pattern Validation Errors:</h4>
-                ${errors.map(error => `<div class="validation-error"><i class="fas fa-exclamation-triangle"></i> ${error}</div>`).join('')}
-                <div class="validation-help">
-                    <i class="fas fa-info-circle"></i>
-                    Please fix these issues before proceeding. Switch between events using the dropdown above to edit each pattern.
-                </div>
-            `;
-            container.style.display = 'block';
+            replace(container, [
+                el('h4', { text: 'Pattern Validation Errors:' }),
+                ...errors.map(error => el('div', { className: 'validation-error' }, [
+                    icon('fa-exclamation-triangle'),
+                    ' ',
+                    error
+                ])),
+                el('div', { className: 'validation-help' }, [
+                    icon('fa-info-circle'),
+                    ' Please fix these issues before proceeding. Switch between events using the dropdown above to edit each pattern.'
+                ])
+            ]);
         }
+
+        container.style.display = 'block';
     }
 
     // Mode toggle functionality
@@ -617,7 +625,7 @@ class PatternWizard {
     hideFileSelection() {
         document.getElementById('fileSelectionSection').style.display = 'none';
         document.getElementById('fileListContainer').style.display = 'none';
-        document.getElementById('userFilesList').innerHTML = '';
+        clear(document.getElementById('userFilesList'));
     }
 
     showShipSelection() {
@@ -660,11 +668,14 @@ class PatternWizard {
         const container = document.getElementById('userFilesList');
 
         if (!files || files.length === 0) {
-            container.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--text-secondary);">No pattern files found for this user.</div>';
+            replace(container, el('div', {
+                style: { padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)' },
+                text: 'No pattern files found for this user.'
+            }));
             return;
         }
 
-        container.innerHTML = files.map(file => this.renderFileItem(file)).join('');
+        replace(container, files.map(file => this.renderFileItem(file)));
     }
 
     // Render individual file item
@@ -673,15 +684,16 @@ class PatternWizard {
         const shipCount = file.shipCount || 'Unknown';
         const title = file.packName || file.fileName;
 
-        return `
-            <div class="file-item" onclick="wizard.selectPatternFile('${file.fileName}')">
-                <div class="file-name">${title}</div>
-                <div class="file-details">
-                    Ships: ${shipCount} | Modified: ${lastModified}
-                    ${file.description ? ` | ${file.description}` : ''}
-                </div>
-            </div>
-        `;
+        return el('div', {
+            className: 'file-item',
+            on: { click: () => this.selectPatternFile(file.fileName) }
+        }, [
+            el('div', { className: 'file-name', text: title }),
+            el('div', { className: 'file-details' }, [
+                'Ships: ', shipCount, ' | Modified: ', lastModified,
+                file.description ? ` | ${file.description}` : ''
+            ])
+        ]);
     }
 
     // Load selected pattern file
@@ -800,13 +812,13 @@ class PatternWizard {
                 return a.name.localeCompare(b.name);
             });
 
-            grid.innerHTML = ships.map(ship => `
-                <div class="ship-card ${this.selectedShip === ship.type ? 'selected' : ''}"
-                     onclick="wizard.selectShip('${ship.type}')">
-                    <div class="ship-name">${ship.name}</div>
-                    <div class="ship-class">${ship.class.charAt(0).toUpperCase() + ship.class.slice(1)} Ship</div>
-                </div>
-            `).join('');
+            replace(grid, ships.map(ship => el('div', {
+                className: 'ship-card' + (this.selectedShip === ship.type ? ' selected' : ''),
+                on: { click: () => this.selectShip(ship.type) }
+            }, [
+                el('div', { className: 'ship-name', text: ship.name }),
+                el('div', { className: 'ship-class' }, [ship.class.charAt(0).toUpperCase() + ship.class.slice(1), ' Ship'])
+            ])));
         }
 
         this.updateStep1NextButton();
@@ -885,16 +897,16 @@ class PatternWizard {
                 ...this.eventDefinitions[eventType]
             }));
 
-        container.innerHTML = events.map(event => `
-            <div class="event-card ${this.selectedEvents.includes(event.type) ? 'selected' : ''}" 
-                 onclick="wizard.toggleEvent('${event.type}')">
-                <div class="event-title">
-                    <span>${event.icon}</span>
-                    <span>${event.title}</span>
-                </div>
-                <div class="event-description">${event.description}</div>
-            </div>
-        `).join('');
+        replace(container, events.map(event => el('div', {
+            className: 'event-card' + (this.selectedEvents.includes(event.type) ? ' selected' : ''),
+            on: { click: () => this.toggleEvent(event.type) }
+        }, [
+            el('div', { className: 'event-title' }, [
+                el('span', { text: event.icon }),
+                el('span', { text: event.title })
+            ]),
+            el('div', { className: 'event-description', text: event.description })
+        ])));
     }
 
     toggleEvent(eventType) {
@@ -917,36 +929,37 @@ class PatternWizard {
     renderStep3() {
         const container = document.getElementById('selectedEventsList');
         
-        container.innerHTML = this.selectedEvents.map(eventType => {
+        replace(container, this.selectedEvents.map(eventType => {
             const event = this.eventDefinitions[eventType];
-            return `
-                <div class="event-pattern-section">
-                    <div class="event-pattern-header">
-                        <div class="event-pattern-title">
-                            ${event.icon} ${event.title}
-                        </div>
-                    </div>
-                    <div class="pattern-templates">
-                        ${this.renderPatternTemplates(eventType)}
-                    </div>
-                </div>
-            `;
-        }).join('');
+            return el('div', { className: 'event-pattern-section' }, [
+                el('div', { className: 'event-pattern-header' }, [
+                    el('div', { className: 'event-pattern-title' }, `${event.icon} ${event.title}`)
+                ]),
+                el('div', { className: 'pattern-templates' }, this.renderPatternTemplates(eventType))
+            ]);
+        }));
 
         this.updateStep3NextButton();
     }
 
     renderPatternTemplates(eventType) {
-        return this.templates.map(template => `
-            <div class="pattern-template ${this.eventPatterns[eventType] === template.pattern ? 'selected' : ''}" 
-                 onclick="wizard.selectPattern('${eventType}', '${template.pattern}')">
-                <div class="template-name">${template.name}</div>
-                <div class="template-description">${template.description}</div>
-                <button class="template-test" onclick="event.stopPropagation(); wizard.testTemplate('${template.pattern}')">
-                    ▶️ Try This
-                </button>
-            </div>
-        `).join('');
+        return this.templates.map(template => el('div', {
+            className: 'pattern-template' + (this.eventPatterns[eventType] === template.pattern ? ' selected' : ''),
+            on: { click: () => this.selectPattern(eventType, template.pattern) }
+        }, [
+            el('div', { className: 'template-name', text: template.name }),
+            el('div', { className: 'template-description', text: template.description }),
+            el('button', {
+                className: 'template-test',
+                text: '▶️ Try This',
+                on: {
+                    click: event => {
+                        event.stopPropagation();
+                        this.testTemplate(template.pattern);
+                    }
+                }
+            })
+        ]));
     }
 
     selectPattern(eventType, patternType) {
@@ -994,59 +1007,49 @@ class PatternWizard {
 
         const container = document.getElementById('tuningPanel');
 
-        container.innerHTML = this.selectedEvents.map(eventType => {
+        replace(container, this.selectedEvents.map(eventType => {
             const event = this.eventDefinitions[eventType];
             const patternType = this.eventPatterns[eventType];
             const template = this.templates.find(t => t.pattern === patternType);
             const settings = (this.eventSettings && this.eventSettings[eventType]) || (template ? template.defaultSettings : this.getDefaultSettings());
 
-            return `
-                <div class="tuning-event">
-                    <div class="tuning-header">
-                        <div class="tuning-title">${event.icon} ${event.title}</div>
-                        <button class="test-button" onclick="wizard.testEventPattern('${eventType}')">
-                            🎧 Test Pattern
-                        </button>
-                    </div>
-                    <div class="tuning-controls">
-                        ${this.renderTuningControls(eventType, settings)}
-                    </div>
-                </div>
-            `;
-        }).join('');
+            return el('div', { className: 'tuning-event' }, [
+                el('div', { className: 'tuning-header' }, [
+                    el('div', { className: 'tuning-title' }, `${event.icon} ${event.title}`),
+                    el('button', {
+                        className: 'test-button',
+                        text: '🎧 Test Pattern',
+                        on: { click: () => this.testEventPattern(eventType) }
+                    })
+                ]),
+                el('div', { className: 'tuning-controls' }, this.renderTuningControls(eventType, settings))
+            ]);
+        }));
     }
 
     renderTuningControls(eventType, settings) {
-        return `
-            <div class="control-group">
-                <label class="control-label">Intensity</label>
-                <input type="range" class="control-slider" min="10" max="100" 
-                       value="${settings.intensity}" 
-                       oninput="wizard.updateSetting('${eventType}', 'intensity', this.value)">
-                <div class="control-value" id="${eventType}_intensity">${settings.intensity}%</div>
-            </div>
-            <div class="control-group">
-                <label class="control-label">Frequency</label>
-                <input type="range" class="control-slider" min="10" max="100" 
-                       value="${settings.frequency}" 
-                       oninput="wizard.updateSetting('${eventType}', 'frequency', this.value)">
-                <div class="control-value" id="${eventType}_frequency">${settings.frequency}Hz</div>
-            </div>
-            <div class="control-group">
-                <label class="control-label">Duration</label>
-                <input type="range" class="control-slider" min="100" max="10000" step="100"
-                       value="${settings.duration}"
-                       oninput="wizard.updateSetting('${eventType}', 'duration', this.value)">
-                <div class="control-value" id="${eventType}_duration">${settings.duration}ms</div>
-            </div>
-            <div class="control-group">
-                <label class="control-label">Fade In</label>
-                <input type="range" class="control-slider" min="0" max="500" 
-                       value="${settings.fadeIn || 0}" 
-                       oninput="wizard.updateSetting('${eventType}', 'fadeIn', this.value)">
-                <div class="control-value" id="${eventType}_fadeIn">${settings.fadeIn || 0}ms</div>
-            </div>
-        `;
+        const control = (label, setting, unit, value, attrs) => el('div', { className: 'control-group' }, [
+            el('label', { className: 'control-label', text: label }),
+            el('input', {
+                className: 'control-slider',
+                // type and the bounds go on first: a range input clamps its value to whatever
+                // min/max are set at the time the value lands.
+                attrs: { type: 'range', ...attrs, value: num(value) },
+                on: { input: e => this.updateSetting(eventType, setting, e.target.value) }
+            }),
+            el('div', {
+                className: 'control-value',
+                id: `${eventType}_${setting}`,
+                text: `${num(value)}${unit}`
+            })
+        ]);
+
+        return [
+            control('Intensity', 'intensity', '%', settings.intensity, { min: 10, max: 100 }),
+            control('Frequency', 'frequency', 'Hz', settings.frequency, { min: 10, max: 100 }),
+            control('Duration', 'duration', 'ms', settings.duration, { min: 100, max: 10000, step: 100 }),
+            control('Fade In', 'fadeIn', 'ms', settings.fadeIn || 0, { min: 0, max: 500 })
+        ];
     }
 
     updateSetting(eventType, setting, value) {
@@ -1140,19 +1143,17 @@ class PatternWizard {
         const container = document.getElementById('timelineEditorContainer');
 
         // Clear container and create event-specific editors
-        container.innerHTML = `
-            <div class="timeline-event-selector">
-                <label>Edit Pattern For:</label>
-                <select id="eventSelector">
-                    ${this.selectedEvents.map(eventType => `
-                        <option value="${eventType}">${this.eventDefinitions[eventType]?.title || eventType}</option>
-                    `).join('')}
-                </select>
-            </div>
-            <div id="currentTimelineEditor" class="timeline-editor-main">
-                <!-- Current event's timeline editor will be initialized here -->
-            </div>
-        `;
+        replace(container, [
+            el('div', { className: 'timeline-event-selector' }, [
+                el('label', { text: 'Edit Pattern For:' }),
+                el('select', { id: 'eventSelector' }, this.selectedEvents.map(eventType => el('option', {
+                    value: eventType,
+                    text: this.eventDefinitions[eventType]?.title || eventType
+                })))
+            ]),
+            // Current event's timeline editor is initialized into this container below.
+            el('div', { id: 'currentTimelineEditor', className: 'timeline-editor-main' })
+        ]);
 
         // Set up event selector
         const eventSelector = container.querySelector('#eventSelector');
@@ -1337,21 +1338,17 @@ class PatternWizard {
         const eventCount = this.selectedEvents.length;
         const shipName = this.formatShipName(this.selectedShip);
         
-        container.innerHTML = `
-            <div class="summary-title">Pattern Pack Summary</div>
-            <div class="summary-item">
-                <span>Ship:</span>
-                <span>${shipName}</span>
-            </div>
-            <div class="summary-item">
-                <span>Events:</span>
-                <span>${eventCount} custom patterns</span>
-            </div>
-            <div class="summary-item">
-                <span>Selected Events:</span>
-                <span>${this.selectedEvents.map(e => this.eventDefinitions[e].title).join(', ')}</span>
-            </div>
-        `;
+        const summaryItem = (label, value) => el('div', { className: 'summary-item' }, [
+            el('span', { text: label }),
+            el('span', { text: value })
+        ]);
+
+        replace(container, [
+            el('div', { className: 'summary-title', text: 'Pattern Pack Summary' }),
+            summaryItem('Ship:', shipName),
+            summaryItem('Events:', `${eventCount} custom patterns`),
+            summaryItem('Selected Events:', this.selectedEvents.map(e => this.eventDefinitions[e].title).join(', '))
+        ]);
     }
 
     async saveWizardPattern() {
@@ -1617,7 +1614,8 @@ class PatternWizard {
     }
 }
 
-// Global functions for HTML onclick handlers
+// Global functions named by the markup's data-bind attributes. `wizard` is declared with var so it
+// lands on window, where dom.js looks up `data-bind="wizard.something"`.
 function nextStep() { wizard.nextStep(); }
 function previousStep() { wizard.previousStep(); }
 function saveWizardPattern() { wizard.saveWizardPattern(); }
@@ -1625,7 +1623,7 @@ function startOver() { wizard.startOver(); }
 function testAllPatterns() { wizard.testAllPatterns(); }
 
 // Initialize the wizard when page loads
-let wizard;
+var wizard;
 document.addEventListener('DOMContentLoaded', () => {
     wizard = new PatternWizard();
 

@@ -962,11 +962,11 @@
                     <div class="form-group">
                         <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 1.5rem;">
                             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="editorMode" value="create" checked onclick="wizard.toggleMode('create')">
+                                <input type="radio" name="editorMode" value="create" checked data-bind="wizard.toggleMode" data-bind-args='["create"]'>
                                 <span>Create New Pattern</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                                <input type="radio" name="editorMode" value="edit" onclick="wizard.toggleMode('edit')">
+                                <input type="radio" name="editorMode" value="edit" data-bind="wizard.toggleMode" data-bind-args='["edit"]'>
                                 <span>Edit Existing Pattern</span>
                             </label>
                         </div>
@@ -979,7 +979,7 @@
                     <div class="form-group">
                         <label for="authorInput">Your Username</label>
                         <input type="text" id="authorInput" placeholder="CMDR YourName" style="margin-bottom: 0.75rem;">
-                        <button onclick="wizard.loadUserFiles()" class="btn btn-primary" id="loadFilesBtn">Load My Files</button>
+                        <button data-bind="wizard.loadUserFiles" class="btn btn-primary" id="loadFilesBtn">Load My Files</button>
                     </div>
 
                     <div class="form-group" id="fileListContainer" style="display: none;">
@@ -1003,7 +1003,7 @@
                 </div>
 
                 <div class="step-actions">
-                    <button onclick="nextStep()" class="btn btn-primary" id="step1Next" disabled>Next: Select Events →</button>
+                    <button data-bind="nextStep" class="btn btn-primary" id="step1Next" disabled>Next: Select Events →</button>
                 </div>
             </div>
 
@@ -1056,8 +1056,8 @@
                 </div>
                 
                 <div class="step-actions">
-                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
-                    <button onclick="nextStep()" class="btn btn-primary" id="step2Next" disabled>Next: Choose Patterns →</button>
+                    <button data-bind="previousStep" class="btn btn-secondary">← Back</button>
+                    <button data-bind="nextStep" class="btn btn-primary" id="step2Next" disabled>Next: Choose Patterns →</button>
                 </div>
             </div>
 
@@ -1073,8 +1073,8 @@
                 </div>
                 
                 <div class="step-actions">
-                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
-                    <button onclick="nextStep()" class="btn btn-primary" id="step3Next" disabled>Next: Fine-tune →</button>
+                    <button data-bind="previousStep" class="btn btn-secondary">← Back</button>
+                    <button data-bind="nextStep" class="btn btn-primary" id="step3Next" disabled>Next: Fine-tune →</button>
                 </div>
             </div>
 
@@ -1109,8 +1109,8 @@
                 </div>
 
                 <div class="step-actions">
-                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
-                    <button onclick="nextStep()" class="btn btn-primary">Next: Save →</button>
+                    <button data-bind="previousStep" class="btn btn-secondary">← Back</button>
+                    <button data-bind="nextStep" class="btn btn-primary">Next: Save →</button>
                 </div>
             </div>
 
@@ -1143,8 +1143,8 @@
                 </div>
                 
                 <div class="step-actions">
-                    <button onclick="previousStep()" class="btn btn-secondary">← Back</button>
-                    <button onclick="saveWizardPattern()" class="btn btn-success">💾 Save Pattern Pack</button>
+                    <button data-bind="previousStep" class="btn btn-secondary">← Back</button>
+                    <button data-bind="saveWizardPattern" class="btn btn-success">💾 Save Pattern Pack</button>
                 </div>
             </div>
 
@@ -1156,8 +1156,8 @@
                     <p>Your custom haptic patterns have been saved and are ready to use.</p>
                     
                     <div class="success-actions">
-                        <button onclick="startOver()" class="btn btn-primary">Create Another Pack</button>
-                        <button onclick="testAllPatterns()" class="btn btn-secondary">Test All Patterns</button>
+                        <button data-bind="startOver" class="btn btn-primary">Create Another Pack</button>
+                        <button data-bind="testAllPatterns" class="btn btn-secondary">Test All Patterns</button>
                         <a href="index.html" class="btn btn-secondary">← Back to Main</a>
                     </div>
                 </div>
@@ -1168,7 +1168,7 @@
     <!-- Add Ship Modal -->
     <div id="addShipModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('addShipModal')">&times;</span>
+            <span class="close" data-bind="closeModal" data-bind-args='["addShipModal"]'>&times;</span>
             <h3>Add Ship to Pattern Pack</h3>
             <div class="form-group">
                 <label for="shipType">Ship Type</label>
@@ -1181,8 +1181,8 @@
                 <input type="text" id="shipDisplayName" placeholder="Custom display name">
             </div>
             <div class="action-buttons">
-                <button onclick="confirmAddShip()" class="btn btn-primary">Add Ship</button>
-                <button onclick="closeModal('addShipModal')" class="btn btn-secondary">Cancel</button>
+                <button data-bind="confirmAddShip" class="btn btn-primary">Add Ship</button>
+                <button data-bind="closeModal" data-bind-args='["addShipModal"]' class="btn btn-secondary">Cancel</button>
             </div>
         </div>
     </div>
@@ -1190,7 +1190,7 @@
     <!-- Add Event Modal -->
     <div id="addEventModal" class="modal">
         <div class="modal-content">
-            <span class="close" onclick="closeModal('addEventModal')">&times;</span>
+            <span class="close" data-bind="closeModal" data-bind-args='["addEventModal"]'>&times;</span>
             <h3>Add Event Pattern</h3>
             <div class="form-group">
                 <label for="eventType">Event Type</label>
@@ -1205,12 +1205,13 @@
                 </select>
             </div>
             <div class="action-buttons">
-                <button onclick="confirmAddEvent()" class="btn btn-primary">Add Event</button>
-                <button onclick="closeModal('addEventModal')" class="btn btn-secondary">Cancel</button>
+                <button data-bind="confirmAddEvent" class="btn btn-primary">Add Event</button>
+                <button data-bind="closeModal" data-bind-args='["addEventModal"]' class="btn btn-secondary">Cancel</button>
             </div>
         </div>
     </div>
 
+    <script src="js/dom.js"></script>
     <script src="js/csrf.js"></script>
     <script src="js/timeline-editor.js"></script>
     <script src="js/pattern-editor.js"></script>

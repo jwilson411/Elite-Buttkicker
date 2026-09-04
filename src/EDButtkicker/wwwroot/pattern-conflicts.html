@@ -297,10 +297,10 @@
 
                 <div class="section">
                     <h3>🔄 Actions</h3>
-                    <button onclick="refreshConflicts()" class="btn btn-secondary full-width">
+                    <button data-bind="refreshConflicts" class="btn btn-secondary full-width">
                         <i class="fas fa-sync-alt"></i> Refresh
                     </button>
-                    <button onclick="refreshSources()" class="btn btn-primary full-width">
+                    <button data-bind="refreshSources" class="btn btn-primary full-width">
                         <i class="fas fa-database"></i> Refresh Sources
                     </button>
                 </div>
@@ -322,6 +322,7 @@
         </main>
     </div>
 
+    <script src="js/dom.js"></script>
     <script src="js/csrf.js"></script>
     <script src="js/pattern-conflicts.js"></script>
 </body>

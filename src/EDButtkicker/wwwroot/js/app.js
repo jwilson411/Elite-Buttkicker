@@ -77,7 +77,10 @@ class ButtkickerApp {
 
             const list = document.getElementById('systemHealthList');
             if (list) {
-                list.innerHTML = '<div class="loading">Could not read system health from the local service.</div>';
+                dom.replace(list, dom.el('div', {
+                    className: 'loading',
+                    text: 'Could not read system health from the local service.'
+                }));
             }
         }
     }
@@ -90,22 +93,24 @@ class ButtkickerApp {
         const list = document.getElementById('systemHealthList');
         if (!list) return;
 
-        list.innerHTML = (report.components || []).map(component => `
-            <div class="health-item">
-                <div class="health-summary">
-                    <span class="status-indicator ${ButtkickerApp.statusDotClass(component.status)}"></span>
-                    <div class="health-text">
-                        <div class="health-name">${component.name}</div>
-                        <div class="health-reason">${component.reason || ''}</div>
-                        ${component.detail ? `<div class="health-detail">${component.detail}</div>` : ''}
-                    </div>
-                </div>
-                ${component.retry ? `
-                    <button class="btn btn-sm" onclick="retryHealthComponent('${component.id}')">
-                        <i class="fas fa-redo"></i> ${component.retry.label}
-                    </button>` : ''}
-            </div>
-        `).join('');
+        const { el, replace, icon } = dom;
+
+        replace(list, (report.components || []).map(component => el('div', { className: 'health-item' }, [
+            el('div', { className: 'health-summary' }, [
+                el('span', { className: `status-indicator ${ButtkickerApp.statusDotClass(component.status)}` }),
+                el('div', { className: 'health-text' }, [
+                    el('div', { className: 'health-name', text: component.name }),
+                    el('div', { className: 'health-reason', text: component.reason || '' }),
+                    component.detail ? el('div', { className: 'health-detail', text: component.detail }) : null
+                ])
+            ]),
+            component.retry
+                ? el('button', {
+                    className: 'btn btn-sm',
+                    on: { click: () => retryHealthComponent(component.id) }
+                }, [icon('fa-redo'), ' ', component.retry.label])
+                : null
+        ])));
     }
 
     setHeaderStatus(iconClass, text) {
@@ -203,16 +208,22 @@ class ButtkickerApp {
             this.activeStep = this.setup.current_step;
         }
 
-        stepsList.innerHTML = steps.map(step => `
-            <li class="setup-step ${step.complete ? 'complete' : ''} ${step.id === this.activeStep ? 'active' : ''}"
-                onclick="showSetupStep('${step.id}')">
-                <i class="fas ${step.complete ? 'fa-check-circle' : 'fa-circle-notch'}"></i>
-                <div>
-                    <div class="setup-step-title">${step.title}</div>
-                    <div class="setup-step-summary">${step.summary || ''}</div>
-                </div>
-            </li>
-        `).join('');
+        const { el, replace, icon } = dom;
+
+        replace(stepsList, steps.map(step => el('li', {
+            className: [
+                'setup-step',
+                step.complete ? 'complete' : '',
+                step.id === this.activeStep ? 'active' : ''
+            ].filter(Boolean).join(' '),
+            on: { click: () => showSetupStep(step.id) }
+        }, [
+            icon(step.complete ? 'fa-check-circle' : 'fa-circle-notch'),
+            el('div', {}, [
+                el('div', { className: 'setup-step-title', text: step.title }),
+                el('div', { className: 'setup-step-summary', text: step.summary || '' })
+            ])
+        ])));
 
         if (note) {
             note.textContent = this.setup.completed
@@ -237,112 +248,150 @@ class ButtkickerApp {
     }
 
     async renderJournalStep(panel) {
-        panel.innerHTML = '<div class="loading">Looking for your Elite Dangerous journal folder...</div>';
+        const { el, replace } = dom;
+
+        replace(panel, el('div', { className: 'loading', text: 'Looking for your Elite Dangerous journal folder...' }));
 
         try {
             const response = await fetch('/api/setup/journal/candidates');
             const data = await response.json();
             const candidates = data.candidates || [];
 
-            panel.innerHTML = `
-                <h4>1. Find your Elite Dangerous journal</h4>
-                <p class="setup-help">Elite Dangerous writes a <code>Journal.*.log</code> file every session.
-                   These are the folders found on this machine.</p>
-                <div class="setup-candidates">
-                    ${candidates.length === 0 ? '<div class="loading">No candidate folders found - enter the path below.</div>' : ''}
-                    ${candidates.map(candidate => `
-                        <div class="setup-candidate ${candidate.is_configured ? 'active' : ''}">
-                            <div>
-                                <div class="setup-candidate-path">${candidate.path}</div>
-                                <div class="setup-candidate-detail">
-                                    ${candidate.exists ? `${candidate.journal_files_found} journal file(s)` : 'Folder does not exist'}
-                                    ${candidate.is_recommended ? ' &middot; recommended' : ''}
-                                </div>
-                            </div>
-                            <button class="btn btn-sm btn-primary" ${candidate.exists ? '' : 'disabled'}
-                                    onclick="confirmJournalPath(${JSON.stringify(candidate.path).replace(/"/g, '&quot;')})">
-                                Use this folder
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-                <div class="form-group">
-                    <label for="setupJournalPath">Or enter the folder yourself</label>
-                    <input type="text" id="setupJournalPath" value="${data.configured_path || ''}">
-                </div>
-                <button class="btn btn-primary" onclick="confirmJournalPath()">Confirm journal folder</button>
-            `;
+            replace(panel, [
+                el('h4', { text: '1. Find your Elite Dangerous journal' }),
+                el('p', { className: 'setup-help' }, [
+                    'Elite Dangerous writes a ',
+                    el('code', { text: 'Journal.*.log' }),
+                    ' file every session. These are the folders found on this machine.'
+                ]),
+                el('div', { className: 'setup-candidates' }, [
+                    candidates.length === 0
+                        ? el('div', { className: 'loading', text: 'No candidate folders found - enter the path below.' })
+                        : null,
+                    ...candidates.map(candidate => el('div', {
+                        className: `setup-candidate ${candidate.is_configured ? 'active' : ''}`.trim()
+                    }, [
+                        el('div', {}, [
+                            el('div', { className: 'setup-candidate-path', text: candidate.path }),
+                            el('div', { className: 'setup-candidate-detail' }, [
+                                candidate.exists
+                                    ? `${dom.num(candidate.journal_files_found)} journal file(s)`
+                                    : 'Folder does not exist',
+                                candidate.is_recommended ? ' · recommended' : ''
+                            ])
+                        ]),
+                        el('button', {
+                            className: 'btn btn-sm btn-primary',
+                            disabled: !candidate.exists,
+                            text: 'Use this folder',
+                            on: { click: () => confirmJournalPath(candidate.path) }
+                        })
+                    ]))
+                ]),
+                el('div', { className: 'form-group' }, [
+                    el('label', { attrs: { for: 'setupJournalPath' }, text: 'Or enter the folder yourself' }),
+                    el('input', { id: 'setupJournalPath', attrs: { type: 'text' }, value: data.configured_path || '' })
+                ]),
+                el('button', {
+                    className: 'btn btn-primary',
+                    text: 'Confirm journal folder',
+                    on: { click: () => confirmJournalPath() }
+                })
+            ]);
         } catch (error) {
             console.error('Error loading journal candidates:', error);
-            panel.innerHTML = '<div class="loading">Could not search for journal folders.</div>';
+            replace(panel, el('div', { className: 'loading', text: 'Could not search for journal folders.' }));
         }
     }
 
     async renderAudioDeviceStep(panel) {
-        panel.innerHTML = '<div class="loading">Reading output devices...</div>';
+        const { el, replace } = dom;
+
+        replace(panel, el('div', { className: 'loading', text: 'Reading output devices...' }));
 
         try {
             const response = await fetch('/api/audio/devices');
             const data = await response.json();
             const devices = data.devices || [];
 
-            panel.innerHTML = `
-                <h4>2. Choose your output device</h4>
-                <p class="setup-help">Pick the device your buttkicker amplifier is connected to. The device
-                   endpoint id is saved, so the choice survives devices being plugged in or removed.</p>
-                <div class="setup-candidates">
-                    ${devices.length === 0 ? '<div class="loading">No output devices reported.</div>' : ''}
-                    ${devices.map(device => `
-                        <div class="setup-candidate ${isSelectedAudioDevice(device, data.current) ? 'active' : ''}">
-                            <div>
-                                <div class="setup-candidate-path">${device.name}</div>
-                                <div class="setup-candidate-detail">
-                                    ${device.driver}${device.isDefault ? ' &middot; system default' : ''}
-                                    ${device.isAvailable ? '' : ' &middot; not active'}
-                                </div>
-                            </div>
-                            <button class="btn btn-sm btn-primary" ${device.isAvailable ? '' : 'disabled'}
-                                    onclick="selectSetupAudioDevice(${audioDeviceArgs(device)})">
-                                Use this device
-                            </button>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
+            replace(panel, [
+                el('h4', { text: '2. Choose your output device' }),
+                el('p', {
+                    className: 'setup-help',
+                    text: 'Pick the device your buttkicker amplifier is connected to. The device endpoint id '
+                        + 'is saved, so the choice survives devices being plugged in or removed.'
+                }),
+                el('div', { className: 'setup-candidates' }, [
+                    devices.length === 0
+                        ? el('div', { className: 'loading', text: 'No output devices reported.' })
+                        : null,
+                    ...devices.map(device => el('div', {
+                        className: `setup-candidate ${isSelectedAudioDevice(device, data.current) ? 'active' : ''}`.trim()
+                    }, [
+                        el('div', {}, [
+                            el('div', { className: 'setup-candidate-path', text: device.name }),
+                            el('div', { className: 'setup-candidate-detail' }, [
+                                device.driver,
+                                device.isDefault ? ' · system default' : '',
+                                device.isAvailable ? '' : ' · not active'
+                            ])
+                        ]),
+                        el('button', {
+                            className: 'btn btn-sm btn-primary',
+                            disabled: !device.isAvailable,
+                            text: 'Use this device',
+                            on: { click: () => selectSetupAudioDevice(device.endpointId || '', Number(device.id)) }
+                        })
+                    ]))
+                ])
+            ]);
         } catch (error) {
             console.error('Error loading audio devices:', error);
-            panel.innerHTML = '<div class="loading">Could not read the output devices.</div>';
+            replace(panel, el('div', { className: 'loading', text: 'Could not read the output devices.' }));
         }
     }
 
     renderAudioTestStep(panel) {
+        const { el, replace, icon } = dom;
         const step = (this.setup.steps || []).find(s => s.id === 'audio-test');
 
-        panel.innerHTML = `
-            <h4>3. Run a quiet test</h4>
-            <p class="setup-help">This plays a short, deliberately quiet low-frequency tone so you can set
-               your amplifier gain from silence upwards rather than being surprised at full intensity.</p>
-            <div class="setup-result" id="setupTestResult">${step && step.complete ? step.summary : 'No test has been run yet.'}</div>
-            <button class="btn btn-primary" onclick="runSetupAudioTest()">
-                <i class="fas fa-volume-down"></i> Play test tone
-            </button>
-        `;
+        replace(panel, [
+            el('h4', { text: '3. Run a quiet test' }),
+            el('p', {
+                className: 'setup-help',
+                text: 'This plays a short, deliberately quiet low-frequency tone so you can set your '
+                    + 'amplifier gain from silence upwards rather than being surprised at full intensity.'
+            }),
+            el('div', {
+                className: 'setup-result',
+                id: 'setupTestResult',
+                text: step && step.complete ? step.summary : 'No test has been run yet.'
+            }),
+            el('button', {
+                className: 'btn btn-primary',
+                on: { click: () => runSetupAudioTest() }
+            }, [icon('fa-volume-down'), ' Play test tone'])
+        ]);
     }
 
     renderFinishStep(panel) {
+        const { el, replace, icon } = dom;
         const incomplete = this.setup.incomplete_steps || [];
         const remaining = incomplete.filter(id => id !== 'finish');
 
-        panel.innerHTML = `
-            <h4>4. Finish setup</h4>
-            ${remaining.length > 0 ? `
-                <p class="setup-help">These steps have not been confirmed yet: ${remaining.join(', ')}.
-                   You can still finish - the dashboard will keep showing what is missing.</p>` : `
-                <p class="setup-help">Every step has been confirmed.</p>`}
-            <button class="btn btn-primary" onclick="completeSetup()">
-                <i class="fas fa-check"></i> ${this.setup.completed ? 'Save and close' : 'Finish setup'}
-            </button>
-        `;
+        replace(panel, [
+            el('h4', { text: '4. Finish setup' }),
+            remaining.length > 0
+                ? el('p', { className: 'setup-help' }, [
+                    `These steps have not been confirmed yet: ${remaining.join(', ')}. `,
+                    'You can still finish - the dashboard will keep showing what is missing.'
+                ])
+                : el('p', { className: 'setup-help', text: 'Every step has been confirmed.' }),
+            el('button', {
+                className: 'btn btn-primary',
+                on: { click: () => completeSetup() }
+            }, [icon('fa-check'), ' ', this.setup.completed ? 'Save and close' : 'Finish setup'])
+        ]);
     }
 
     async loadDashboard() {
@@ -405,30 +454,30 @@ class ButtkickerApp {
             const eventsList = document.getElementById('recentEventsList');
             if (!eventsList) return;
 
+            const { el, replace } = dom;
+
             if (!data.events || data.events.length === 0) {
-                eventsList.innerHTML = '<div class="loading">No recent events found</div>';
+                replace(eventsList, el('div', { className: 'loading', text: 'No recent events found' }));
                 return;
             }
 
-            eventsList.innerHTML = data.events.map(event => `
-                <div class="event-item">
-                    <div class="event-info">
-                        <div class="event-type">${event.event}</div>
-                        <div class="event-details">
-                            ${event.star_system ? `System: ${event.star_system}` : ''}
-                            ${event.station_name ? ` | Station: ${event.station_name}` : ''}
-                            ${event.health ? ` | Health: ${Math.round(event.health * 100)}%` : ''}
-                        </div>
-                    </div>
-                    <div class="event-time">${this.formatDateTime(event.timestamp)}</div>
-                </div>
-            `).join('');
+            replace(eventsList, data.events.map(event => el('div', { className: 'event-item' }, [
+                el('div', { className: 'event-info' }, [
+                    el('div', { className: 'event-type', text: event.event }),
+                    el('div', { className: 'event-details' }, [
+                        event.star_system ? `System: ${event.star_system}` : '',
+                        event.station_name ? ` | Station: ${event.station_name}` : '',
+                        event.health ? ` | Health: ${Math.round(dom.num(event.health) * 100)}%` : ''
+                    ])
+                ]),
+                el('div', { className: 'event-time', text: this.formatDateTime(event.timestamp) })
+            ])));
 
         } catch (error) {
             console.error('Error loading recent events:', error);
             const eventsList = document.getElementById('recentEventsList');
             if (eventsList) {
-                eventsList.innerHTML = '<div class="loading">Error loading events</div>';
+                dom.replace(eventsList, dom.el('div', { className: 'loading', text: 'Error loading events' }));
             }
         }
     }
@@ -441,54 +490,45 @@ class ButtkickerApp {
             const patternsGrid = document.getElementById('patternsGrid');
             if (!patternsGrid) return;
 
+            const { el, replace, icon } = dom;
+
             if (!data.patterns) {
-                patternsGrid.innerHTML = '<div class="loading">No patterns found</div>';
+                replace(patternsGrid, el('div', { className: 'loading', text: 'No patterns found' }));
                 return;
             }
 
-            patternsGrid.innerHTML = Object.entries(data.patterns).map(([eventType, pattern]) => `
-                <div class="pattern-card">
-                    <div class="pattern-header">
-                        <div class="pattern-name">${pattern.Pattern.Name}</div>
-                        <div class="pattern-enabled ${pattern.Enabled ? 'active' : ''}" 
-                             onclick="togglePattern('${eventType}')"></div>
-                    </div>
-                    <div class="pattern-details">
-                        <div class="pattern-detail">
-                            <span class="label">Event:</span>
-                            <span>${eventType}</span>
-                        </div>
-                        <div class="pattern-detail">
-                            <span class="label">Type:</span>
-                            <span>${pattern.Pattern.PatternType}</span>
-                        </div>
-                        <div class="pattern-detail">
-                            <span class="label">Frequency:</span>
-                            <span>${pattern.Pattern.Frequency} Hz</span>
-                        </div>
-                        <div class="pattern-detail">
-                            <span class="label">Duration:</span>
-                            <span>${pattern.Pattern.Duration} ms</span>
-                        </div>
-                        <div class="pattern-detail">
-                            <span class="label">Intensity:</span>
-                            <span>${pattern.Pattern.Intensity}%</span>
-                        </div>
-                        <div class="pattern-detail">
-                            <span class="label">Curve:</span>
-                            <span>${pattern.Pattern.IntensityCurve}</span>
-                        </div>
-                    </div>
-                    <div class="pattern-actions">
-                        <button class="btn btn-sm" onclick="testPattern('${eventType}')">
-                            <i class="fas fa-play"></i> Test
-                        </button>
-                        <button class="btn btn-sm btn-secondary" onclick="editPattern('${eventType}')">
-                            <i class="fas fa-edit"></i> Edit
-                        </button>
-                    </div>
-                </div>
-            `).join('');
+            const detail = (label, value) => el('div', { className: 'pattern-detail' }, [
+                el('span', { className: 'label', text: label }),
+                el('span', { text: value })
+            ]);
+
+            replace(patternsGrid, Object.entries(data.patterns).map(([eventType, pattern]) => el('div', { className: 'pattern-card' }, [
+                el('div', { className: 'pattern-header' }, [
+                    el('div', { className: 'pattern-name', text: pattern.Pattern.Name }),
+                    el('div', {
+                        className: `pattern-enabled ${pattern.Enabled ? 'active' : ''}`.trim(),
+                        on: { click: () => togglePattern(eventType) }
+                    })
+                ]),
+                el('div', { className: 'pattern-details' }, [
+                    detail('Event:', eventType),
+                    detail('Type:', pattern.Pattern.PatternType),
+                    detail('Frequency:', `${pattern.Pattern.Frequency} Hz`),
+                    detail('Duration:', `${pattern.Pattern.Duration} ms`),
+                    detail('Intensity:', `${pattern.Pattern.Intensity}%`),
+                    detail('Curve:', pattern.Pattern.IntensityCurve)
+                ]),
+                el('div', { className: 'pattern-actions' }, [
+                    el('button', {
+                        className: 'btn btn-sm',
+                        on: { click: () => testPattern(eventType) }
+                    }, [icon('fa-play'), ' Test']),
+                    el('button', {
+                        className: 'btn btn-sm btn-secondary',
+                        on: { click: () => editPattern(eventType) }
+                    }, [icon('fa-edit'), ' Edit'])
+                ])
+            ])));
 
             // Also update quick test grid if pattern tester is open
             this.updateQuickTestGrid(data.patterns);
@@ -497,17 +537,22 @@ class ButtkickerApp {
             console.error('Error loading patterns:', error);
             const patternsGrid = document.getElementById('patternsGrid');
             if (patternsGrid) {
-                patternsGrid.innerHTML = '<div class="loading">Error loading patterns</div>';
+                dom.replace(patternsGrid, dom.el('div', { className: 'loading', text: 'Error loading patterns' }));
             }
         }
     }
 
     async refreshPatterns() {
+        const { el, replace, icon } = dom;
+
         try {
             // Show loading state
             const patternsGrid = document.getElementById('patternsGrid');
             if (patternsGrid) {
-                patternsGrid.innerHTML = '<div class="loading"><i class="fas fa-sync-alt fa-spin"></i> Refreshing patterns...</div>';
+                replace(patternsGrid, el('div', { className: 'loading' }, [
+                    el('i', { className: 'fas fa-sync-alt fa-spin', attrs: { 'aria-hidden': 'true' } }),
+                    ' Refreshing patterns...'
+                ]));
             }
 
             // Call the reload endpoint first
@@ -523,16 +568,16 @@ class ButtkickerApp {
             
             // Show success message temporarily
             if (patternsGrid) {
-                patternsGrid.innerHTML = `
-                    <div class="refresh-success">
-                        <i class="fas fa-check-circle"></i>
-                        <div>Patterns refreshed successfully!</div>
-                        <div class="refresh-stats">
-                            ${reloadData.totalPacks} total packs loaded
-                            ${reloadData.newPacks > 0 ? `(${reloadData.newPacks} new)` : ''}
-                        </div>
-                    </div>
-                `;
+                const newPacks = dom.num(reloadData.newPacks);
+
+                replace(patternsGrid, el('div', { className: 'refresh-success' }, [
+                    icon('fa-check-circle'),
+                    el('div', { text: 'Patterns refreshed successfully!' }),
+                    el('div', { className: 'refresh-stats' }, [
+                        `${dom.num(reloadData.totalPacks)} total packs loaded`,
+                        newPacks > 0 ? ` (${newPacks} new)` : ''
+                    ])
+                ]));
             }
 
             // Wait a moment to show the success message
@@ -545,14 +590,16 @@ class ButtkickerApp {
             console.error('Error refreshing patterns:', error);
             const patternsGrid = document.getElementById('patternsGrid');
             if (patternsGrid) {
-                patternsGrid.innerHTML = `
-                    <div class="error-message">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <div>Failed to refresh patterns</div>
-                        <div class="error-details">${error.message}</div>
-                        <button class="btn btn-sm" onclick="app.loadPatterns()">Try Again</button>
-                    </div>
-                `;
+                replace(patternsGrid, el('div', { className: 'error-message' }, [
+                    icon('fa-exclamation-triangle'),
+                    el('div', { text: 'Failed to refresh patterns' }),
+                    el('div', { className: 'error-details', text: error.message }),
+                    el('button', {
+                        className: 'btn btn-sm',
+                        text: 'Try Again',
+                        on: { click: () => app.loadPatterns() }
+                    })
+                ]));
             }
         }
     }
@@ -561,22 +608,23 @@ class ButtkickerApp {
         const quickTestGrid = document.getElementById('quickTestGrid');
         if (!quickTestGrid || !patterns) return;
 
-        quickTestGrid.innerHTML = Object.entries(patterns).map(([eventType, pattern]) => `
-            <div class="quick-test-item">
-                <div class="test-item-header">
-                    <span class="test-item-name">${pattern.Pattern.Name}</span>
-                    <span class="test-item-event">${eventType}</span>
-                </div>
-                <div class="test-item-details">
-                    <span>${pattern.Pattern.Frequency}Hz</span>
-                    <span>${pattern.Pattern.Duration}ms</span>
-                    <span>${pattern.Pattern.Intensity}%</span>
-                </div>
-                <button class="btn btn-sm btn-accent" onclick="testPattern('${eventType}')">
-                    <i class="fas fa-play"></i> Test
-                </button>
-            </div>
-        `).join('');
+        const { el, replace, icon } = dom;
+
+        replace(quickTestGrid, Object.entries(patterns).map(([eventType, pattern]) => el('div', { className: 'quick-test-item' }, [
+            el('div', { className: 'test-item-header' }, [
+                el('span', { className: 'test-item-name', text: pattern.Pattern.Name }),
+                el('span', { className: 'test-item-event', text: eventType })
+            ]),
+            el('div', { className: 'test-item-details' }, [
+                el('span', { text: `${pattern.Pattern.Frequency}Hz` }),
+                el('span', { text: `${pattern.Pattern.Duration}ms` }),
+                el('span', { text: `${pattern.Pattern.Intensity}%` })
+            ]),
+            el('button', {
+                className: 'btn btn-sm btn-accent',
+                on: { click: () => testPattern(eventType) }
+            }, [icon('fa-play'), ' Test'])
+        ])));
     }
 
     async loadAudioConfig() {
@@ -587,33 +635,39 @@ class ButtkickerApp {
             const deviceList = document.getElementById('audioDeviceList');
             if (!deviceList) return;
 
+            const { el, replace } = dom;
+
             if (!data.devices) {
-                deviceList.innerHTML = '<div class="loading">No audio devices found</div>';
+                replace(deviceList, el('div', { className: 'loading', text: 'No audio devices found' }));
                 return;
             }
 
-            deviceList.innerHTML = data.devices.map(device => `
-                <div class="device-item ${isSelectedAudioDevice(device, data.current) ? 'active' : ''}"
-                     onclick="selectAudioDevice(${audioDeviceArgs(device)})">
-                    <div class="device-info">
-                        <div class="device-name">
-                            ${device.name}
-                            ${device.isDefault ? ' (Default)' : ''}
-                        </div>
-                        <div class="device-driver">${device.driver} | ${device.channels} channels</div>
-                    </div>
-                    ${device.isAvailable ? 
-                        '<i class="fas fa-check-circle" style="color: var(--success-color);"></i>' : 
-                        '<i class="fas fa-exclamation-circle" style="color: var(--warning-color);"></i>'
-                    }
-                </div>
-            `).join('');
+            replace(deviceList, data.devices.map(device => el('div', {
+                className: `device-item ${isSelectedAudioDevice(device, data.current) ? 'active' : ''}`.trim(),
+                on: { click: () => selectAudioDevice(device.endpointId || '', Number(device.id)) }
+            }, [
+                el('div', { className: 'device-info' }, [
+                    el('div', { className: 'device-name' }, [
+                        device.name,
+                        device.isDefault ? ' (Default)' : ''
+                    ]),
+                    el('div', { className: 'device-driver' }, [
+                        device.driver,
+                        ` | ${dom.num(device.channels)} channels`
+                    ])
+                ]),
+                el('i', {
+                    className: device.isAvailable ? 'fas fa-check-circle' : 'fas fa-exclamation-circle',
+                    style: { color: device.isAvailable ? 'var(--success-color)' : 'var(--warning-color)' },
+                    attrs: { 'aria-hidden': 'true' }
+                })
+            ])));
 
         } catch (error) {
             console.error('Error loading audio config:', error);
             const deviceList = document.getElementById('audioDeviceList');
             if (deviceList) {
-                deviceList.innerHTML = '<div class="loading">Error loading audio devices</div>';
+                dom.replace(deviceList, dom.el('div', { className: 'loading', text: 'Error loading audio devices' }));
             }
         }
     }
@@ -631,46 +685,40 @@ class ButtkickerApp {
                 journalPathInput.value = data.journal_path || '';
             }
 
+            const { el, replace } = dom;
+            const infoItem = (label, value, valueClass) => el('div', { className: 'info-item' }, [
+                el('span', { className: 'label', text: label }),
+                el('span', { className: valueClass || 'value', text: value })
+            ]);
+
             if (pathInfo) {
-                pathInfo.innerHTML = `
-                    <div class="info-item">
-                        <span class="label">Path Status:</span>
-                        <span class="value ${data.path_exists ? 'online' : ''}">${data.path_exists ? 'Valid' : 'Not Found'}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Journal Files:</span>
-                        <span class="value">${data.recent_files ? data.recent_files.length : 0} found</span>
-                    </div>
-                    ${data.recent_files && data.recent_files.length > 0 ? `
-                        <div style="margin-top: 1rem;">
-                            <strong>Recent Files:</strong>
-                            <ul style="margin-top: 0.5rem; padding-left: 1rem;">
-                                ${data.recent_files.slice(0, 3).map(file => `<li>${file}</li>`).join('')}
-                            </ul>
-                        </div>
-                    ` : ''}
-                `;
+                const files = data.recent_files || [];
+
+                replace(pathInfo, [
+                    infoItem(
+                        'Path Status:',
+                        data.path_exists ? 'Valid' : 'Not Found',
+                        data.path_exists ? 'value online' : 'value'),
+                    infoItem('Journal Files:', `${files.length} found`),
+                    files.length > 0
+                        ? el('div', { style: { marginTop: '1rem' } }, [
+                            el('strong', { text: 'Recent Files:' }),
+                            el('ul', { style: { marginTop: '0.5rem', paddingLeft: '1rem' } },
+                                files.slice(0, 3).map(file => el('li', { text: file })))
+                        ])
+                        : null
+                ]);
             }
 
             if (monitoringStatus) {
-                monitoringStatus.innerHTML = `
-                    <div class="info-item">
-                        <span class="label">Status:</span>
-                        <span class="value ${data.monitoring ? 'online' : ''}">${data.status}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Health:</span>
-                        <span class="value">${data.health}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Events Processed:</span>
-                        <span class="value">${data.events_processed}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Last Event:</span>
-                        <span class="value">${data.last_event_time ? this.formatDateTime(data.last_event_time) : 'Never'}</span>
-                    </div>
-                `;
+                replace(monitoringStatus, [
+                    infoItem('Status:', data.status, data.monitoring ? 'value online' : 'value'),
+                    infoItem('Health:', data.health),
+                    infoItem('Events Processed:', data.events_processed),
+                    infoItem(
+                        'Last Event:',
+                        data.last_event_time ? this.formatDateTime(data.last_event_time) : 'Never')
+                ]);
             }
             
             // Load initial replay status and journal files
@@ -732,7 +780,7 @@ class ButtkickerApp {
             console.error('Error loading contextual intelligence:', error);
             const contextStatus = document.getElementById('contextStatus');
             if (contextStatus) {
-                contextStatus.innerHTML = '<div class="loading">Error loading context status</div>';
+                dom.replace(contextStatus, dom.el('div', { className: 'loading', text: 'Error loading context status' }));
             }
         }
     }
@@ -741,130 +789,100 @@ class ButtkickerApp {
         const contextStatus = document.getElementById('contextStatus');
         if (!contextStatus) return;
 
-        contextStatus.innerHTML = `
-            <div class="context-grid">
-                <div class="context-item">
-                    <span class="context-label">Game State:</span>
-                    <span class="context-value ${context.game_state.toLowerCase()}">${context.game_state}</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Current System:</span>
-                    <span class="context-value">${context.current_system || 'Unknown'}</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Threat Level:</span>
-                    <span class="context-value threat-${context.threat_level.toLowerCase()}">${context.threat_level}</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Hull Integrity:</span>
-                    <span class="context-value ${context.hull_integrity < 0.5 ? 'warning' : ''}">${Math.round(context.hull_integrity * 100)}%</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Shield Strength:</span>
-                    <span class="context-value">${Math.round(context.shield_strength * 100)}%</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Combat Intensity:</span>
-                    <span class="context-value">${Math.round(context.combat_intensity * 100)}%</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Exploration Mode:</span>
-                    <span class="context-value">${context.exploration_mode}</span>
-                </div>
-                <div class="context-item">
-                    <span class="context-label">Intensity Multiplier:</span>
-                    <span class="context-value">${context.intensity_multiplier.toFixed(2)}x</span>
-                </div>
-            </div>
-        `;
+        const { el, replace, num, slug } = dom;
+
+        // The state words also drive CSS classes, so they go through slug() - the visible copy is
+        // still whatever the API said, as text.
+        const item = (label, value, valueClass) => el('div', { className: 'context-item' }, [
+            el('span', { className: 'context-label', text: label }),
+            el('span', { className: valueClass || 'context-value', text: value })
+        ]);
+
+        replace(contextStatus, el('div', { className: 'context-grid' }, [
+            item('Game State:', context.game_state, `context-value ${slug(context.game_state)}`.trim()),
+            item('Current System:', context.current_system || 'Unknown'),
+            item('Threat Level:', context.threat_level, `context-value threat-${slug(context.threat_level)}`),
+            item(
+                'Hull Integrity:',
+                `${Math.round(num(context.hull_integrity) * 100)}%`,
+                num(context.hull_integrity) < 0.5 ? 'context-value warning' : 'context-value'),
+            item('Shield Strength:', `${Math.round(num(context.shield_strength) * 100)}%`),
+            item('Combat Intensity:', `${Math.round(num(context.combat_intensity) * 100)}%`),
+            item('Exploration Mode:', context.exploration_mode),
+            item('Intensity Multiplier:', `${num(context.intensity_multiplier).toFixed(2)}x`)
+        ]));
     }
 
     updateBehaviorAnalysis(context, statistics) {
         const behaviorAnalysis = document.getElementById('behaviorAnalysis');
         if (!behaviorAnalysis) return;
 
-        behaviorAnalysis.innerHTML = `
-            <div class="behavior-grid">
-                <div class="behavior-section">
-                    <h4>Player Traits</h4>
-                    <div class="trait-item">
-                        <span class="trait-label">Aggressiveness:</span>
-                        <div class="trait-bar">
-                            <div class="trait-fill" style="width: ${context.player_aggressiveness * 100}%"></div>
-                        </div>
-                        <span class="trait-value">${Math.round(context.player_aggressiveness * 100)}%</span>
-                    </div>
-                    <div class="trait-item">
-                        <span class="trait-label">Cautiousness:</span>
-                        <div class="trait-bar">
-                            <div class="trait-fill cautious" style="width: ${context.player_cautiousness * 100}%"></div>
-                        </div>
-                        <span class="trait-value">${Math.round(context.player_cautiousness * 100)}%</span>
-                    </div>
-                </div>
-                
-                <div class="behavior-section">
-                    <h4>Activity Statistics</h4>
-                    <div class="stat-item">
-                        <span class="stat-label">Systems Visited:</span>
-                        <span class="stat-value">${statistics.systems_visited}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Bodies Scanned:</span>
-                        <span class="stat-value">${statistics.bodies_scanned}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Recent Events:</span>
-                        <span class="stat-value">${statistics.recent_event_types.join(', ')}</span>
-                    </div>
-                </div>
+        const { el, replace, num } = dom;
 
-                <div class="behavior-section">
-                    <h4>Time Distribution</h4>
-                    <div class="time-distribution">
-                        ${statistics.state_time_spent.map(state => `
-                            <div class="time-item">
-                                <span class="time-label">${state.state}:</span>
-                                <span class="time-value">${Math.round(state.time_minutes)} min</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            </div>
-        `;
+        // Percentages are the only values that reach a style, so they are clamped to a number - a
+        // string payload can never land inside the width declaration.
+        const trait = (label, value, fillClass) => el('div', { className: 'trait-item' }, [
+            el('span', { className: 'trait-label', text: label }),
+            el('div', { className: 'trait-bar' }, [
+                el('div', { className: fillClass, style: { width: `${num(value) * 100}%` } })
+            ]),
+            el('span', { className: 'trait-value', text: `${Math.round(num(value) * 100)}%` })
+        ]);
+
+        const stat = (label, value) => el('div', { className: 'stat-item' }, [
+            el('span', { className: 'stat-label', text: label }),
+            el('span', { className: 'stat-value', text: value })
+        ]);
+
+        replace(behaviorAnalysis, el('div', { className: 'behavior-grid' }, [
+            el('div', { className: 'behavior-section' }, [
+                el('h4', { text: 'Player Traits' }),
+                trait('Aggressiveness:', context.player_aggressiveness, 'trait-fill'),
+                trait('Cautiousness:', context.player_cautiousness, 'trait-fill cautious')
+            ]),
+            el('div', { className: 'behavior-section' }, [
+                el('h4', { text: 'Activity Statistics' }),
+                stat('Systems Visited:', statistics.systems_visited),
+                stat('Bodies Scanned:', statistics.bodies_scanned),
+                stat('Recent Events:', (statistics.recent_event_types || []).join(', '))
+            ]),
+            el('div', { className: 'behavior-section' }, [
+                el('h4', { text: 'Time Distribution' }),
+                el('div', { className: 'time-distribution' },
+                    (statistics.state_time_spent || []).map(state => el('div', { className: 'time-item' }, [
+                        el('span', { className: 'time-label', text: `${state.state}:` }),
+                        el('span', { className: 'time-value', text: `${Math.round(num(state.time_minutes))} min` })
+                    ])))
+            ])
+        ]));
     }
 
     updatePredictions(predictions) {
         const predictionsDiv = document.getElementById('predictions');
         if (!predictionsDiv) return;
 
-        predictionsDiv.innerHTML = `
-            <div class="predictions-grid">
-                <div class="prediction-section">
-                    <h4>Next State Prediction</h4>
-                    <div class="prediction-item">
-                        <span class="prediction-label">Predicted State:</span>
-                        <span class="prediction-value">${predictions.predicted_next_state || 'None'}</span>
-                    </div>
-                    <div class="prediction-item">
-                        <span class="prediction-label">Confidence:</span>
-                        <span class="prediction-value">${Math.round(predictions.prediction_confidence * 100)}%</span>
-                    </div>
-                </div>
+        const { el, replace, num } = dom;
+        const upcoming = predictions.likely_upcoming_events || [];
 
-                <div class="prediction-section">
-                    <h4>Likely Upcoming Events</h4>
-                    <div class="events-list">
-                        ${predictions.likely_upcoming_events && predictions.likely_upcoming_events.length > 0 
-                            ? predictions.likely_upcoming_events.map(event => `
-                                <div class="event-prediction">${event}</div>
-                            `).join('')
-                            : '<div class="no-predictions">No predictions available</div>'
-                        }
-                    </div>
-                </div>
-            </div>
-        `;
+        const item = (label, value) => el('div', { className: 'prediction-item' }, [
+            el('span', { className: 'prediction-label', text: label }),
+            el('span', { className: 'prediction-value', text: value })
+        ]);
+
+        replace(predictionsDiv, el('div', { className: 'predictions-grid' }, [
+            el('div', { className: 'prediction-section' }, [
+                el('h4', { text: 'Next State Prediction' }),
+                item('Predicted State:', predictions.predicted_next_state || 'None'),
+                item('Confidence:', `${Math.round(num(predictions.prediction_confidence) * 100)}%`)
+            ]),
+            el('div', { className: 'prediction-section' }, [
+                el('h4', { text: 'Likely Upcoming Events' }),
+                el('div', { className: 'events-list' },
+                    upcoming.length > 0
+                        ? upcoming.map(event => el('div', { className: 'event-prediction', text: event }))
+                        : el('div', { className: 'no-predictions', text: 'No predictions available' }))
+            ])
+        ]));
     }
 
     async loadSettings() {
@@ -890,12 +908,13 @@ class ButtkickerApp {
         const toastContainer = document.getElementById('toastContainer');
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        toast.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
-                ${message}
-            </div>
-        `;
+        // Toast text is frequently an error string straight off the API - shown, never parsed.
+        dom.append(toast, dom.el('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '0.5rem' }
+        }, [
+            dom.icon(type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'),
+            message
+        ]));
 
         toastContainer.appendChild(toast);
 
@@ -1250,39 +1269,48 @@ window.updatePatternTypeOptions = () => {
 window.addLayer = () => {
     const layerControls = document.getElementById('layerControls');
     if (!layerControls) return;
-    
+
+    const { el } = dom;
     const layerIndex = layerControls.children.length;
-    const layerDiv = document.createElement('div');
-    layerDiv.className = 'layer-control';
-    layerDiv.innerHTML = `
-        <div class="layer-header">
-            <h6>Layer ${layerIndex + 1}</h6>
-            <button type="button" class="btn-remove" onclick="removeLayer(this)">&times;</button>
-        </div>
-        <div class="layer-params">
-            <div class="form-group">
-                <label>Waveform</label>
-                <select class="layer-waveform">
-                    <option value="Sine">Sine</option>
-                    <option value="Square">Square</option>
-                    <option value="Triangle">Triangle</option>
-                    <option value="Sawtooth">Sawtooth</option>
-                    <option value="Noise">Noise</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Frequency (Hz)</label>
-                <input type="range" class="layer-frequency" min="20" max="80" value="40" oninput="updateRangeDisplay(this)">
-                <span class="range-value">40</span>
-            </div>
-            <div class="form-group">
-                <label>Amplitude</label>
-                <input type="range" class="layer-amplitude" min="0.1" max="1.0" step="0.1" value="0.8" oninput="updateRangeDisplay(this)">
-                <span class="range-value">0.8</span>
-            </div>
-        </div>
-    `;
-    
+
+    // The range inputs are wired here rather than through an inline oninput, which the CSP blocks.
+    const range = (className, attrs, initial) => {
+        const input = el('input', { className, attrs: { type: 'range', ...attrs }, value: initial });
+        const display = el('span', { className: 'range-value', text: initial });
+
+        input.addEventListener('input', () => { display.textContent = input.value; });
+
+        return [input, display];
+    };
+
+    const layerDiv = el('div', { className: 'layer-control' }, [
+        el('div', { className: 'layer-header' }, [
+            el('h6', { text: `Layer ${layerIndex + 1}` }),
+            el('button', {
+                className: 'btn-remove',
+                attrs: { type: 'button' },
+                text: '\u00d7',
+                on: { click: (event) => removeLayer(event.currentTarget) }
+            })
+        ]),
+        el('div', { className: 'layer-params' }, [
+            el('div', { className: 'form-group' }, [
+                el('label', { text: 'Waveform' }),
+                el('select', { className: 'layer-waveform' },
+                    ['Sine', 'Square', 'Triangle', 'Sawtooth', 'Noise']
+                        .map(waveform => el('option', { attrs: { value: waveform }, text: waveform })))
+            ]),
+            el('div', { className: 'form-group' }, [
+                el('label', { text: 'Frequency (Hz)' }),
+                ...range('layer-frequency', { min: '20', max: '80' }, '40')
+            ]),
+            el('div', { className: 'form-group' }, [
+                el('label', { text: 'Amplitude' }),
+                ...range('layer-amplitude', { min: '0.1', max: '1.0', step: '0.1' }, '0.8')
+            ])
+        ])
+    ]);
+
     layerControls.appendChild(layerDiv);
 };
 
@@ -1374,7 +1402,7 @@ window.resetPatternTester = () => {
     // Clear multi-layer controls
     const layerControls = document.getElementById('layerControls');
     if (layerControls) {
-        layerControls.innerHTML = '';
+        dom.clear(layerControls);
     }
     
     // Hide multi-layer controls
@@ -1484,7 +1512,7 @@ function updateReplayUI(isReplaying) {
     
     if (startBtn) {
         startBtn.disabled = isReplaying;
-        startBtn.innerHTML = isReplaying ? '<i class="fas fa-play"></i> Running...' : '<i class="fas fa-play"></i> Start Replay';
+        dom.replace(startBtn, [dom.icon('fa-play'), isReplaying ? ' Running...' : ' Start Replay']);
     }
     
     if (stopBtn) {
@@ -1517,7 +1545,7 @@ window.refreshJournalFiles = async () => {
             
             if (journalFileSelect && status.recent_files) {
                 // Clear existing options
-                journalFileSelect.innerHTML = '';
+                dom.clear(journalFileSelect);
                 
                 // Add default option
                 const defaultOption = document.createElement('option');
@@ -1546,7 +1574,10 @@ window.refreshJournalFiles = async () => {
         console.error('Error refreshing journal files:', error);
         const journalFileSelect = document.getElementById('journalFileSelect');
         if (journalFileSelect) {
-            journalFileSelect.innerHTML = '<option value="">Error loading journal files</option>';
+            dom.replace(journalFileSelect, dom.el('option', {
+                attrs: { value: '' },
+                text: 'Error loading journal files'
+            }));
         }
     }
 };
