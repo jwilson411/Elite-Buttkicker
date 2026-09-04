@@ -208,7 +208,7 @@ internal sealed class SetupTestHost : IDisposable
             .Build();
 
         _host.Start();
-        Client = _host.GetTestClient();
+        Client = LoopbackTestClient.Create(_host);
     }
 
     public AppSettings Settings { get; }
