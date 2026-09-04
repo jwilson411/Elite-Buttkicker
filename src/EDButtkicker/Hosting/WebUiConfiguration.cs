@@ -28,6 +28,36 @@ public static class WebUiConfiguration
             .CreateLogger(typeof(WebUiConfiguration).FullName!);
 
         var webRootPath = ResolveWebRootPath(logger);
+        var tokens = app.ApplicationServices.GetRequiredService<CsrfTokenProvider>();
+
+        // Ahead of everything, including static files: a mutation that cannot prove it came from our
+        // own page never reaches a handler, and a safe request leaves with the token it needs.
+        app.Use(async (context, next) =>
+        {
+            if (LocalhostRequestGuard.IsSafeMethod(context.Request.Method))
+            {
+                tokens.IssueCookies(context);
+                await next();
+                return;
+            }
+
+            var rejection = LocalhostRequestGuard.Validate(context, tokens);
+            if (rejection != null)
+            {
+                logger.LogWarning(
+                    "Rejected {Method} {Path} (host {Host}, origin {Origin}): {Reason}",
+                    context.Request.Method,
+                    context.Request.Path.ToString(),
+                    context.Request.Host.Value,
+                    context.Request.Headers["Origin"].ToString(),
+                    rejection);
+
+                await LocalhostRequestGuard.WriteRejectionAsync(context, rejection);
+                return;
+            }
+
+            await next();
+        });
 
         app.UseStaticFiles(new StaticFileOptions
         {
@@ -43,8 +73,21 @@ public static class WebUiConfiguration
 
             try
             {
+                // Anti-forgery token for the same-origin UI. A cross-origin page can issue this GET
+                // but cannot read its response or its cookies, so the token stays ours.
+                // The cookies are already on the response - every safe request leaves with them.
+                if (path == "/api/csrf" && method == "GET")
+                {
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        token = tokens.Token,
+                        header = CsrfTokenProvider.HeaderName
+                    }));
+                    return;
+                }
                 // Configuration API
-                if (path == "/api/config" && method == "GET")
+                else if (path == "/api/config" && method == "GET")
                 {
                     var controller = context.RequestServices.GetService<ConfigurationApiController>();
                     await controller!.GetConfiguration(context);

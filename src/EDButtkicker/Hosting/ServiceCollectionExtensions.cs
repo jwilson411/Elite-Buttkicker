@@ -25,6 +25,9 @@ public static class ServiceCollectionExtensions
         // in tests; the process always runs on the system clock.
         services.AddSingleton(TimeProvider.System);
 
+        // One anti-forgery token per process, guarding every state-changing web request.
+        services.AddSingleton<CsrfTokenProvider>();
+
         // Add core services
         services.AddSingleton<AudioEngineService>();
         services.AddSingleton<PatternSequencer>();

@@ -131,6 +131,7 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
     /// <summary>Every route wired up in <see cref="WebUiConfiguration.Configure"/>.</summary>
     public static TheoryData<string, string> MappedRoutes() => new()
     {
+        { "GET", "/api/csrf" },
         { "GET", "/api/config" },
         { "POST", "/api/config" },
         { "GET", "/api/config/export" },
@@ -180,6 +181,7 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
     /// <summary>GETs that need no request body, so anything but success is a real failure.</summary>
     public static TheoryData<string> ReadOnlyRoutes() => new()
     {
+        "/api/csrf",
         "/api/config",
         "/api/patterns",
         "/api/journal/status",
@@ -263,16 +265,22 @@ public sealed class WebUiTestServerFixture : IDisposable
             .Build();
 
         _host.Start();
-        Client = _host.GetTestClient();
+        Client = LoopbackTestClient.Create(_host);
+        RawClient = _host.GetTestClient();
     }
 
+    /// <summary>Speaks like the application's own page: loopback Host, same-origin Origin, token.</summary>
     public HttpClient Client { get; }
+
+    /// <summary>No default headers at all, so a test can spell out exactly what a caller sent.</summary>
+    public HttpClient RawClient { get; }
 
     public IServiceProvider Services => _host.Services;
 
     public void Dispose()
     {
         Client.Dispose();
+        RawClient.Dispose();
         _host.Dispose();
         _setupStateDir.Dispose();
     }
