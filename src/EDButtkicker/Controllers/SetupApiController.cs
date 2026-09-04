@@ -16,14 +16,15 @@ public class SetupApiController
 {
     /// <summary>
     /// The test tone is deliberately gentle: a buttkicker is a physical actuator and the user has
-    /// not set their amplifier gain yet when they reach this step.
+    /// not set their amplifier gain yet when they reach this step. The wizard and the audio tab
+    /// play the same capped tone, so the shape lives in <see cref="AudioTestPattern"/>.
     /// </summary>
-    public const int TestIntensityPercent = 30;
-    public const int TestDurationMs = 800;
-    public const int TestFadeInMs = 200;
-    public const int TestFadeOutMs = 300;
-    public const int MinTestFrequency = 20;
-    public const int MaxTestFrequency = 50;
+    public const int TestIntensityPercent = AudioTestPattern.IntensityPercent;
+    public const int TestDurationMs = AudioTestPattern.DurationMs;
+    public const int TestFadeInMs = AudioTestPattern.FadeInMs;
+    public const int TestFadeOutMs = AudioTestPattern.FadeOutMs;
+    public const int MinTestFrequency = AudioTestPattern.MinFrequency;
+    public const int MaxTestFrequency = AudioTestPattern.MaxFrequency;
 
     private readonly ILogger<SetupApiController> _logger;
     private readonly AppSettings _settings;
@@ -275,33 +276,36 @@ public class SetupApiController
             var pattern = BuildTestPattern();
             var opened = _audioEngine.RetryInitialization();
 
-            if (opened)
-            {
-                await _audioEngine.PlayHapticPattern(pattern);
-            }
+            // A device that opens can still refuse the tone, so the wizard reports the playback
+            // result rather than treating "the device opened" as "the user felt something".
+            var playback = opened
+                ? await _audioEngine.TryPlayHapticPattern(pattern)
+                : AudioPlaybackResult.Failed("No audio output device could be opened.");
 
             var status = _audioEngine.GetStatus();
-            var reason = opened
+            var reason = playback.Played
                 ? $"Played a {pattern.Duration} ms tone at {pattern.Frequency} Hz and {pattern.Intensity}% intensity."
-                : string.IsNullOrWhiteSpace(status.LastError)
-                    ? "No audio output device could be opened, so nothing was played."
-                    : $"No audio output device could be opened, so nothing was played: {status.LastError}";
+                : opened
+                    ? $"The audio device is open but the test tone could not be played: {playback.Error}"
+                    : string.IsNullOrWhiteSpace(status.LastError)
+                        ? "No audio output device could be opened, so nothing was played."
+                        : $"No audio output device could be opened, so nothing was played: {status.LastError}";
 
             var testedAt = _timeProvider.GetUtcNow().UtcDateTime;
             await _setupState.UpdateAsync(state =>
             {
                 state.AudioTestedAtUtc = testedAt;
-                state.AudioTestPlayed = opened;
+                state.AudioTestPlayed = playback.Played;
                 state.AudioTestReason = reason;
             });
 
-            _logger.LogInformation("Setup audio test ran, played: {Played}", opened);
+            _logger.LogInformation("Setup audio test ran, played: {Played}", playback.Played);
 
             await WriteJsonAsync(context, new
             {
-                // Truthfully false when no device could be opened - the request succeeded, the
+                // Truthfully false when nothing reached the output - the request succeeded, the
                 // playback did not.
-                played = opened,
+                played = playback.Played,
                 reason,
                 pattern = new
                 {
@@ -369,16 +373,7 @@ public class SetupApiController
         }
     }
 
-    private HapticPattern BuildTestPattern() => new()
-    {
-        Name = "Setup Audio Test",
-        Pattern = PatternType.SustainedRumble,
-        Frequency = Math.Clamp(_settings.Audio.DefaultFrequency, MinTestFrequency, MaxTestFrequency),
-        Duration = TestDurationMs,
-        Intensity = Math.Min(TestIntensityPercent, Math.Max(1, _settings.Audio.MaxIntensity)),
-        FadeIn = TestFadeInMs,
-        FadeOut = TestFadeOutMs
-    };
+    private HapticPattern BuildTestPattern() => AudioTestPattern.Create(_settings.Audio, "Setup Audio Test");
 
     private async Task<object> BuildStatusAsync()
     {

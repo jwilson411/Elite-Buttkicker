@@ -21,6 +21,13 @@ public class AudioEngineService : IDisposable
     private bool _initializationFailed = false;
     private string? _lastInitializationError;
     private DateTime? _openedAtUtc;
+    // What was actually opened, as opposed to what the settings asked for: the fallback path can
+    // land on a different backend and a different endpoint than the saved selection.
+    private string? _backend;
+    private string? _activeEndpointId;
+    private string? _activeDeviceName;
+    private string? _lastPlaybackError;
+    private DateTime? _lastPlaybackAtUtc;
     private readonly Dictionary<string, SignalGenerator> _activeGenerators = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeCancellations = new();
 
@@ -129,7 +136,13 @@ public class AudioEngineService : IDisposable
                 _initializationFailed,
                 _lastInitializationError,
                 _settings.Audio.AudioDeviceName,
-                _openedAtUtc);
+                _openedAtUtc,
+                _backend,
+                _activeDeviceName,
+                _activeEndpointId,
+                _lastPlaybackError,
+                _lastPlaybackAtUtc,
+                _activeGenerators.Count);
         }
     }
 
@@ -149,28 +162,35 @@ public class AudioEngineService : IDisposable
     }
 
     /// <summary>
-    /// Plays one pattern. Virtual so tests can observe what would be played without opening a device;
-    /// when no audio device is available this degrades to a no-op instead of throwing.
+    /// Plays one pattern and reports whether it actually reached an open output. Virtual so tests
+    /// can observe what would be played without opening a device. Nothing throws: a caller that
+    /// only wants haptics-if-available can ignore the result, while the test endpoints turn a
+    /// failure into an HTTP failure rather than reporting a success that never made a sound.
     /// </summary>
-    public virtual Task PlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null)
+    public virtual Task<AudioPlaybackResult> TryPlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null)
     {
         if (!EnsureInitialized())
         {
             _logger.LogWarning("⚠ Audio engine not initialized, skipping playback for pattern: {PatternName}", pattern.Name);
-            return Task.CompletedTask;
+
+            var reason = string.IsNullOrWhiteSpace(_lastInitializationError)
+                ? "No audio output device could be opened."
+                : $"No audio output device could be opened: {_lastInitializationError}";
+
+            return Task.FromResult(RecordPlaybackFailure(reason));
         }
 
         // Check if wave output is still valid
         if (_waveOut == null)
         {
             _logger.LogError("❌ Wave output is null, cannot play pattern: {PatternName}", pattern.Name);
-            return Task.CompletedTask;
+            return Task.FromResult(RecordPlaybackFailure("The audio output was closed, so nothing could be played."));
         }
 
         var playbackState = _waveOut.PlaybackState;
         if (playbackState != PlaybackState.Playing)
         {
-            _logger.LogWarning("⚠ Wave output not in playing state ({PlaybackState}), attempting to restart for pattern: {PatternName}", 
+            _logger.LogWarning("⚠ Wave output not in playing state ({PlaybackState}), attempting to restart for pattern: {PatternName}",
                 playbackState, pattern.Name);
             try
             {
@@ -180,7 +200,7 @@ public class AudioEngineService : IDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "❌ Failed to restart wave output");
-                return Task.CompletedTask;
+                return Task.FromResult(RecordPlaybackFailure($"The audio output could not be restarted: {ex.Message}"));
             }
         }
 
@@ -260,9 +280,35 @@ public class AudioEngineService : IDisposable
         {
             _logger.LogError(ex, "❌ Error playing haptic pattern '{PatternName}': {ErrorMessage}", pattern.Name, ex.Message);
             LogDetailedAudioError(ex);
+
+            return Task.FromResult(RecordPlaybackFailure($"Playback failed: {ex.Message}"));
         }
-        
-        return Task.CompletedTask;
+
+        lock (_lock)
+        {
+            _lastPlaybackError = null;
+            _lastPlaybackAtUtc = DateTime.UtcNow;
+        }
+
+        return Task.FromResult(AudioPlaybackResult.Success);
+    }
+
+    /// <summary>
+    /// Plays one pattern for callers that want haptics if a device is available and nothing at all
+    /// otherwise - the journal-driven path, where a missing device must not break event handling.
+    /// </summary>
+    public virtual Task PlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null) =>
+        TryPlayHapticPattern(pattern, journalEvent);
+
+    /// <summary>Remembers why the last playback did not reach the output, for the health payload.</summary>
+    private AudioPlaybackResult RecordPlaybackFailure(string error)
+    {
+        lock (_lock)
+        {
+            _lastPlaybackError = error;
+        }
+
+        return AudioPlaybackResult.Failed(error);
     }
 
     private int CalculateIntensity(HapticPattern pattern, JournalEvent? journalEvent)
@@ -306,12 +352,18 @@ public class AudioEngineService : IDisposable
         }
     }
 
-    public void StopAllEffects()
+    /// <summary>
+    /// Silences everything that is playing right now and returns how many effects were stopped.
+    /// This is the panic button behind the UI's stop control, so it takes effect immediately rather
+    /// than waiting for the scheduled cleanup of each effect.
+    /// </summary>
+    public virtual int StopAllEffects()
     {
         lock (_lock)
         {
-            _logger.LogInformation("Stopping all active audio effects");
-            
+            var stopped = _activeGenerators.Count;
+            _logger.LogInformation("Stopping all active audio effects ({Count})", stopped);
+
             foreach (var cancellation in _activeCancellations.Values)
             {
                 cancellation.Cancel();
@@ -319,9 +371,11 @@ public class AudioEngineService : IDisposable
 
             _activeGenerators.Clear();
             _activeCancellations.Clear();
-            
+
             // Clear mixer
             _mixer?.RemoveAllMixerInputs();
+
+            return stopped;
         }
     }
 
@@ -344,6 +398,11 @@ public class AudioEngineService : IDisposable
             _mixer = null;
             _isInitialized = false;
             _openedAtUtc = null;
+            _backend = null;
+            _activeEndpointId = null;
+            _activeDeviceName = null;
+            _lastPlaybackError = null;
+            _lastPlaybackAtUtc = null;
             // A new device deserves a fresh attempt even if the previous one could not be opened.
             _initializationFailed = false;
             _lastInitializationError = null;
@@ -435,7 +494,7 @@ public class AudioEngineService : IDisposable
         {
             // No WASAPI here: the default output is the only thing left to try.
             _logger.LogWarning(ex, "Failed to enumerate WASAPI render endpoints, using the default output");
-            return new WaveOutEvent();
+            return OpenDefaultOutput();
         }
 
         foreach (var line in AudioDeviceDiagnostics.DescribeEnumeration(enumerated, "WASAPI render"))
@@ -459,7 +518,12 @@ public class AudioEngineService : IDisposable
                 _logger.LogInformation("✓ Using audio device: {DeviceName} (endpoint {EndpointId})",
                     endpoint.FriendlyName, resolution.EndpointId);
 
-                return new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 200);
+                var output = new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 200);
+                _backend = "WASAPI";
+                _activeEndpointId = resolution.EndpointId;
+                _activeDeviceName = endpoint.FriendlyName;
+
+                return output;
             }
             catch (Exception ex)
             {
@@ -472,7 +536,22 @@ public class AudioEngineService : IDisposable
             _logger.LogWarning("⚠ {Selection}", resolution.Reason);
         }
 
-        _logger.LogInformation("Using default audio device: {DefaultDevice}", GetDefaultAudioDevice() ?? "Unknown");
+        return OpenDefaultOutput();
+    }
+
+    /// <summary>
+    /// The fallback output. Recorded as its own backend so the health payload can say the saved
+    /// endpoint is not what is playing, instead of implying the selection was honoured.
+    /// </summary>
+    private IWavePlayer OpenDefaultOutput()
+    {
+        var defaultDevice = GetDefaultAudioDevice();
+        _logger.LogInformation("Using default audio device: {DefaultDevice}", defaultDevice ?? "Unknown");
+
+        _backend = "WaveOut";
+        _activeEndpointId = null;
+        _activeDeviceName = defaultDevice;
+
         return new WaveOutEvent();
     }
 
@@ -627,11 +706,29 @@ public class AudioEngineService : IDisposable
 
 /// <summary>
 /// A read of the audio output state that costs nothing: whether a device is open, whether opening
-/// one failed and why, and which device the settings ask for.
+/// one failed and why, which device the settings ask for, which output is actually carrying audio,
+/// and why the last playback did not reach it.
 /// </summary>
 public sealed record AudioEngineStatus(
     bool Initialized,
     bool InitializationFailed,
     string? LastError,
     string? ConfiguredDeviceName,
-    DateTime? OpenedAtUtc);
+    DateTime? OpenedAtUtc,
+    string? Backend = null,
+    string? ActiveDeviceName = null,
+    string? ActiveEndpointId = null,
+    string? LastPlaybackError = null,
+    DateTime? LastPlaybackAtUtc = null,
+    int ActiveEffects = 0);
+
+/// <summary>
+/// Whether one playback attempt actually reached an open output, and why not when it did not.
+/// A "test" that only scheduled work is not a success, so this is what the test endpoints report.
+/// </summary>
+public sealed record AudioPlaybackResult(bool Played, string? Error)
+{
+    public static AudioPlaybackResult Success { get; } = new(true, null);
+
+    public static AudioPlaybackResult Failed(string error) => new(false, error);
+}

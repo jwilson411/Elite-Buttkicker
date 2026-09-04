@@ -184,31 +184,67 @@ public class AudioApiController
         }
     }
 
+    /// <summary>
+    /// What the output is actually doing: the selected endpoint, the backend carrying audio, whether
+    /// a device is open, and why the last playback failed. Reading this never opens a device, so the
+    /// UI can show "not opened yet" without provoking hardware.
+    /// </summary>
+    public async Task GetAudioStatus(HttpContext context)
+    {
+        try
+        {
+            await WriteJsonAsync(context, BuildStatusPayload());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading audio status");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+        }
+    }
+
+    /// <summary>
+    /// Plays the shared, deliberately quiet test tone. The request fails unless the tone actually
+    /// reached an open output: a scheduled effect on a device that was never opened is not a
+    /// successful test, and reporting it as one is what let a silent rig look healthy.
+    /// </summary>
     public async Task TestAudio(HttpContext context)
     {
         try
         {
             _logger.LogInformation("Testing audio output");
 
-            // Create a test haptic pattern
-            var testPattern = new HapticPattern
+            var testPattern = AudioTestPattern.Create(_settings.Audio, "Audio Test");
+
+            // Forget any earlier failure first: a user pressing Test after reconnecting their amp
+            // is asking for another attempt, not for the old verdict.
+            var opened = _audioEngine.RetryInitialization();
+            var playback = opened
+                ? await _audioEngine.TryPlayHapticPattern(testPattern)
+                : AudioPlaybackResult.Failed(DescribeUnavailableOutput());
+
+            if (!playback.Played)
             {
-                Name = "Audio Test",
-                Pattern = PatternType.SharpPulse,
-                Frequency = 40,
-                Duration = 1000,
-                Intensity = 60,
-                FadeIn = 100,
-                FadeOut = 200
-            };
+                _logger.LogWarning("Audio test failed: {Error}", playback.Error);
 
-            await _audioEngine.PlayHapticPattern(testPattern);
+                // 503 when there is no output to reach, 500 when an open output refused the tone.
+                context.Response.StatusCode = opened ? 500 : 503;
+                await WriteJsonAsync(context, new
+                {
+                    success = false,
+                    played = false,
+                    error = playback.Error,
+                    audio = BuildStatusPayload()
+                });
+                return;
+            }
 
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
-                message = "Audio test completed successfully",
+            await WriteJsonAsync(context, new
+            {
+                success = true,
+                played = true,
+                message = $"Played a {testPattern.Duration} ms tone at {testPattern.Frequency} Hz and " +
+                    $"{testPattern.Intensity}% intensity.",
                 pattern = new
                 {
                     name = testPattern.Name,
@@ -216,13 +252,9 @@ public class AudioApiController
                     duration = testPattern.Duration,
                     intensity = testPattern.Intensity
                 },
-                device = new
-                {
-                    id = _settings.Audio.AudioDeviceId,
-                    endpointId = _settings.Audio.AudioDeviceEndpointId,
-                    name = _settings.Audio.AudioDeviceName
-                }
-            }));
+                stop = "/api/audio/stop",
+                audio = BuildStatusPayload()
+            });
         }
         catch (Exception ex)
         {
@@ -230,6 +262,104 @@ public class AudioApiController
             context.Response.StatusCode = 500;
             await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
         }
+    }
+
+    /// <summary>
+    /// Silences everything playing right now. This is the way out of a tone that is too strong, so
+    /// it takes effect immediately rather than waiting for the effect's own cleanup.
+    /// </summary>
+    public async Task StopAudio(HttpContext context)
+    {
+        try
+        {
+            var stopped = _audioEngine.StopAllEffects();
+            _logger.LogInformation("Stopped {Count} active audio effect(s) on request", stopped);
+
+            await WriteJsonAsync(context, new
+            {
+                success = true,
+                stopped,
+                message = stopped == 0
+                    ? "Nothing was playing."
+                    : $"Stopped {stopped} active effect(s).",
+                audio = BuildStatusPayload()
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error stopping audio playback");
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+        }
+    }
+
+    /// <summary>
+    /// The health contract behind every audio response: selection, backend, initialization state and
+    /// the last playback error, all read from the engine rather than inferred from a 200.
+    /// </summary>
+    private object BuildStatusPayload()
+    {
+        var status = _audioEngine.GetStatus();
+        var devices = GetAvailableAudioDevices();
+        var resolution = ResolveConfiguredDevice(devices);
+
+        return new
+        {
+            initialized = status.Initialized,
+            initializationFailed = status.InitializationFailed,
+            // Null until a device has been opened - naming a backend before then would be a guess.
+            backend = status.Backend,
+            openedAtUtc = status.OpenedAtUtc,
+            lastError = status.LastError,
+            lastPlaybackError = status.LastPlaybackError,
+            lastPlaybackAtUtc = status.LastPlaybackAtUtc,
+            activeEffects = status.ActiveEffects,
+            selectedDevice = new
+            {
+                id = _settings.Audio.AudioDeviceId,
+                endpointId = _settings.Audio.AudioDeviceEndpointId,
+                name = _settings.Audio.AudioDeviceName,
+                resolved = resolution.Status.ToString(),
+                resolvedEndpointId = resolution.EndpointId,
+                resolvedName = resolution.Name,
+                usesSystemDefault = resolution.UsesSystemDefault,
+                reason = resolution.Reason
+            },
+            // What is carrying audio, which is not always what was selected: the engine falls back
+            // to the default output when the saved endpoint cannot be opened.
+            activeDevice = new
+            {
+                endpointId = status.ActiveEndpointId,
+                name = status.ActiveDeviceName
+            },
+            test = new
+            {
+                endpoint = "/api/audio/test",
+                stopEndpoint = "/api/audio/stop",
+                intensity = AudioTestPattern.IntensityFor(_settings.Audio),
+                maxIntensity = _settings.Audio.MaxIntensity,
+                durationMs = AudioTestPattern.DurationMs
+            }
+        };
+    }
+
+    private string DescribeUnavailableOutput()
+    {
+        var status = _audioEngine.GetStatus();
+
+        return string.IsNullOrWhiteSpace(status.LastError)
+            ? "No audio output device could be opened, so nothing was played."
+            : $"No audio output device could be opened, so nothing was played: {status.LastError}";
+    }
+
+    private static Task WriteJsonAsync(HttpContext context, object payload)
+    {
+        context.Response.ContentType = "application/json";
+
+        return context.Response.WriteAsync(JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        }));
     }
 
     // One enumeration for the whole app: the setup wizard, the health checks and this API all read

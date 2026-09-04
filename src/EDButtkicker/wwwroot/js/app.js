@@ -1012,20 +1012,44 @@ window.selectAudioDevice = async (endpointId, deviceId) => {
     }
 };
 
+// The server only answers 2xx when the tone actually reached an open output, so the toast repeats
+// what it said rather than claiming success because a request was accepted.
 window.testAudio = async () => {
     try {
         const response = await fetch('/api/audio/test', {
             method: 'POST'
         });
 
+        const result = await response.json().catch(() => ({}));
+
         if (response.ok) {
-            app.showToast('Audio test completed!', 'success');
+            app.showToast(result.message || 'Audio test played.', 'success');
         } else {
-            app.showToast('Error testing audio', 'error');
+            app.showToast(result.error || 'The audio test could not be played', 'error');
         }
     } catch (error) {
         console.error('Error testing audio:', error);
         app.showToast('Error testing audio', 'error');
+    }
+};
+
+// The way out of a tone that is too strong: stops everything already playing, immediately.
+window.stopAudio = async () => {
+    try {
+        const response = await fetch('/api/audio/stop', {
+            method: 'POST'
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+            app.showToast(result.message || 'Playback stopped.', 'success');
+        } else {
+            app.showToast(result.error || 'Error stopping playback', 'error');
+        }
+    } catch (error) {
+        console.error('Error stopping playback:', error);
+        app.showToast('Error stopping playback', 'error');
     }
 };
 
