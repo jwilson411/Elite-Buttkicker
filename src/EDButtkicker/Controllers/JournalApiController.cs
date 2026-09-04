@@ -46,7 +46,9 @@ public class JournalApiController
             {
                 try
                 {
-                    journalFiles = Directory.GetFiles(journalPath, "Journal.*.log")
+                    // Same glob the replay guard resolves against, so the names offered here are
+                    // exactly the names replay will accept.
+                    journalFiles = Directory.GetFiles(journalPath, JournalFileGuard.JournalGlob)
                         .OrderByDescending(f => File.GetLastWriteTime(f))
                         .Take(5)
                         .Select(Path.GetFileName)
@@ -254,11 +256,38 @@ public class JournalApiController
                 }
             }
 
-            // Get events from the selected journal file or fallback to recent events (outside of lock)
-            List<JournalEvent> eventsToReplay;
+            // A requested file is only ever one of the journal files the server enumerated; anything
+            // else is refused here, before a path exists, so no file outside the folder is read.
+            string? sourceFile = null;
+            string? resolvedPath = null;
             if (!string.IsNullOrEmpty(selectedJournalFile))
             {
-                eventsToReplay = await ReadLastFiveMinutesFromJournalFile(selectedJournalFile);
+                resolvedPath = JournalFileGuard.Resolve(
+                    _settings.EliteDangerous.JournalPath, selectedJournalFile);
+
+                if (resolvedPath == null)
+                {
+                    _logger.LogWarning(
+                        "Rejected journal replay for a file that is not one of the {Glob} files in the configured journal folder",
+                        JournalFileGuard.JournalGlob);
+
+                    context.Response.StatusCode = 400;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
+                    {
+                        error = "Journal file must be one of the journal files listed by the journal status API"
+                    }));
+                    return;
+                }
+
+                sourceFile = Path.GetFileName(resolvedPath);
+            }
+
+            // Get events from the selected journal file or fallback to recent events (outside of lock)
+            List<JournalEvent> eventsToReplay;
+            if (resolvedPath != null)
+            {
+                eventsToReplay = await ReadLastFiveMinutesFromJournalFile(resolvedPath);
             }
             else
             {
@@ -283,17 +312,17 @@ public class JournalApiController
                     _replayTokenSource = new CancellationTokenSource();
                     _replayTask = Task.Run(async () => await ReplayEventsAsync(eventsToReplay, _replayTokenSource.Token));
 
-                    _logger.LogInformation("Started journal replay with {Count} events from {Source}", 
-                        eventsToReplay.Count, 
-                        !string.IsNullOrEmpty(selectedJournalFile) ? selectedJournalFile : "recent events");
+                    _logger.LogInformation("Started journal replay with {Count} events from {Source}",
+                        eventsToReplay.Count,
+                        sourceFile ?? "recent events");
                 }
             }
             
             if (!eventsToReplay.Any())
             {
                 context.Response.StatusCode = 404;
-                var errorMessage = !string.IsNullOrEmpty(selectedJournalFile) 
-                    ? $"No events found in the last 5 minutes of journal file: {selectedJournalFile}"
+                var errorMessage = sourceFile != null
+                    ? $"No events found in the last 5 minutes of journal file: {sourceFile}"
                     : "No events found in the last 5 minutes";
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = errorMessage }));
                 return;
@@ -303,9 +332,9 @@ public class JournalApiController
             await context.Response.WriteAsync(JsonSerializer.Serialize(new 
             { 
                 success = true,
-                message = $"Journal replay started from {(!string.IsNullOrEmpty(selectedJournalFile) ? Path.GetFileName(selectedJournalFile) : "recent events")}",
+                message = $"Journal replay started from {sourceFile ?? "recent events"}",
                 events_count = eventsToReplay.Count,
-                source = !string.IsNullOrEmpty(selectedJournalFile) ? Path.GetFileName(selectedJournalFile) : "recent_events"
+                source = sourceFile ?? "recent_events"
             }));
         }
         catch (Exception ex)
@@ -417,20 +446,17 @@ public class JournalApiController
         return _eventStore.GetSince(cutoffTime).Count;
     }
 
-    private async Task<List<JournalEvent>> ReadLastFiveMinutesFromJournalFile(string journalFileName)
+    /// <summary>
+    /// Reads a journal file that <see cref="JournalFileGuard.Resolve"/> has already resolved to a
+    /// full path inside the configured journal folder. Never call this with a caller-supplied name.
+    /// </summary>
+    private async Task<List<JournalEvent>> ReadLastFiveMinutesFromJournalFile(string fullPath)
     {
         var events = new List<JournalEvent>();
-        
+        var journalFileName = Path.GetFileName(fullPath);
+
         try
         {
-            var journalPath = _settings.EliteDangerous.JournalPath;
-            if (string.IsNullOrEmpty(journalPath) || !Directory.Exists(journalPath))
-            {
-                _logger.LogWarning("Journal path not configured or does not exist");
-                return events;
-            }
-
-            var fullPath = Path.Combine(journalPath, journalFileName);
             if (!File.Exists(fullPath))
             {
                 _logger.LogWarning("Journal file not found: {FilePath}", fullPath);
