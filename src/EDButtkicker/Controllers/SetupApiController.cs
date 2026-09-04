@@ -35,6 +35,7 @@ public class SetupApiController
     private readonly IAudioDeviceCatalog _deviceCatalog;
     private readonly AudioEngineService _audioEngine;
     private readonly SystemHealthService _health;
+    private readonly SettingsPersistenceService _settingsPersistence;
     private readonly TimeProvider _timeProvider;
 
     public SetupApiController(
@@ -47,6 +48,7 @@ public class SetupApiController
         IAudioDeviceCatalog deviceCatalog,
         AudioEngineService audioEngine,
         SystemHealthService health,
+        SettingsPersistenceService settingsPersistence,
         TimeProvider timeProvider)
     {
         _logger = logger;
@@ -58,6 +60,7 @@ public class SetupApiController
         _deviceCatalog = deviceCatalog;
         _audioEngine = audioEngine;
         _health = health;
+        _settingsPersistence = settingsPersistence;
         _timeProvider = timeProvider;
     }
 
@@ -444,19 +447,10 @@ public class SetupApiController
     /// be written: the caller must not then record the step as confirmed, because the choice would
     /// be gone on the next run while the wizard claimed it was done.
     /// </summary>
-    private async Task<bool> TryPersistUserSettingsAsync()
-    {
-        try
-        {
-            await _userSettings.SaveUserPreferencesAsync(_userSettings.CreatePreferencesFromAppSettings(_settings));
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Setup could not persist user settings to {SettingsPath}", _userSettings.GetUserSettingsPath());
-            return false;
-        }
-    }
+    private Task<bool> TryPersistUserSettingsAsync() =>
+        // Through the same atomic, backed-up write as every other settings change - the wizard has
+        // already validated and applied its own step, so it only needs the write.
+        _settingsPersistence.PersistCurrentAsync();
 
     /// <summary>
     /// Reports a choice that applied to this session but could not be saved, leaving the recorded

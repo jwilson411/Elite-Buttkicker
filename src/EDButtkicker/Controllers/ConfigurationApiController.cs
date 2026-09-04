@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
@@ -9,11 +10,16 @@ public class ConfigurationApiController
 {
     private readonly ILogger<ConfigurationApiController> _logger;
     private readonly AppSettings _settings;
+    private readonly SettingsPersistenceService _settingsPersistence;
 
-    public ConfigurationApiController(ILogger<ConfigurationApiController> logger, AppSettings settings)
+    public ConfigurationApiController(
+        ILogger<ConfigurationApiController> logger,
+        AppSettings settings,
+        SettingsPersistenceService settingsPersistence)
     {
         _logger = logger;
         _settings = settings;
+        _settingsPersistence = settingsPersistence;
     }
 
     public async Task GetConfiguration(HttpContext context)
@@ -50,71 +56,66 @@ public class ConfigurationApiController
         }
     }
 
+    /// <summary>
+    /// The settings the web UI edits. Nothing is written to the running configuration here: the
+    /// request is turned into an update and handed to the one service that validates it, applies
+    /// what can be applied now, and persists the result - so a 200 here is a change that survives a
+    /// restart, and the response says which parts are live already.
+    /// </summary>
     public async Task UpdateConfiguration(HttpContext context)
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var root = await ReadJsonAsync(context);
+            if (root == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
+                await WriteBadRequestAsync(context, "Request body is empty");
                 return;
             }
 
-            var configUpdate = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            if (configUpdate == null)
+            if (root.Value.ValueKind != JsonValueKind.Object)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
+                await WriteBadRequestAsync(context, "Invalid JSON format");
                 return;
             }
 
-            // Update individual settings
-            if (configUpdate.ContainsKey("audio"))
+            var update = new SettingsUpdate();
+
+            if (TryGetSection(root.Value, "audio", out var audio))
             {
-                var audioJson = configUpdate["audio"].ToString();
-                if (!string.IsNullOrEmpty(audioJson))
-                {
-                    var audioSettings = JsonSerializer.Deserialize<Dictionary<string, object>>(audioJson);
-                    if (audioSettings != null)
-                    {
-                        if (audioSettings.ContainsKey("AudioDeviceId") && int.TryParse(audioSettings["AudioDeviceId"].ToString(), out int deviceId))
-                            _settings.Audio.AudioDeviceId = deviceId;
-                        if (audioSettings.ContainsKey("AudioDeviceEndpointId"))
-                            _settings.Audio.AudioDeviceEndpointId = audioSettings["AudioDeviceEndpointId"].ToString() ?? _settings.Audio.AudioDeviceEndpointId;
-                        if (audioSettings.ContainsKey("AudioDeviceName"))
-                            _settings.Audio.AudioDeviceName = audioSettings["AudioDeviceName"].ToString() ?? _settings.Audio.AudioDeviceName;
-                        if (audioSettings.ContainsKey("MaxIntensity") && int.TryParse(audioSettings["MaxIntensity"].ToString(), out int maxIntensity))
-                            _settings.Audio.MaxIntensity = maxIntensity;
-                        if (audioSettings.ContainsKey("DefaultFrequency") && int.TryParse(audioSettings["DefaultFrequency"].ToString(), out int defaultFreq))
-                            _settings.Audio.DefaultFrequency = defaultFreq;
-                    }
-                }
+                update.AudioDeviceId = ReadInt(audio, "AudioDeviceId");
+                update.AudioDeviceEndpointId = ReadString(audio, "AudioDeviceEndpointId");
+                update.AudioDeviceName = ReadString(audio, "AudioDeviceName");
+                update.MaxIntensity = ReadInt(audio, "MaxIntensity");
+                update.DefaultFrequency = ReadInt(audio, "DefaultFrequency");
+                update.SampleRate = ReadInt(audio, "SampleRate");
+                update.BufferSize = ReadInt(audio, "BufferSize");
             }
 
-            if (configUpdate.ContainsKey("eliteDangerous"))
+            if (TryGetSection(root.Value, "eliteDangerous", out var eliteDangerous))
             {
-                var edJson = configUpdate["eliteDangerous"].ToString();
-                if (!string.IsNullOrEmpty(edJson))
-                {
-                    var edSettings = JsonSerializer.Deserialize<Dictionary<string, object>>(edJson);
-                    if (edSettings != null)
-                    {
-                        if (edSettings.ContainsKey("JournalPath"))
-                            _settings.EliteDangerous.JournalPath = edSettings["JournalPath"].ToString() ?? _settings.EliteDangerous.JournalPath;
-                        if (edSettings.ContainsKey("MonitorLatestOnly") && bool.TryParse(edSettings["MonitorLatestOnly"].ToString(), out bool monitorLatest))
-                            _settings.EliteDangerous.MonitorLatestOnly = monitorLatest;
-                    }
-                }
+                update.JournalPath = ReadString(eliteDangerous, "JournalPath");
+                update.MonitorLatestOnly = ReadBool(eliteDangerous, "MonitorLatestOnly");
             }
 
-            _logger.LogInformation("Configuration updated via web interface");
+            var result = await _settingsPersistence.ApplyAsync(update);
 
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { success = true, message = "Configuration updated successfully" }));
+            if (!result.Valid)
+            {
+                await WriteBadRequestAsync(context, result.Message, result);
+                return;
+            }
+
+            _logger.LogInformation("Configuration updated via web interface: {Message}", result.Message);
+
+            // A change that only reached memory is not a successful configuration change: say so.
+            context.Response.StatusCode = result.Saved ? 200 : 500;
+            await WriteJsonAsync(context, new
+            {
+                success = result.Saved,
+                message = result.Message,
+                settings = result.ToPayload()
+            });
         }
         catch (Exception ex)
         {
@@ -165,86 +166,55 @@ public class ConfigurationApiController
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var root = await ReadJsonAsync(context);
+            if (root == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "No configuration data provided" }));
+                await WriteBadRequestAsync(context, "No configuration data provided");
                 return;
             }
 
-            var importData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            if (importData?.ContainsKey("configuration") != true)
+            if (root.Value.ValueKind != JsonValueKind.Object ||
+                !TryGetSection(root.Value, "configuration", out var configuration))
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid configuration format" }));
+                await WriteBadRequestAsync(context, "Invalid configuration format");
                 return;
             }
 
-            var configJson = importData["configuration"].ToString();
-            if (string.IsNullOrEmpty(configJson))
+            var update = new SettingsUpdate();
+
+            if (TryGetSection(configuration, "Audio", out var audio))
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Configuration data is empty" }));
+                update.MaxIntensity = ReadInt(audio, "MaxIntensity");
+                update.DefaultFrequency = ReadInt(audio, "DefaultFrequency");
+                update.SampleRate = ReadInt(audio, "SampleRate");
+                update.BufferSize = ReadInt(audio, "BufferSize");
+            }
+
+            if (TryGetSection(configuration, "EliteDangerous", out var eliteDangerous))
+            {
+                update.MonitorLatestOnly = ReadBool(eliteDangerous, "MonitorLatestOnly");
+                // The journal path is still deliberately not imported: an exported file names a
+                // folder on the machine it came from.
+            }
+
+            var result = await _settingsPersistence.ApplyAsync(update);
+
+            if (!result.Valid)
+            {
+                await WriteBadRequestAsync(context, result.Message, result);
                 return;
             }
 
-            var configData = JsonSerializer.Deserialize<Dictionary<string, object>>(configJson);
-            if (configData == null)
+            _logger.LogInformation("Configuration imported via web interface: {Message}", result.Message);
+
+            context.Response.StatusCode = result.Saved ? 200 : 500;
+            await WriteJsonAsync(context, new
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Failed to parse configuration data" }));
-                return;
-            }
-
-            // Import audio settings
-            if (configData.ContainsKey("Audio"))
-            {
-                var audioJson = configData["Audio"].ToString();
-                if (!string.IsNullOrEmpty(audioJson))
-                {
-                    var audioSettings = JsonSerializer.Deserialize<Dictionary<string, object>>(audioJson);
-                    if (audioSettings != null)
-                    {
-                        if (audioSettings.ContainsKey("MaxIntensity") && int.TryParse(audioSettings["MaxIntensity"].ToString(), out int maxIntensity))
-                            _settings.Audio.MaxIntensity = maxIntensity;
-                        if (audioSettings.ContainsKey("DefaultFrequency") && int.TryParse(audioSettings["DefaultFrequency"].ToString(), out int defaultFreq))
-                            _settings.Audio.DefaultFrequency = defaultFreq;
-                        if (audioSettings.ContainsKey("SampleRate") && int.TryParse(audioSettings["SampleRate"].ToString(), out int sampleRate))
-                            _settings.Audio.SampleRate = sampleRate;
-                        if (audioSettings.ContainsKey("BufferSize") && int.TryParse(audioSettings["BufferSize"].ToString(), out int bufferSize))
-                            _settings.Audio.BufferSize = bufferSize;
-                    }
-                }
-            }
-
-            // Import Elite Dangerous settings
-            if (configData.ContainsKey("EliteDangerous"))
-            {
-                var edJson = configData["EliteDangerous"].ToString();
-                if (!string.IsNullOrEmpty(edJson))
-                {
-                    var edSettings = JsonSerializer.Deserialize<Dictionary<string, object>>(edJson);
-                    if (edSettings != null)
-                    {
-                        if (edSettings.ContainsKey("MonitorLatestOnly") && bool.TryParse(edSettings["MonitorLatestOnly"].ToString(), out bool monitorLatest))
-                            _settings.EliteDangerous.MonitorLatestOnly = monitorLatest;
-                        // Don't auto-import journal path for security
-                    }
-                }
-            }
-
-            _logger.LogInformation("Configuration imported via web interface");
-
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
-                message = "Configuration imported successfully",
-                imported_at = DateTime.UtcNow
-            }));
+                success = result.Saved,
+                message = result.Message,
+                imported_at = DateTime.UtcNow,
+                settings = result.ToPayload()
+            });
         }
         catch (Exception ex)
         {
@@ -252,5 +222,113 @@ public class ConfigurationApiController
             context.Response.StatusCode = 500;
             await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
         }
+    }
+
+    private static async Task<JsonElement?> ReadJsonAsync(HttpContext context)
+    {
+        using var reader = new StreamReader(context.Request.Body);
+        var json = await reader.ReadToEndAsync();
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// A nested object by name, case-insensitively: the web UI sends camelCase and an exported
+    /// configuration file carries the PascalCase property names of the settings classes.
+    /// </summary>
+    private static bool TryGetSection(JsonElement parent, string name, out JsonElement section)
+    {
+        if (parent.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in parent.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                    property.Value.ValueKind == JsonValueKind.Object)
+                {
+                    section = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        section = default;
+        return false;
+    }
+
+    private static bool TryGetValue(JsonElement section, string name, out JsonElement value)
+    {
+        if (section.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in section.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static int? ReadInt(JsonElement section, string name)
+    {
+        if (!TryGetValue(section, name, out var value)) return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var number) => number,
+            JsonValueKind.String when int.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    private static bool? ReadBool(JsonElement section, string name)
+    {
+        if (!TryGetValue(section, name, out var value)) return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String when bool.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    private static string? ReadString(JsonElement section, string name) =>
+        TryGetValue(section, name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static Task WriteJsonAsync(HttpContext context, object payload)
+    {
+        context.Response.ContentType = "application/json";
+
+        return context.Response.WriteAsync(JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        }));
+    }
+
+    private static Task WriteBadRequestAsync(HttpContext context, string error, SettingsUpdateResult? result = null)
+    {
+        context.Response.StatusCode = 400;
+
+        return WriteJsonAsync(context, new
+        {
+            error,
+            // Named individually so the UI can show which value was refused, and why.
+            validation_errors = result?.ValidationErrors ?? Array.Empty<string>(),
+            settings = result?.ToPayload()
+        });
     }
 }

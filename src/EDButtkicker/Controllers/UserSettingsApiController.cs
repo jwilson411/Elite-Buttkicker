@@ -12,18 +12,18 @@ public class UserSettingsController : ControllerBase
     private readonly ILogger<UserSettingsController> _logger;
     private readonly UserSettingsService _userSettingsService;
     private readonly AppSettings _appSettings;
-    private readonly AudioEngineService _audioEngineService;
+    private readonly SettingsPersistenceService _settingsPersistence;
 
     public UserSettingsController(
         ILogger<UserSettingsController> logger,
         UserSettingsService userSettingsService,
         AppSettings appSettings,
-        AudioEngineService audioEngineService)
+        SettingsPersistenceService settingsPersistence)
     {
         _logger = logger;
         _userSettingsService = userSettingsService;
         _appSettings = appSettings;
-        _audioEngineService = audioEngineService;
+        _settingsPersistence = settingsPersistence;
     }
 
     [HttpGet]
@@ -42,71 +42,57 @@ public class UserSettingsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// The settings the UI saves. This route does not touch the running configuration or the
+    /// settings file itself: the request becomes an update handed to the one service that validates
+    /// it, applies what can be applied now, and writes it atomically - so a rejected value leaves
+    /// both the running configuration and the saved one exactly as they were, and a 200 says plainly
+    /// which parts are live already and which need a restart.
+    /// </summary>
     [HttpPost("save")]
     public async Task<ActionResult> SaveUserSettings([FromBody] SaveUserSettingsRequest request)
     {
         try
         {
             _logger.LogInformation("Saving user settings");
-            
-            // Create preferences from current app settings and request
-            var preferences = new UserPreferences
-            {
-                // Audio settings
-                AudioDeviceId = request.AudioDeviceId ?? _appSettings.Audio.AudioDeviceId,
-                AudioDeviceEndpointId = request.AudioDeviceEndpointId ?? _appSettings.Audio.AudioDeviceEndpointId,
-                AudioDeviceName = request.AudioDeviceName ?? _appSettings.Audio.AudioDeviceName,
-                MaxIntensity = request.MaxIntensity ?? _appSettings.Audio.MaxIntensity,
-                DefaultFrequency = request.DefaultFrequency ?? _appSettings.Audio.DefaultFrequency,
-                
-                // Elite Dangerous settings
-                JournalPath = request.JournalPath ?? _appSettings.EliteDangerous.JournalPath,
-                MonitorLatestOnly = request.MonitorLatestOnly ?? _appSettings.EliteDangerous.MonitorLatestOnly,
-                
-                // Contextual Intelligence settings
-                ContextualIntelligence = _appSettings.ContextualIntelligence != null ? new UserContextualIntelligencePreferences
-                {
-                    Enabled = request.ContextualIntelligenceEnabled ?? _appSettings.ContextualIntelligence.Enabled,
-                    EnableAdaptiveIntensity = request.EnableAdaptiveIntensity ?? _appSettings.ContextualIntelligence.EnableAdaptiveIntensity,
-                    EnablePredictivePatterns = request.EnablePredictivePatterns ?? _appSettings.ContextualIntelligence.EnablePredictivePatterns,
-                    EnableContextualVoice = request.EnableContextualVoice ?? _appSettings.ContextualIntelligence.EnableContextualVoice
-                } : null,
-                
-                // Metadata
-                LastSaved = DateTime.UtcNow,
-                Version = "1.0.0"
-            };
 
-            // Apply changes to app settings immediately
-            _userSettingsService.ApplyUserPreferencesToAppSettings(preferences, _appSettings);
-            
-            // If audio device changed, reinitialize audio engine
-            if (request.AudioDeviceId.HasValue ||
-                request.AudioDeviceEndpointId != null ||
-                !string.IsNullOrEmpty(request.AudioDeviceName))
+            var result = await _settingsPersistence.ApplyAsync(new SettingsUpdate
             {
-                _logger.LogInformation("Audio device settings changed, reinitializing audio engine");
-                try
+                AudioDeviceId = request.AudioDeviceId,
+                AudioDeviceEndpointId = request.AudioDeviceEndpointId,
+                AudioDeviceName = request.AudioDeviceName,
+                MaxIntensity = request.MaxIntensity,
+                DefaultFrequency = request.DefaultFrequency,
+
+                JournalPath = request.JournalPath,
+                MonitorLatestOnly = request.MonitorLatestOnly,
+
+                ContextualIntelligenceEnabled = request.ContextualIntelligenceEnabled,
+                EnableAdaptiveIntensity = request.EnableAdaptiveIntensity,
+                EnablePredictivePatterns = request.EnablePredictivePatterns,
+                EnableContextualVoice = request.EnableContextualVoice
+            });
+
+            if (!result.Valid)
+            {
+                return BadRequest(new
                 {
-                    // Note: In a real implementation, you might want to add a method to reinitialize
-                    // the audio engine. For now, we'll log this and let it be handled on next restart
-                    _logger.LogInformation("Audio device change will take effect on next restart or pattern playback");
-                }
-                catch (Exception audioEx)
-                {
-                    _logger.LogWarning(audioEx, "Audio engine reinitialization failed, but settings were saved");
-                }
+                    error = "Failed to save user settings",
+                    message = result.Message,
+                    validation_errors = result.ValidationErrors,
+                    settings = result.ToPayload()
+                });
             }
 
-            // Save to disk
-            await _userSettingsService.SaveUserPreferencesAsync(preferences);
-            
-            _logger.LogInformation("User settings saved successfully");
-            
-            return Ok(new { 
-                message = "Settings saved successfully", 
-                timestamp = preferences.LastSaved,
-                settingsPath = _userSettingsService.GetUserSettingsPath()
+            _logger.LogInformation("User settings save handled: {Message}", result.Message);
+
+            // A change that only reached memory is not a saved setting: the caller has to hear that.
+            return StatusCode(result.Saved ? 200 : 500, new
+            {
+                message = result.Message,
+                timestamp = DateTime.UtcNow,
+                settingsPath = result.SettingsPath,
+                settings = result.ToPayload()
             });
         }
         catch (Exception ex)

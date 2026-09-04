@@ -12,15 +12,18 @@ public class ContextualIntelligenceApiController
 	private readonly ILogger<ContextualIntelligenceApiController> _logger;
 	private readonly AppSettings _settings;
 	private readonly ContextualIntelligenceService _contextualIntelligence;
+	private readonly SettingsPersistenceService _settingsPersistence;
 
 	public ContextualIntelligenceApiController(
 		ILogger<ContextualIntelligenceApiController> logger,
 		AppSettings settings,
-		ContextualIntelligenceService contextualIntelligence)
+		ContextualIntelligenceService contextualIntelligence,
+		SettingsPersistenceService settingsPersistence)
 	{
 		_logger = logger;
 		_settings = settings;
 		_contextualIntelligence = contextualIntelligence;
+		_settingsPersistence = settingsPersistence;
 	}
 
 	public async Task GetContextualIntelligenceStatus(HttpContext context)
@@ -122,40 +125,61 @@ public class ContextualIntelligenceApiController
 				return;
 			}
 
-			if (_settings.ContextualIntelligence == null)
-				_settings.ContextualIntelligence = new ContextualIntelligenceConfiguration();
-
-			var config = _settings.ContextualIntelligence;
+			var update = new SettingsUpdate();
 
 			if (configUpdate.ContainsKey("enabled") && bool.TryParse(configUpdate["enabled"].ToString(), out bool enabled))
-				config.Enabled = enabled;
+				update.ContextualIntelligenceEnabled = enabled;
 
+			// Both rates are clamped rather than refused, as they always were: they arrive from
+			// sliders, and a slider at its end stop is not a mistake worth an error.
 			if (configUpdate.ContainsKey("learning_rate") && double.TryParse(configUpdate["learning_rate"].ToString(), out double learningRate))
-				config.LearningRate = Math.Max(0.01, Math.Min(1.0, learningRate));
+				update.LearningRate = Math.Clamp(learningRate, 0.01, 1.0);
 
 			if (configUpdate.ContainsKey("prediction_threshold") && double.TryParse(configUpdate["prediction_threshold"].ToString(), out double predictionThreshold))
-				config.PredictionThreshold = Math.Max(0.1, Math.Min(1.0, predictionThreshold));
+				update.PredictionThreshold = Math.Clamp(predictionThreshold, 0.1, 1.0);
 
 			if (configUpdate.ContainsKey("adaptive_intensity") && bool.TryParse(configUpdate["adaptive_intensity"].ToString(), out bool adaptiveIntensity))
-				config.EnableAdaptiveIntensity = adaptiveIntensity;
+				update.EnableAdaptiveIntensity = adaptiveIntensity;
 
 			if (configUpdate.ContainsKey("predictive_patterns") && bool.TryParse(configUpdate["predictive_patterns"].ToString(), out bool predictivePatterns))
-				config.EnablePredictivePatterns = predictivePatterns;
+				update.EnablePredictivePatterns = predictivePatterns;
 
 			if (configUpdate.ContainsKey("contextual_voice") && bool.TryParse(configUpdate["contextual_voice"].ToString(), out bool contextualVoice))
-				config.EnableContextualVoice = contextualVoice;
+				update.EnableContextualVoice = contextualVoice;
 
 			if (configUpdate.ContainsKey("log_analysis") && bool.TryParse(configUpdate["log_analysis"].ToString(), out bool logAnalysis))
-				config.LogContextAnalysis = logAnalysis;
+				update.LogContextAnalysis = logAnalysis;
 
-			_logger.LogInformation("Contextual Intelligence configuration updated via web interface - Enabled: {Enabled}", config.Enabled);
+			// Same persistence path as every other settings change, so these choices are still in
+			// place after a restart instead of living only in this process.
+			var result = await _settingsPersistence.ApplyAsync(update);
 
+			if (!result.Valid)
+			{
+				context.Response.StatusCode = 400;
+				context.Response.ContentType = "application/json";
+				await context.Response.WriteAsync(JsonSerializer.Serialize(new
+				{
+					error = result.Message,
+					validation_errors = result.ValidationErrors
+				}));
+				return;
+			}
+
+			var config = _settings.ContextualIntelligence ?? new ContextualIntelligenceConfiguration();
+
+			_logger.LogInformation(
+				"Contextual Intelligence configuration updated via web interface - Enabled: {Enabled}: {Message}",
+				config.Enabled, result.Message);
+
+			context.Response.StatusCode = result.Saved ? 200 : 500;
 			context.Response.ContentType = "application/json";
 			await context.Response.WriteAsync(JsonSerializer.Serialize(new
 			{
-				success = true,
-				message = "Contextual Intelligence configuration updated successfully",
-				enabled = config.Enabled
+				success = result.Saved,
+				message = result.Message,
+				enabled = config.Enabled,
+				settings = result.ToPayload()
 			}));
 		}
 		catch (Exception ex)

@@ -120,12 +120,23 @@ public class JournalReplayPathTraversalTests
             Settings = new AppSettings();
             Settings.EliteDangerous.JournalPath = JournalDirectory;
 
+            var userSettings = new UserSettingsService(
+                NullLogger<UserSettingsService>.Instance, _root.Path);
+
+            var persistence = new SettingsPersistenceService(
+                NullLogger<SettingsPersistenceService>.Instance,
+                Settings,
+                userSettings,
+                new AudioEngineService(NullLogger<AudioEngineService>.Instance, Settings),
+                new JournalMonitorStatus(TimeProvider.System));
+
             Controller = new JournalApiController(
                 NullLogger<JournalApiController>.Instance,
                 Settings,
                 EventStore,
                 Pipeline,
-                new JournalMonitorStatus(TimeProvider.System));
+                new JournalMonitorStatus(TimeProvider.System),
+                persistence);
         }
 
         public string JournalDirectory { get; }
