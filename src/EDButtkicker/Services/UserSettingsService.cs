@@ -109,6 +109,14 @@ public class UserSettingsService
                 _logger.LogDebug("Applied audio device ID: {DeviceId}", preferences.AudioDeviceId.Value);
             }
 
+            // The endpoint id is the identity, so an explicitly saved empty value still applies:
+            // it is how "use the system default" is recorded.
+            if (preferences.AudioDeviceEndpointId != null)
+            {
+                appSettings.Audio.AudioDeviceEndpointId = preferences.AudioDeviceEndpointId;
+                _logger.LogDebug("Applied audio device endpoint id: {EndpointId}", preferences.AudioDeviceEndpointId);
+            }
+
             if (!string.IsNullOrEmpty(preferences.AudioDeviceName))
             {
                 appSettings.Audio.AudioDeviceName = preferences.AudioDeviceName;
@@ -179,6 +187,7 @@ public class UserSettingsService
             var preferences = new UserPreferences
             {
                 AudioDeviceId = appSettings.Audio.AudioDeviceId,
+                AudioDeviceEndpointId = appSettings.Audio.AudioDeviceEndpointId,
                 AudioDeviceName = appSettings.Audio.AudioDeviceName,
                 MaxIntensity = appSettings.Audio.MaxIntensity,
                 DefaultFrequency = appSettings.Audio.DefaultFrequency,
@@ -258,6 +267,12 @@ public class UserPreferences
 {
     // Audio preferences
     public int? AudioDeviceId { get; set; }
+
+    /// <summary>
+    /// MMDevice endpoint id of the chosen output. This is what survives a restart with the devices
+    /// reordered; the id and the name are only fallbacks for settings written before it existed.
+    /// </summary>
+    public string? AudioDeviceEndpointId { get; set; }
     public string? AudioDeviceName { get; set; }
     public int? MaxIntensity { get; set; }
     public int? DefaultFrequency { get; set; }

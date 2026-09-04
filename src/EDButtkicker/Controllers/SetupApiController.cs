@@ -167,31 +167,40 @@ public class SetupApiController
         }
     }
 
-    /// <summary>Step 2: choose the output. The device name is what gets persisted, because the
-    /// enumeration index moves when devices are plugged in or removed.</summary>
+    /// <summary>Step 2: choose the output. The MMDevice endpoint id is what gets persisted, because
+    /// the enumeration index moves when devices are plugged in or removed.</summary>
     public async Task SelectAudioDevice(HttpContext context)
     {
         try
         {
             var body = await ReadJsonAsync(context);
+            var requestedEndpointId = ReadString(body, "endpointId");
             var requestedName = ReadString(body, "name");
             var requestedId = ReadInt(body, "deviceId");
 
-            if (string.IsNullOrWhiteSpace(requestedName) && requestedId == null)
+            if (string.IsNullOrWhiteSpace(requestedEndpointId) &&
+                string.IsNullOrWhiteSpace(requestedName) &&
+                requestedId == null)
             {
-                await WriteBadRequestAsync(context, "An output device name or id is required");
+                await WriteBadRequestAsync(context, "An output device endpoint id, name or id is required");
                 return;
             }
 
             var devices = _deviceCatalog.GetDevices();
-            var device = !string.IsNullOrWhiteSpace(requestedName)
-                ? devices.FirstOrDefault(d => string.Equals(d.Name, requestedName, StringComparison.OrdinalIgnoreCase))
-                : devices.FirstOrDefault(d => d.DeviceId == requestedId);
+
+            // Endpoint id is the identity, so it wins; a name is the next best key, and the numeric
+            // id addresses this list only, which is why it is tried last.
+            var device = !string.IsNullOrWhiteSpace(requestedEndpointId)
+                ? devices.FirstOrDefault(d => string.Equals(d.EndpointId, requestedEndpointId, StringComparison.Ordinal))
+                : !string.IsNullOrWhiteSpace(requestedName)
+                    ? devices.FirstOrDefault(d => string.Equals(d.Name, requestedName, StringComparison.OrdinalIgnoreCase))
+                    : devices.FirstOrDefault(d => d.DeviceId == requestedId);
 
             if (device == null)
             {
                 await WriteBadRequestAsync(context, "That output device is not connected", new
                 {
+                    requested_endpoint_id = requestedEndpointId,
                     requested_name = requestedName,
                     requested_id = requestedId,
                     available = devices.Select(d => d.Name).ToList()
@@ -210,6 +219,7 @@ public class SetupApiController
             var isSystemDefault = device.DeviceId == WasapiAudioDeviceCatalog.SystemDefaultDeviceId;
 
             _settings.Audio.AudioDeviceId = device.DeviceId;
+            _settings.Audio.AudioDeviceEndpointId = isSystemDefault ? string.Empty : device.EndpointId;
             _settings.Audio.AudioDeviceName = isSystemDefault ? string.Empty : device.Name;
 
             if (!await TryPersistUserSettingsAsync())
@@ -225,6 +235,7 @@ public class SetupApiController
             {
                 state.AudioDeviceConfirmedAtUtc = confirmedAt;
                 state.AudioDeviceName = isSystemDefault ? null : device.Name;
+                state.AudioDeviceEndpointId = isSystemDefault ? null : device.EndpointId;
                 state.AudioDeviceId = device.DeviceId;
 
                 // A different output invalidates the previous test result.
@@ -233,7 +244,8 @@ public class SetupApiController
                 state.AudioTestReason = null;
             });
 
-            _logger.LogInformation("Setup selected audio output {DeviceName} (id {DeviceId})", device.Name, device.DeviceId);
+            _logger.LogInformation("Setup selected audio output {DeviceName} (endpoint {EndpointId}, ordinal {DeviceId})",
+                device.Name, _settings.Audio.AudioDeviceEndpointId, device.DeviceId);
 
             await WriteJsonAsync(context, new
             {
@@ -241,6 +253,7 @@ public class SetupApiController
                 device = new
                 {
                     id = device.DeviceId,
+                    endpointId = device.EndpointId,
                     name = device.Name,
                     driver = device.Driver,
                     is_default = device.IsDefault

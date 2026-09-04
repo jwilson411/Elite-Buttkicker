@@ -34,6 +34,7 @@ public class UserSettingsRoundTripTests : IDisposable
         var saved = new UserPreferences
         {
             AudioDeviceId = 3,
+            AudioDeviceEndpointId = "{0.0.0.00000000}.{9f6c1e2a-0000-0000-0000-000000000003}",
             AudioDeviceName = "ButtKicker Gamer Pro",
             MaxIntensity = 65,
             DefaultFrequency = 42,
@@ -56,6 +57,8 @@ public class UserSettingsRoundTripTests : IDisposable
         var loaded = await _service.LoadUserPreferencesAsync();
 
         Assert.Equal(saved.AudioDeviceId, loaded.AudioDeviceId);
+        // The endpoint id is what makes the selection survive a restart, braces and all.
+        Assert.Equal(saved.AudioDeviceEndpointId, loaded.AudioDeviceEndpointId);
         Assert.Equal(saved.AudioDeviceName, loaded.AudioDeviceName);
         Assert.Equal(saved.MaxIntensity, loaded.MaxIntensity);
         Assert.Equal(saved.DefaultFrequency, loaded.DefaultFrequency);
@@ -100,6 +103,7 @@ public class UserSettingsRoundTripTests : IDisposable
         var loaded = await _service.LoadUserPreferencesAsync();
 
         Assert.Null(loaded.AudioDeviceId);
+        Assert.Null(loaded.AudioDeviceEndpointId);
         Assert.Null(loaded.AudioDeviceName);
     }
 
@@ -121,6 +125,7 @@ public class UserSettingsRoundTripTests : IDisposable
             Audio =
             {
                 AudioDeviceId = 7,
+                AudioDeviceEndpointId = "{0.0.0.00000000}.{9f6c1e2a-0000-0000-0000-000000000007}",
                 AudioDeviceName = "Test Device",
                 MaxIntensity = 55,
                 DefaultFrequency = 38
@@ -145,6 +150,7 @@ public class UserSettingsRoundTripTests : IDisposable
         _service.ApplyUserPreferencesToAppSettings(await _service.LoadUserPreferencesAsync(), restored);
 
         Assert.Equal(original.Audio.AudioDeviceId, restored.Audio.AudioDeviceId);
+        Assert.Equal(original.Audio.AudioDeviceEndpointId, restored.Audio.AudioDeviceEndpointId);
         Assert.Equal(original.Audio.AudioDeviceName, restored.Audio.AudioDeviceName);
         Assert.Equal(original.Audio.MaxIntensity, restored.Audio.MaxIntensity);
         Assert.Equal(original.Audio.DefaultFrequency, restored.Audio.DefaultFrequency);
@@ -167,6 +173,7 @@ public class UserSettingsRoundTripTests : IDisposable
         Assert.Equal(defaults.Audio.MaxIntensity, settings.Audio.MaxIntensity);
         Assert.Equal(defaults.Audio.DefaultFrequency, settings.Audio.DefaultFrequency);
         Assert.Equal(defaults.Audio.AudioDeviceId, settings.Audio.AudioDeviceId);
+        Assert.Equal(defaults.Audio.AudioDeviceEndpointId, settings.Audio.AudioDeviceEndpointId);
         Assert.Equal(defaults.EliteDangerous.JournalPath, settings.EliteDangerous.JournalPath);
         Assert.Equal(defaults.EliteDangerous.MonitorLatestOnly, settings.EliteDangerous.MonitorLatestOnly);
     }

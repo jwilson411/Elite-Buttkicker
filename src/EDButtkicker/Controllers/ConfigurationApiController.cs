@@ -83,6 +83,8 @@ public class ConfigurationApiController
                     {
                         if (audioSettings.ContainsKey("AudioDeviceId") && int.TryParse(audioSettings["AudioDeviceId"].ToString(), out int deviceId))
                             _settings.Audio.AudioDeviceId = deviceId;
+                        if (audioSettings.ContainsKey("AudioDeviceEndpointId"))
+                            _settings.Audio.AudioDeviceEndpointId = audioSettings["AudioDeviceEndpointId"].ToString() ?? _settings.Audio.AudioDeviceEndpointId;
                         if (audioSettings.ContainsKey("AudioDeviceName"))
                             _settings.Audio.AudioDeviceName = audioSettings["AudioDeviceName"].ToString() ?? _settings.Audio.AudioDeviceName;
                         if (audioSettings.ContainsKey("MaxIntensity") && int.TryParse(audioSettings["MaxIntensity"].ToString(), out int maxIntensity))

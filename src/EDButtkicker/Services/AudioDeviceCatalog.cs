@@ -58,6 +58,8 @@ public class WasapiAudioDeviceCatalog : IAudioDeviceCatalog
 
                 devices.Add(new AudioDevice
                 {
+                    // The endpoint id is the identity; the index is only where it happens to sit today.
+                    EndpointId = endpoint.ID,
                     DeviceId = i,
                     Name = endpoint.FriendlyName,
                     Driver = "WASAPI",

@@ -54,6 +54,7 @@ public class UserSettingsController : ControllerBase
             {
                 // Audio settings
                 AudioDeviceId = request.AudioDeviceId ?? _appSettings.Audio.AudioDeviceId,
+                AudioDeviceEndpointId = request.AudioDeviceEndpointId ?? _appSettings.Audio.AudioDeviceEndpointId,
                 AudioDeviceName = request.AudioDeviceName ?? _appSettings.Audio.AudioDeviceName,
                 MaxIntensity = request.MaxIntensity ?? _appSettings.Audio.MaxIntensity,
                 DefaultFrequency = request.DefaultFrequency ?? _appSettings.Audio.DefaultFrequency,
@@ -80,7 +81,9 @@ public class UserSettingsController : ControllerBase
             _userSettingsService.ApplyUserPreferencesToAppSettings(preferences, _appSettings);
             
             // If audio device changed, reinitialize audio engine
-            if (request.AudioDeviceId.HasValue || !string.IsNullOrEmpty(request.AudioDeviceName))
+            if (request.AudioDeviceId.HasValue ||
+                request.AudioDeviceEndpointId != null ||
+                !string.IsNullOrEmpty(request.AudioDeviceName))
             {
                 _logger.LogInformation("Audio device settings changed, reinitializing audio engine");
                 try
@@ -130,6 +133,7 @@ public class UserSettingsController : ControllerBase
             
             // Reset app settings to defaults (you might want to reload from appsettings.json)
             _appSettings.Audio.AudioDeviceId = -1;
+            _appSettings.Audio.AudioDeviceEndpointId = string.Empty;
             _appSettings.Audio.AudioDeviceName = "Default";
             // Reset other settings as needed
             
@@ -152,6 +156,7 @@ public class UserSettingsController : ControllerBase
                 Audio = new CurrentAudioSettings
                 {
                     DeviceId = _appSettings.Audio.AudioDeviceId,
+                    DeviceEndpointId = _appSettings.Audio.AudioDeviceEndpointId,
                     DeviceName = _appSettings.Audio.AudioDeviceName,
                     MaxIntensity = _appSettings.Audio.MaxIntensity,
                     DefaultFrequency = _appSettings.Audio.DefaultFrequency,
@@ -189,6 +194,9 @@ public class SaveUserSettingsRequest
 {
     // Audio settings
     public int? AudioDeviceId { get; set; }
+
+    /// <summary>Endpoint id of the chosen output; empty means the system default.</summary>
+    public string? AudioDeviceEndpointId { get; set; }
     public string? AudioDeviceName { get; set; }
     public int? MaxIntensity { get; set; }
     public int? DefaultFrequency { get; set; }
@@ -216,6 +224,7 @@ public class CurrentSettingsResponse
 public class CurrentAudioSettings
 {
     public int DeviceId { get; set; }
+    public string DeviceEndpointId { get; set; } = string.Empty;
     public string DeviceName { get; set; } = string.Empty;
     public int MaxIntensity { get; set; }
     public int DefaultFrequency { get; set; }

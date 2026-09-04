@@ -22,6 +22,9 @@ public class AudioSettings
 	public int DefaultFrequency { get; set; } = 40;
 	public int MaxIntensity { get; set; } = 80;
 	public string AudioDeviceName { get; set; } = string.Empty;
+	/// <summary>MMDevice endpoint id of the chosen output; empty means the system default.</summary>
+	public string AudioDeviceEndpointId { get; set; } = string.Empty;
+	/// <summary>Enumeration ordinal of the chosen output (-1 = system default). Display only.</summary>
 	public int AudioDeviceId { get; set; } = -1;
 }
 

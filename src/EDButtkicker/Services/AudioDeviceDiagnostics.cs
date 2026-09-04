@@ -32,7 +32,7 @@ public static class AudioDeviceDiagnostics
             var device = devices[i];
             lines.Add(
                 $"{ordinalSpace} position {i + 1} of {devices.Count}: " +
-                $"DeviceId={device.DeviceId} name='{device.Name}' " +
+                $"DeviceId={device.DeviceId} endpoint='{device.EndpointId}' name='{device.Name}' " +
                 $"default={YesNo(device.IsDefault)} available={YesNo(device.IsAvailable)}");
         }
 

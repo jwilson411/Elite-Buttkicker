@@ -4,8 +4,6 @@ using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
-using NAudio.CoreAudioApi;
-using NAudio.Wave;
 
 namespace EDButtkicker.Controllers;
 
@@ -41,24 +39,34 @@ public class AudioApiController
                 _logger.LogInformation("Audio devices - {Device}", line);
             }
 
-            _logger.LogInformation("Audio devices - {Selection}", AudioDeviceDiagnostics.DescribeConfiguredSelection(
-                devices, _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName));
+            var resolution = ResolveConfiguredDevice(devices);
+            _logger.LogInformation("Audio devices - {Selection}", resolution.Reason);
 
             var response = new
             {
                 devices = devices.Select(d => new
                 {
                     id = d.DeviceId,
+                    endpointId = d.EndpointId,
                     name = d.Name,
                     driver = d.Driver,
                     channels = d.Channels,
                     isDefault = d.IsDefault,
-                    isAvailable = d.IsAvailable
+                    isAvailable = d.IsAvailable,
+                    // Which row the web UI highlights: the resolved endpoint, or the system default
+                    // entry when nothing is saved or the saved device is gone.
+                    isSelected = IsSelected(d, resolution)
                 }),
                 current = new
                 {
                     id = _settings.Audio.AudioDeviceId,
-                    name = _settings.Audio.AudioDeviceName
+                    endpointId = _settings.Audio.AudioDeviceEndpointId,
+                    name = _settings.Audio.AudioDeviceName,
+                    resolved = resolution.Status.ToString(),
+                    resolvedEndpointId = resolution.EndpointId,
+                    resolvedName = resolution.Name,
+                    usesSystemDefault = resolution.UsesSystemDefault,
+                    reason = resolution.Reason
                 },
                 metadata = new
                 {
@@ -95,25 +103,25 @@ public class AudioApiController
                 return;
             }
 
-            var deviceData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            if (deviceData == null || !deviceData.ContainsKey("deviceId"))
-            {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Device ID is required" }));
-                return;
-            }
+            var deviceData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+            var requestedEndpointId = ReadString(deviceData, "endpointId");
+            var requestedDeviceId = ReadInt(deviceData, "deviceId");
 
-            var deviceIdString = deviceData["deviceId"].ToString();
-            if (!int.TryParse(deviceIdString, out int deviceId))
+            if (string.IsNullOrWhiteSpace(requestedEndpointId) && requestedDeviceId == null)
             {
                 context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid device ID format" }));
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "An endpoint id or device ID is required" }));
                 return;
             }
 
             var devices = GetAvailableAudioDevices();
-            var selectedDevice = devices.FirstOrDefault(d => d.DeviceId == deviceId);
-            
+
+            // Endpoint id is the identity, so it wins whenever the caller sends one; the numeric id
+            // stays accepted for the existing UI, where it addresses this very list.
+            var selectedDevice = !string.IsNullOrWhiteSpace(requestedEndpointId)
+                ? devices.FirstOrDefault(d => string.Equals(d.EndpointId, requestedEndpointId, StringComparison.Ordinal))
+                : devices.FirstOrDefault(d => d.DeviceId == requestedDeviceId);
+
             if (selectedDevice == null)
             {
                 context.Response.StatusCode = 404;
@@ -128,22 +136,23 @@ public class AudioApiController
                 return;
             }
 
-            // Update settings
+            // The synthetic default entry is a choice, not an endpoint: it is stored as the empty
+            // endpoint id and empty name the audio engine already reads as "use the default".
+            var isSystemDefault = selectedDevice.DeviceId == WasapiAudioDeviceCatalog.SystemDefaultDeviceId;
+
+            _settings.Audio.AudioDeviceEndpointId = isSystemDefault ? string.Empty : selectedDevice.EndpointId;
+            _settings.Audio.AudioDeviceName = isSystemDefault ? string.Empty : selectedDevice.Name;
             _settings.Audio.AudioDeviceId = selectedDevice.DeviceId;
-            _settings.Audio.AudioDeviceName = selectedDevice.Name;
 
-            _logger.LogInformation("Audio device changed to: {DeviceName} (ID: {DeviceId})", 
-                selectedDevice.Name, selectedDevice.DeviceId);
-
-            // Convert device ID to WaveOut device ID if needed
-            var waveOutDeviceId = ConvertToWaveOutDeviceId(selectedDevice.DeviceId, selectedDevice.Name);
-            _settings.Audio.AudioDeviceId = waveOutDeviceId;
+            _logger.LogInformation("Audio device changed to: {DeviceName} (endpoint {EndpointId}, ordinal {DeviceId})",
+                selectedDevice.Name, _settings.Audio.AudioDeviceEndpointId, selectedDevice.DeviceId);
 
             // Reinitialize the audio engine with the new device
-            try 
+            try
             {
                 _audioEngine.Reinitialize();
-                _logger.LogInformation("Audio engine reinitialized successfully with device ID {DeviceId}", waveOutDeviceId);
+                _logger.LogInformation("Audio engine reinitialized successfully with endpoint {EndpointId}",
+                    _settings.Audio.AudioDeviceEndpointId);
             }
             catch (Exception ex)
             {
@@ -161,6 +170,7 @@ public class AudioApiController
                 device = new
                 {
                     id = selectedDevice.DeviceId,
+                    endpointId = selectedDevice.EndpointId,
                     name = selectedDevice.Name,
                     driver = selectedDevice.Driver
                 }
@@ -209,6 +219,7 @@ public class AudioApiController
                 device = new
                 {
                     id = _settings.Audio.AudioDeviceId,
+                    endpointId = _settings.Audio.AudioDeviceEndpointId,
                     name = _settings.Audio.AudioDeviceName
                 }
             }));
@@ -225,18 +236,39 @@ public class AudioApiController
     // the same catalog, so they can never disagree about which devices exist.
     private List<AudioDevice> GetAvailableAudioDevices() => _deviceCatalog.GetDevices().ToList();
 
-    private int ConvertToWaveOutDeviceId(int mmDeviceId, string deviceName)
+    private AudioDeviceResolution ResolveConfiguredDevice(IReadOnlyList<AudioDevice> devices) =>
+        AudioDeviceResolver.Resolve(
+            devices,
+            _settings.Audio.AudioDeviceEndpointId,
+            _settings.Audio.AudioDeviceName,
+            _settings.Audio.AudioDeviceId);
+
+    /// <summary>
+    /// The saved selection, by endpoint id where there is one. When nothing resolves, the system
+    /// default entry is the honest highlight - that is the output playback will actually use.
+    /// </summary>
+    private static bool IsSelected(AudioDevice device, AudioDeviceResolution resolution) =>
+        resolution.UsesSystemDefault
+            ? device.DeviceId == WasapiAudioDeviceCatalog.SystemDefaultDeviceId
+            : string.Equals(device.EndpointId, resolution.EndpointId, StringComparison.Ordinal);
+
+    private static string? ReadString(Dictionary<string, JsonElement>? body, string key) =>
+        body != null && body.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static int? ReadInt(Dictionary<string, JsonElement>? body, string key)
     {
-        // Simple heuristic: try to match device names with WaveOut devices
-        // For now, just use the default device (-1) for any non-default selection
-        // This is a temporary workaround until proper device mapping is implemented
-        
-        if (mmDeviceId == -1)
+        if (body == null || !body.TryGetValue(key, out var value))
         {
-            return -1; // Default device
+            return null;
         }
-        
-        // Return the actual device ID without capping to allow selection of all available devices
-        return mmDeviceId;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var number) => number,
+            JsonValueKind.String when int.TryParse(value.GetString(), out var parsed) => parsed,
+            _ => null
+        };
     }
 }
