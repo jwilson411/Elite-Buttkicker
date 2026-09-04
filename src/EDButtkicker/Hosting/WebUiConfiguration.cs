@@ -186,10 +186,22 @@ public static class WebUiConfiguration
                     await controller!.SetAudioDevice(context);
                     return;
                 }
+                else if (path == "/api/audio/status" && method == "GET")
+                {
+                    var controller = context.RequestServices.GetService<AudioApiController>();
+                    await controller!.GetAudioStatus(context);
+                    return;
+                }
                 else if (path == "/api/audio/test" && method == "POST")
                 {
                     var controller = context.RequestServices.GetService<AudioApiController>();
                     await controller!.TestAudio(context);
+                    return;
+                }
+                else if (path == "/api/audio/stop" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<AudioApiController>();
+                    await controller!.StopAudio(context);
                     return;
                 }
                 // Journal API

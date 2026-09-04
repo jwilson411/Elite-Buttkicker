@@ -73,13 +73,16 @@ internal sealed class FakeAudioDeviceCatalog : IAudioDeviceCatalog
 /// <summary>
 /// An audio engine that reports device state without opening one. <see cref="FailuresBeforeSuccess"/>
 /// models the machine where the device only opens on a second attempt, which is what the health
-/// retry exists for.
+/// retry exists for, and <see cref="PlaybackFailure"/> the one where the device opens but the tone
+/// never reaches it.
 /// </summary>
 internal sealed class FakeAudioEngine : AudioEngineService
 {
     private readonly AppSettings _settings;
     private bool _opened;
     private bool _attempted;
+    private string? _lastPlaybackError;
+    private DateTime? _lastPlaybackAtUtc;
 
     public FakeAudioEngine(AppSettings settings, bool canOpen = true, int failuresBeforeSuccess = 0)
         : base(NullLogger<AudioEngineService>.Instance, settings)
@@ -95,9 +98,16 @@ internal sealed class FakeAudioEngine : AudioEngineService
 
     public string FailureReason { get; set; } = "no output device is available";
 
+    /// <summary>When set, the device opens and playback still fails - with this as the reason.</summary>
+    public string? PlaybackFailure { get; set; }
+
+    public string Backend { get; set; } = "FakeOut";
+
     public List<HapticPattern> Played { get; } = new();
 
     public int OpenAttempts { get; private set; }
+
+    public int StopRequests { get; private set; }
 
     public override bool EnsureInitialized()
     {
@@ -120,13 +130,30 @@ internal sealed class FakeAudioEngine : AudioEngineService
         _attempted && !_opened,
         _opened ? null : FailureReason,
         _settings.Audio.AudioDeviceName,
-        _opened ? DateTime.UtcNow : null);
+        _opened ? DateTime.UtcNow : null,
+        _opened ? Backend : null,
+        _opened ? _settings.Audio.AudioDeviceName : null,
+        _opened ? _settings.Audio.AudioDeviceEndpointId : null,
+        _lastPlaybackError,
+        _lastPlaybackAtUtc,
+        ActiveEffects);
 
-    public override Task PlayHapticPattern(HapticPattern pattern, JournalEvent? journalEvent = null)
+    public int ActiveEffects { get; private set; }
+
+    public override Task<AudioPlaybackResult> TryPlayHapticPattern(
+        HapticPattern pattern,
+        JournalEvent? journalEvent = null)
     {
         if (!EnsureInitialized())
         {
-            return Task.CompletedTask;
+            _lastPlaybackError = $"No audio output device could be opened: {FailureReason}";
+            return Task.FromResult(AudioPlaybackResult.Failed(_lastPlaybackError));
+        }
+
+        if (PlaybackFailure != null)
+        {
+            _lastPlaybackError = PlaybackFailure;
+            return Task.FromResult(AudioPlaybackResult.Failed(PlaybackFailure));
         }
 
         lock (Played)
@@ -134,7 +161,21 @@ internal sealed class FakeAudioEngine : AudioEngineService
             Played.Add(pattern);
         }
 
-        return Task.CompletedTask;
+        ActiveEffects++;
+        _lastPlaybackError = null;
+        _lastPlaybackAtUtc = DateTime.UtcNow;
+
+        return Task.FromResult(AudioPlaybackResult.Success);
+    }
+
+    public override int StopAllEffects()
+    {
+        StopRequests++;
+
+        var stopped = ActiveEffects;
+        ActiveEffects = 0;
+
+        return stopped;
     }
 }
 
