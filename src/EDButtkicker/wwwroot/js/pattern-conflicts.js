@@ -1,3 +1,8 @@
+// Pattern source names, pack names and authors come from files this application did not write, so
+// every one of them is rendered as a text node via dom.el/dom.replace rather than concatenated into
+// markup. See js/dom.js.
+const { el, replace, icon, slug, num } = window.dom;
+
 class PatternConflictsManager {
     constructor() {
         this.conflictData = null;
@@ -56,121 +61,103 @@ class PatternConflictsManager {
     renderStats() {
         if (!this.stats) return;
 
-        const statsCard = document.getElementById('statsCard');
-        statsCard.innerHTML = `
-            <div class="stat-item">
-                <span class="stat-label">Total Ship/Event Combinations</span>
-                <span class="stat-value">${this.stats.totalShipEventCombinations}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Available Patterns</span>
-                <span class="stat-value">${this.stats.totalAvailablePatterns}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Conflicting Combinations</span>
-                <span class="stat-value">${this.stats.conflictingCombinations}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">File System Patterns</span>
-                <span class="stat-value">${this.stats.fileSystemPatterns}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">User Custom Patterns</span>
-                <span class="stat-value">${this.stats.userCustomPatterns}</span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-label">Default Patterns</span>
-                <span class="stat-value">${this.stats.defaultPatterns}</span>
-            </div>
-        `;
+        const rows = [
+            ['Total Ship/Event Combinations', this.stats.totalShipEventCombinations],
+            ['Available Patterns', this.stats.totalAvailablePatterns],
+            ['Conflicting Combinations', this.stats.conflictingCombinations],
+            ['File System Patterns', this.stats.fileSystemPatterns],
+            ['User Custom Patterns', this.stats.userCustomPatterns],
+            ['Default Patterns', this.stats.defaultPatterns]
+        ];
+
+        replace(document.getElementById('statsCard'), rows.map(([label, value]) => el('div', { className: 'stat-item' }, [
+            el('span', { className: 'stat-label', text: label }),
+            el('span', { className: 'stat-value', text: num(value) })
+        ])));
     }
 
     renderConflicts() {
         const conflictsList = document.getElementById('conflictsList');
         
         if (!this.conflictData || this.conflictData.conflicts.length === 0) {
-            conflictsList.innerHTML = `
-                <div class="no-conflicts">
-                    <i class="fas fa-check-circle"></i>
-                    <h3>No Pattern Conflicts</h3>
-                    <p>All ship/event combinations have been resolved or only have one pattern available.</p>
-                </div>
-            `;
+            replace(conflictsList, el('div', { className: 'no-conflicts' }, [
+                icon('fa-check-circle'),
+                el('h3', { text: 'No Pattern Conflicts' }),
+                el('p', { text: 'All ship/event combinations have been resolved or only have one pattern available.' })
+            ]));
             return;
         }
 
-        const conflictsHtml = this.conflictData.conflicts.map(conflict => 
-            this.renderConflictCard(conflict)
-        ).join('');
-        
-        conflictsList.innerHTML = conflictsHtml;
-        this.attachConflictHandlers();
+        replace(conflictsList, this.conflictData.conflicts.map(conflict => this.renderConflictCard(conflict)));
     }
 
     renderConflictCard(conflict) {
         const activePatternId = conflict.activePattern?.sourceId || '';
-        
-        return `
-            <div class="conflict-card has-conflicts" data-ship-type="${conflict.shipType}" data-event="${conflict.eventName}">
-                <div class="conflict-header">
-                    <div class="conflict-title">${conflict.shipType} - ${conflict.eventName}</div>
-                    <div class="conflict-subtitle">
-                        <span class="conflict-badge">${conflict.conflictCount} patterns available</span>
-                    </div>
-                </div>
-                <div class="conflict-body">
-                    <div class="pattern-options">
-                        ${conflict.availablePatterns.map(pattern => `
-                            <div class="pattern-option ${pattern.sourceId === activePatternId ? 'active' : ''}" 
-                                 data-source-id="${pattern.sourceId}">
-                                <input type="radio" name="pattern_${conflict.shipType}_${conflict.eventName}" 
-                                       value="${pattern.sourceId}" ${pattern.sourceId === activePatternId ? 'checked' : ''}>
-                                <div class="pattern-info">
-                                    <div class="pattern-name">${pattern.sourceName}</div>
-                                    <div class="pattern-details">
-                                        <span>Type: ${pattern.patternType}</span>
-                                        <span>Freq: ${pattern.frequency}Hz</span>
-                                        <span>Int: ${pattern.intensity}%</span>
-                                        <span>Dur: ${pattern.duration}ms</span>
-                                    </div>
-                                    <div class="pattern-meta">
-                                        <span class="source-type-badge source-type-${pattern.sourceType.toLowerCase()}">${pattern.sourceType}</span>
-                                        ${pattern.packName ? `<span>Pack: ${pattern.packName}</span>` : ''}
-                                        ${pattern.author ? `<span>Author: ${pattern.author}</span>` : ''}
-                                        ${pattern.version ? `<span>v${pattern.version}</span>` : ''}
-                                    </div>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            </div>
-        `;
+        const groupName = `pattern_${conflict.shipType}_${conflict.eventName}`;
+
+        const card = el('div', {
+            className: 'conflict-card has-conflicts',
+            dataset: { 'ship-type': conflict.shipType, event: conflict.eventName }
+        }, [
+            el('div', { className: 'conflict-header' }, [
+                el('div', { className: 'conflict-title' }, [conflict.shipType, ' - ', conflict.eventName]),
+                el('div', { className: 'conflict-subtitle' },
+                    el('span', { className: 'conflict-badge' }, [num(conflict.conflictCount), ' patterns available']))
+            ]),
+            el('div', { className: 'conflict-body' },
+                el('div', { className: 'pattern-options' },
+                    (conflict.availablePatterns || []).map(pattern =>
+                        this.renderPatternOption(pattern, groupName, activePatternId))))
+        ]);
+
+        return card;
     }
 
-    attachConflictHandlers() {
-        // Attach click handlers to pattern options
-        document.querySelectorAll('.pattern-option').forEach(option => {
-            option.addEventListener('click', (e) => {
-                if (e.target.type === 'radio') return; // Let radio handle itself
-                
-                const radio = option.querySelector('input[type="radio"]');
-                if (radio) {
-                    radio.checked = true;
-                    this.selectPattern(option);
-                }
-            });
+    renderPatternOption(pattern, groupName, activePatternId) {
+        const isActive = pattern.sourceId === activePatternId;
+
+        const radio = el('input', {
+            className: 'pattern-radio',
+            attrs: { type: 'radio', name: groupName, value: pattern.sourceId }
+        });
+        radio.checked = isActive;
+
+        const option = el('div', {
+            className: 'pattern-option' + (isActive ? ' active' : ''),
+            dataset: { 'source-id': pattern.sourceId }
+        }, [
+            radio,
+            el('div', { className: 'pattern-info' }, [
+                el('div', { className: 'pattern-name', text: pattern.sourceName }),
+                el('div', { className: 'pattern-details' }, [
+                    el('span', {}, ['Type: ', pattern.patternType]),
+                    el('span', {}, ['Freq: ', num(pattern.frequency), 'Hz']),
+                    el('span', {}, ['Int: ', num(pattern.intensity), '%']),
+                    el('span', {}, ['Dur: ', num(pattern.duration), 'ms'])
+                ]),
+                el('div', { className: 'pattern-meta' }, [
+                    el('span', {
+                        className: 'source-type-badge source-type-' + slug(pattern.sourceType),
+                        text: pattern.sourceType
+                    }),
+                    pattern.packName && el('span', {}, ['Pack: ', pattern.packName]),
+                    pattern.author && el('span', {}, ['Author: ', pattern.author]),
+                    pattern.version && el('span', {}, ['v', pattern.version])
+                ])
+            ])
+        ]);
+
+        option.addEventListener('click', e => {
+            if (e.target === radio) return; // Let the radio's own change event handle it.
+            radio.checked = true;
+            this.selectPattern(option);
         });
 
-        // Attach change handlers to radio buttons
-        document.querySelectorAll('input[type="radio"]').forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    const option = e.target.closest('.pattern-option');
-                    this.selectPattern(option);
-                }
-            });
+        radio.addEventListener('change', () => {
+            if (radio.checked) this.selectPattern(option);
         });
+
+        return option;
     }
 
     async selectPattern(optionElement) {
@@ -245,7 +232,7 @@ class PatternConflictsManager {
         try {
             const autoResolveBtn = document.getElementById('autoResolveBtn');
             autoResolveBtn.disabled = true;
-            autoResolveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Resolving...';
+            replace(autoResolveBtn, [icon('fa-spinner fa-spin'), ' Resolving...']);
 
             const response = await fetch('/api/patternselection/auto-resolve', {
                 method: 'POST',
@@ -306,14 +293,11 @@ class PatternConflictsManager {
 
     showNotification(message, type) {
         // Create notification element
-        const notification = document.createElement('div');
-        notification.className = `notification notification-${type}`;
-        notification.innerHTML = `
-            <div class="notification-content">
-                <i class="fas ${type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i>
-                <span>${message}</span>
-            </div>
-        `;
+        const notification = el('div', { className: `notification notification-${slug(type)}` },
+            el('div', { className: 'notification-content' }, [
+                icon(type === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'),
+                el('span', { text: message })
+            ]));
 
         // Add to page
         document.body.appendChild(notification);

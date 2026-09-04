@@ -30,6 +30,31 @@ public static class WebUiConfiguration
         var webRootPath = ResolveWebRootPath(logger);
         var tokens = app.ApplicationServices.GetRequiredService<CsrfTokenProvider>();
 
+        // Second line of defence behind the DOM-building helpers in wwwroot/js/dom.js: even if a
+        // value from the journal or a pattern pack were ever concatenated into markup again, the
+        // browser refuses to run it. Script is 'self' only - no 'unsafe-inline', no 'unsafe-eval' -
+        // which is why the pages carry no inline <script> and no onclick attributes. Style still
+        // allows inline: the pages hide panels with style="display: none" and the fallback page
+        // carries a <style> block, and a stylesheet cannot execute. The two cdnjs allowances are
+        // the Font Awesome stylesheet and the webfonts it pulls in.
+        const string contentSecurityPolicy =
+            "default-src 'self'; " +
+            "script-src 'self'; " +
+            "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
+            "font-src 'self' https://cdnjs.cloudflare.com; " +
+            "img-src 'self' data:; " +
+            "connect-src 'self'; " +
+            "object-src 'none'; " +
+            "base-uri 'self'; " +
+            "form-action 'self'; " +
+            "frame-ancestors 'none'";
+
+        app.Use(async (context, next) =>
+        {
+            context.Response.Headers["Content-Security-Policy"] = contentSecurityPolicy;
+            await next();
+        });
+
         // Ahead of everything, including static files: a mutation that cannot prove it came from our
         // own page never reaches a handler, and a safe request leaves with the token it needs.
         app.Use(async (context, next) =>
@@ -502,36 +527,26 @@ public static class WebUiConfiguration
                     </div>
                 </div>
 
+                <!--
+                    This fallback page is served only when wwwroot/index.html is missing, so it has
+                    no data to render and no script: the Content-Security-Policy allows no inline
+                    script, and there is nothing here worth loading a file for. The endpoint list is
+                    static markup rather than something a handler writes into .innerHTML.
+                -->
                 <div class="loading">
-                    🚀 Loading configuration interface...
-                    <br><br>
-                    <small>Please wait while the advanced pattern system initializes</small>
+                    <h3>📡 Configuration Interface Ready</h3>
+                    <p>The web UI files were not found, but the API is serving requests.</p>
+                    <br>
+                    <p><strong>Available endpoints:</strong></p>
+                    <ul style="text-align: left; max-width: 600px; margin: 0 auto;">
+                        <li>GET /api/config - Current configuration</li>
+                        <li>GET /api/patterns - All haptic patterns</li>
+                        <li>GET /api/audio/devices - Available audio devices</li>
+                        <li>GET /api/journal/status - Journal monitoring status</li>
+                        <li>POST /api/patterns/{eventType}/test - Test patterns</li>
+                    </ul>
                 </div>
             </div>
-
-            <script>
-                console.log('Elite Dangerous Buttkicker Configuration Interface');
-                console.log('Web server running on localhost:8080');
-
-                // Basic status check
-                setTimeout(() => {
-                    document.querySelector('.loading').innerHTML = `
-                        <h3>📡 Configuration Interface Ready</h3>
-                        <p>API endpoints are available for pattern configuration</p>
-                        <br>
-                        <p><strong>Available endpoints:</strong></p>
-                        <ul style="text-align: left; max-width: 600px; margin: 0 auto;">
-                            <li>GET /api/config - Current configuration</li>
-                            <li>GET /api/patterns - All haptic patterns</li>
-                            <li>GET /api/audio/devices - Available audio devices</li>
-                            <li>GET /api/journal/status - Journal monitoring status</li>
-                            <li>POST /api/patterns/{eventType}/test - Test patterns</li>
-                        </ul>
-                        <br>
-                        <p><em>Advanced web UI will load here automatically...</em></p>
-                    `;
-                }, 2000);
-            </script>
         </body>
         </html>
         """;

@@ -50,10 +50,10 @@
                 <div class="panel-header">
                     <h2><i class="fas fa-tachometer-alt"></i> System Dashboard</h2>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="openSetupWizard()">
+                        <button class="btn btn-secondary" data-bind="openSetupWizard">
                             <i class="fas fa-magic"></i> Setup Wizard
                         </button>
-                        <button class="btn btn-primary" onclick="refreshDashboard()">
+                        <button class="btn btn-primary" data-bind="refreshDashboard">
                             <i class="fas fa-sync-alt"></i> Refresh
                         </button>
                     </div>
@@ -63,7 +63,7 @@
                     <div class="stats-card">
                         <div class="card-header">
                             <h3><i class="fas fa-heartbeat"></i> System Health</h3>
-                            <button class="btn btn-sm" onclick="refreshHealth()">
+                            <button class="btn btn-sm" data-bind="refreshHealth">
                                 <i class="fas fa-sync-alt"></i>
                             </button>
                         </div>
@@ -99,7 +99,7 @@
                     <div class="stats-card full-width">
                         <div class="card-header">
                             <h3><i class="fas fa-history"></i> Recent Events</h3>
-                            <button class="btn btn-sm" onclick="loadRecentEvents()">
+                            <button class="btn btn-sm" data-bind="loadRecentEvents">
                                 <i class="fas fa-refresh"></i>
                             </button>
                         </div>
@@ -117,16 +117,16 @@
                 <div class="panel-header">
                     <h2><i class="fas fa-wave-square"></i> Haptic Patterns</h2>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="refreshPatterns()">
+                        <button class="btn btn-secondary" data-bind="refreshPatterns">
                             <i class="fas fa-sync-alt"></i> Refresh
                         </button>
-                        <button class="btn btn-secondary" onclick="showPatternTester()">
+                        <button class="btn btn-secondary" data-bind="showPatternTester">
                             <i class="fas fa-vial"></i> Pattern Tester
                         </button>
                         <a href="pattern-editor.html" class="btn btn-primary">
                             <i class="fas fa-edit"></i> Pattern Editor
                         </a>
-                        <button class="btn btn-primary" onclick="createNewPattern()">
+                        <button class="btn btn-primary" data-bind="createNewPattern">
                             <i class="fas fa-plus"></i> New Pattern
                         </button>
                     </div>
@@ -141,7 +141,7 @@
                     <div class="pattern-tester" id="patternTester" style="display: none;">
                         <div class="tester-header">
                             <h3><i class="fas fa-vial"></i> Pattern Tester</h3>
-                            <button class="btn-close" onclick="hidePatternTester()">&times;</button>
+                            <button class="btn-close" data-bind="hidePatternTester">&times;</button>
                         </div>
                         
                         <div class="tester-content">
@@ -224,16 +224,16 @@
                                         <div class="layer-controls" id="layerControls">
                                             <!-- Dynamic layer controls will be added here -->
                                         </div>
-                                        <button type="button" class="btn btn-sm btn-secondary" onclick="addLayer()">
+                                        <button type="button" class="btn btn-sm btn-secondary" data-bind="addLayer">
                                             <i class="fas fa-plus"></i> Add Layer
                                         </button>
                                     </div>
 
                                     <div class="pattern-actions">
-                                        <button class="btn btn-accent" onclick="testCustomPattern()">
+                                        <button class="btn btn-accent" data-bind="testCustomPattern">
                                             <i class="fas fa-play"></i> Test Pattern
                                         </button>
-                                        <button class="btn btn-secondary" onclick="resetPatternTester()">
+                                        <button class="btn btn-secondary" data-bind="resetPatternTester">
                                             <i class="fas fa-undo"></i> Reset
                                         </button>
                                     </div>
@@ -248,7 +248,7 @@
             <div class="tab-panel" id="audio">
                 <div class="panel-header">
                     <h2><i class="fas fa-volume-up"></i> Audio Configuration</h2>
-                    <button class="btn btn-primary" onclick="testAudio()">
+                    <button class="btn btn-primary" data-bind="testAudio">
                         <i class="fas fa-play"></i> Test Audio
                     </button>
                 </div>
@@ -283,7 +283,7 @@
             <div class="tab-panel" id="journal">
                 <div class="panel-header">
                     <h2><i class="fas fa-file-alt"></i> Journal Monitoring</h2>
-                    <button class="btn btn-primary" onclick="refreshJournalStatus()">
+                    <button class="btn btn-primary" data-bind="refreshJournalStatus">
                         <i class="fas fa-sync-alt"></i> Refresh
                     </button>
                 </div>
@@ -293,7 +293,7 @@
                         <h3>Journal Path Configuration</h3>
                         <div class="path-config">
                             <input type="text" id="journalPath" placeholder="Enter Elite Dangerous journal path..." class="path-input">
-                            <button class="btn btn-secondary" onclick="setJournalPath()">
+                            <button class="btn btn-secondary" data-bind="setJournalPath">
                                 <i class="fas fa-folder"></i> Set Path
                             </button>
                         </div>
@@ -321,7 +321,7 @@
                                         <select id="journalFileSelect" class="journal-select">
                                             <option value="">Loading journal files...</option>
                                         </select>
-                                        <button class="btn btn-sm btn-secondary" onclick="refreshJournalFiles()">
+                                        <button class="btn btn-sm btn-secondary" data-bind="refreshJournalFiles">
                                             <i class="fas fa-sync-alt"></i>
                                         </button>
                                     </div>
@@ -342,13 +342,13 @@
                                 </div>
                             </div>
                             <div class="replay-actions">
-                                <button class="btn btn-primary" id="startReplayBtn" onclick="startJournalReplay()">
+                                <button class="btn btn-primary" id="startReplayBtn" data-bind="startJournalReplay">
                                     <i class="fas fa-play"></i> Start Replay
                                 </button>
-                                <button class="btn btn-secondary" id="stopReplayBtn" onclick="stopJournalReplay()" disabled>
+                                <button class="btn btn-secondary" id="stopReplayBtn" data-bind="stopJournalReplay" disabled>
                                     <i class="fas fa-stop"></i> Stop Replay
                                 </button>
-                                <button class="btn btn-accent" onclick="refreshReplayStatus()">
+                                <button class="btn btn-accent" data-bind="refreshReplayStatus">
                                     <i class="fas fa-sync-alt"></i> Refresh Status
                                 </button>
                             </div>
@@ -362,7 +362,7 @@
                 <div class="panel-header">
                     <h2><i class="fas fa-brain"></i> Contextual Intelligence</h2>
                     <div class="header-actions">
-                        <button class="btn btn-primary" onclick="refreshContextStatus()">
+                        <button class="btn btn-primary" data-bind="refreshContextStatus">
                             <i class="fas fa-sync-alt"></i> Refresh
                         </button>
                     </div>
@@ -415,7 +415,7 @@
                                     </label>
                                 </div>
                                 
-                                <button class="btn btn-primary" onclick="saveContextConfiguration()">
+                                <button class="btn btn-primary" data-bind="saveContextConfiguration">
                                     <i class="fas fa-save"></i> Save Configuration
                                 </button>
                             </div>
@@ -450,10 +450,10 @@
                 <div class="panel-header">
                     <h2><i class="fas fa-cog"></i> Configuration Settings</h2>
                     <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="exportConfiguration()">
+                        <button class="btn btn-secondary" data-bind="exportConfiguration">
                             <i class="fas fa-download"></i> Export
                         </button>
-                        <button class="btn btn-secondary" onclick="importConfiguration()">
+                        <button class="btn btn-secondary" data-bind="importConfiguration">
                             <i class="fas fa-upload"></i> Import
                         </button>
                     </div>
@@ -518,7 +518,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3><i class="fas fa-magic"></i> First-Run Setup</h3>
-                <button class="modal-close" onclick="closeSetupWizard()">&times;</button>
+                <button class="modal-close" data-bind="closeSetupWizard">&times;</button>
             </div>
             <div class="modal-body">
                 <ol class="setup-steps" id="setupSteps"></ol>
@@ -528,7 +528,7 @@
             </div>
             <div class="modal-footer">
                 <span class="setup-note" id="setupNote"></span>
-                <button class="btn btn-secondary" onclick="closeSetupWizard()">Close</button>
+                <button class="btn btn-secondary" data-bind="closeSetupWizard">Close</button>
             </div>
         </div>
     </div>
@@ -538,7 +538,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="patternModalTitle">Edit Pattern</h3>
-                <button class="modal-close" onclick="closePatternModal()">&times;</button>
+                <button class="modal-close" data-bind="closePatternModal">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="pattern-editor" id="patternEditor">
@@ -546,9 +546,9 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closePatternModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="savePattern()">Save Pattern</button>
-                <button class="btn btn-accent" onclick="testCurrentPattern()">Test Pattern</button>
+                <button class="btn btn-secondary" data-bind="closePatternModal">Cancel</button>
+                <button class="btn btn-primary" data-bind="savePattern">Save Pattern</button>
+                <button class="btn btn-accent" data-bind="testCurrentPattern">Test Pattern</button>
             </div>
         </div>
     </div>
@@ -556,6 +556,7 @@
     <!-- Toast Notifications -->
     <div class="toast-container" id="toastContainer"></div>
 
+    <script src="js/dom.js"></script>
     <script src="js/csrf.js"></script>
     <script src="js/app.js"></script>
 </body>
