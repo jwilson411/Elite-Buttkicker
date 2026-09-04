@@ -237,11 +237,13 @@ public class JournalMonitorService : BackgroundService
         var lines = await reader.ReadNewLinesAsync(cancellationToken).ConfigureAwait(false);
 
         // Which file the watcher is on is part of the health story: "attached, no journal file yet"
-        // and "reading Journal.2026-08-28.log" are different states.
+        // and "reading Journal.2026-08-28.log" are different states. The cursor goes with it, so
+        // status shows how far into that file the reader has committed after every drain.
         var currentFile = reader.CurrentFile;
         _status.ReportWatching(
             _settings.EliteDangerous.JournalPath,
-            currentFile == null ? null : Path.GetFileName(currentFile));
+            currentFile == null ? null : Path.GetFileName(currentFile),
+            currentFile == null ? null : reader.Cursor);
 
         foreach (var line in lines)
         {
