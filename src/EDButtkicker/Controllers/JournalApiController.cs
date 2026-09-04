@@ -75,6 +75,7 @@ public class JournalApiController
                 monitor_state = monitor.State.ToString(),
                 monitor_reason = monitor.Reason,
                 monitor_active_file = monitor.ActiveFile,
+                monitor_offset = monitor.Offset,
                 monitor_latest_only = _settings.EliteDangerous.MonitorLatestOnly,
                 recent_files = journalFiles,
                 events_processed = GetRecentEventsCount(),
@@ -159,7 +160,11 @@ public class JournalApiController
             }
 
             _settings.EliteDangerous.JournalPath = journalPath;
-            
+
+            // The live watcher is still attached to the old folder; ask it to re-check now so the
+            // new path takes effect without a restart, the same way the setup wizard does.
+            _monitorStatus.RequestRecheck();
+
             _logger.LogInformation("Journal path updated to: {JournalPath}", journalPath);
 
             context.Response.ContentType = "application/json";
@@ -213,8 +218,9 @@ public class JournalApiController
                 {
                     total_events = events.Count,
                     limit_applied = limit,
-                    monitoring = !string.IsNullOrEmpty(_settings.EliteDangerous.JournalPath) && 
-                                Directory.Exists(_settings.EliteDangerous.JournalPath)
+                    // Same meaning as the journal status endpoint: a watcher is attached, not just
+                    // that the configured folder happens to exist.
+                    monitoring = _monitorStatus.Current.State == JournalWatchState.Watching
                 }
             };
 

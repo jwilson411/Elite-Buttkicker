@@ -26,7 +26,9 @@ public sealed record JournalMonitorSnapshot(
     string Reason,
     string? ActiveFile,
     DateTime? SinceUtc,
-    DateTime? LastLineUtc);
+    DateTime? LastLineUtc,
+    /// <summary>Byte offset the reader has committed in <see cref="ActiveFile"/>, when one is open.</summary>
+    long? Offset = null);
 
 /// <summary>
 /// The journal watcher's real state, published by <see cref="JournalMonitorService"/> and read by
@@ -47,7 +49,8 @@ public sealed class JournalMonitorStatus
         Reason: "Journal monitoring has not started yet.",
         ActiveFile: null,
         SinceUtc: null,
-        LastLineUtc: null);
+        LastLineUtc: null,
+        Offset: null);
 
     public JournalMonitorStatus(TimeProvider timeProvider)
     {
@@ -77,12 +80,17 @@ public sealed class JournalMonitorStatus
                 Path = path,
                 Reason = reason,
                 ActiveFile = null,
+                Offset = null,
                 SinceUtc = unchanged ? _snapshot.SinceUtc : UtcNow
             };
         }
     }
 
-    public void ReportWatching(string path, string? activeFile)
+    /// <summary>
+    /// Publishes the attached folder, the file being read, and how far into it the reader has
+    /// committed, so the dashboard can show progress rather than only "attached".
+    /// </summary>
+    public void ReportWatching(string path, string? activeFile, long? offset = null)
     {
         lock (_lock)
         {
@@ -98,6 +106,7 @@ public sealed class JournalMonitorStatus
                     ? "Watching the journal folder; Elite Dangerous has not written a journal file yet."
                     : $"Reading {activeFile}.",
                 ActiveFile = activeFile,
+                Offset = activeFile == null ? null : offset,
                 SinceUtc = unchanged ? _snapshot.SinceUtc : UtcNow
             };
         }
@@ -120,6 +129,7 @@ public sealed class JournalMonitorStatus
                 State = JournalWatchState.Faulted,
                 Reason = reason,
                 ActiveFile = null,
+                Offset = null,
                 SinceUtc = UtcNow
             };
         }
@@ -134,6 +144,7 @@ public sealed class JournalMonitorStatus
                 State = JournalWatchState.Stopped,
                 Reason = reason,
                 ActiveFile = null,
+                Offset = null,
                 SinceUtc = UtcNow
             };
         }
