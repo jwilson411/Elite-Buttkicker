@@ -329,6 +329,9 @@ class Program
                     Console.WriteLine($"  {line}");
                 }
                 Console.WriteLine($"  {AudioDeviceDiagnostics.DescribeConfiguredSelection(devices, settings.Audio.AudioDeviceId, settings.Audio.AudioDeviceName)}");
+                // The resolver is what playback actually follows, so the console says the same
+                // thing the log will.
+                Console.WriteLine($"  {AudioDeviceResolver.Resolve(devices, settings.Audio.AudioDeviceEndpointId, settings.Audio.AudioDeviceName, settings.Audio.AudioDeviceId).Reason}");
                 Console.WriteLine();
             }
             
@@ -414,6 +417,7 @@ class Program
                     if (selection == devices.Count + 1)
                     {
                         settings.Audio.AudioDeviceId = -1;
+                        settings.Audio.AudioDeviceEndpointId = string.Empty;
                         settings.Audio.AudioDeviceName = "Default";
                         Console.WriteLine("✓ Using default audio device.");
                         if (debugMode)
@@ -426,6 +430,7 @@ class Program
                     {
                         var selectedDevice = devices[selection - 1];
                         settings.Audio.AudioDeviceId = selectedDevice.DeviceId;
+                        settings.Audio.AudioDeviceEndpointId = selectedDevice.EndpointId;
                         settings.Audio.AudioDeviceName = selectedDevice.Name;
                         Console.WriteLine($"✓ Selected: {selectedDevice.Name}");
                         if (debugMode)
@@ -491,6 +496,8 @@ class Program
                 
                 devices.Add(new AudioDevice
                 {
+                    // The endpoint id is the identity; the index is only where it sits today.
+                    EndpointId = device.ID,
                     DeviceId = i,
                     Name = device.FriendlyName,
                     Driver = "WASAPI",

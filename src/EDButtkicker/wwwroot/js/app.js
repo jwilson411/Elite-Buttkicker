@@ -289,11 +289,11 @@ class ButtkickerApp {
             panel.innerHTML = `
                 <h4>2. Choose your output device</h4>
                 <p class="setup-help">Pick the device your buttkicker amplifier is connected to. The device
-                   name is saved, so the choice survives devices being plugged in or removed.</p>
+                   endpoint id is saved, so the choice survives devices being plugged in or removed.</p>
                 <div class="setup-candidates">
                     ${devices.length === 0 ? '<div class="loading">No output devices reported.</div>' : ''}
                     ${devices.map(device => `
-                        <div class="setup-candidate ${device.id === data.current.id ? 'active' : ''}">
+                        <div class="setup-candidate ${isSelectedAudioDevice(device, data.current) ? 'active' : ''}">
                             <div>
                                 <div class="setup-candidate-path">${device.name}</div>
                                 <div class="setup-candidate-detail">
@@ -302,7 +302,7 @@ class ButtkickerApp {
                                 </div>
                             </div>
                             <button class="btn btn-sm btn-primary" ${device.isAvailable ? '' : 'disabled'}
-                                    onclick="selectSetupAudioDevice(${device.id})">
+                                    onclick="selectSetupAudioDevice(${audioDeviceArgs(device)})">
                                 Use this device
                             </button>
                         </div>
@@ -593,8 +593,8 @@ class ButtkickerApp {
             }
 
             deviceList.innerHTML = data.devices.map(device => `
-                <div class="device-item ${device.id === data.current.id ? 'active' : ''}" 
-                     onclick="selectAudioDevice(${device.id})">
+                <div class="device-item ${isSelectedAudioDevice(device, data.current) ? 'active' : ''}"
+                     onclick="selectAudioDevice(${audioDeviceArgs(device)})">
                     <div class="device-info">
                         <div class="device-name">
                             ${device.name}
@@ -951,12 +951,34 @@ window.createNewPattern = () => {
     app.showToast('New pattern creation - Coming soon!', 'warning');
 };
 
-window.selectAudioDevice = async (deviceId) => {
+// The endpoint id is the device identity, so it decides the highlight whenever the API reports
+// one; the numeric id only addresses the list that was just returned. isSelected, when the API
+// sends it, already accounts for a saved device that is no longer connected.
+function isSelectedAudioDevice(device, current) {
+    if (typeof device.isSelected === 'boolean') return device.isSelected;
+    if (current && current.endpointId) return device.endpointId === current.endpointId;
+    return current ? device.id === current.id : false;
+}
+
+// Endpoint ids contain braces and dots, so they are JSON-encoded - and then escaped for the
+// attribute they land in - instead of being pasted into onclick raw.
+function audioDeviceArgs(device) {
+    const endpointId = JSON.stringify(device.endpointId || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/"/g, '&quot;');
+
+    return `${endpointId}, ${Number(device.id)}`;
+}
+
+window.selectAudioDevice = async (endpointId, deviceId) => {
     try {
         const response = await fetch('/api/audio/device', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId: deviceId })
+            // The endpoint id survives reordering; the numeric id is only sent as a fallback for
+            // the system default entry, which has no endpoint of its own.
+            body: JSON.stringify(endpointId ? { endpointId, deviceId } : { deviceId })
         });
 
         if (response.ok) {
@@ -1584,12 +1606,12 @@ window.confirmJournalPath = async (path) => {
     }
 };
 
-window.selectSetupAudioDevice = async (deviceId) => {
+window.selectSetupAudioDevice = async (endpointId, deviceId) => {
     try {
         const response = await fetch('/api/setup/audio/device', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deviceId })
+            body: JSON.stringify(endpointId ? { endpointId, deviceId } : { deviceId })
         });
 
         const result = await response.json();

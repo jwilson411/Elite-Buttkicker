@@ -44,33 +44,7 @@ public class AudioEngineService : IDisposable
             {
                 _logger.LogInformation("Initializing Audio Engine");
                 LogSystemAudioInfo();
-                // Create wave output device
-				if (!string.IsNullOrEmpty(_settings.Audio.AudioDeviceName))
-				{
-					_logger.LogDebug("Attempting to find audio device by name: '{DeviceName}'", _settings.Audio.AudioDeviceName);
-
-					var deviceEnumerator = new MMDeviceEnumerator();
-					var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-					LogWasapiEnumeration(devices);
-					var matchedDevice = devices.FirstOrDefault(d => d.FriendlyName == _settings.Audio.AudioDeviceName);
-
-					if (matchedDevice != null)
-					{
-						_waveOut = new WasapiOut(matchedDevice, AudioClientShareMode.Shared, true, 200);
-						_logger.LogInformation("✓ Using audio device: {DeviceName}", matchedDevice.FriendlyName);
-					}
-					else
-					{
-						_logger.LogWarning("⚠ Device '{DeviceName}' not found, falling back to default", _settings.Audio.AudioDeviceName);
-						_waveOut = new WaveOutEvent();
-					}
-				}
-				else
-				{
-					_waveOut = new WaveOutEvent();
-					var defaultDevice = GetDefaultAudioDevice();
-					_logger.LogInformation("Using default audio device: {DefaultDevice}", defaultDevice ?? "Unknown");
-				}
+                _waveOut = OpenConfiguredOutput();
 
                 // Log wave output configuration
                 LogWaveOutConfiguration();
@@ -425,31 +399,6 @@ public class AudioEngineService : IDisposable
         }
     }
 
-    private bool ValidateAudioDevice(int deviceId)
-    {
-        try
-        {
-            // Use MMDevice API for validation (compatible with NAudio 2.2.1)
-            var deviceEnumerator = new MMDeviceEnumerator();
-            var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-            
-            if (deviceId < 0 || deviceId >= devices.Count)
-            {
-                _logger.LogWarning("Device ID {DeviceId} is out of range (0-{MaxId})", deviceId, devices.Count - 1);
-                return false;
-            }
-
-            var device = devices[deviceId];
-            _logger.LogDebug("Validated device {DeviceId}: '{FriendlyName}' - Available", deviceId, device.FriendlyName);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to validate audio device {DeviceId}: {Error}", deviceId, ex.Message);
-            return false;
-        }
-    }
-
     private string? GetDefaultAudioDevice()
     {
         try
@@ -466,51 +415,99 @@ public class AudioEngineService : IDisposable
     }
 
     /// <summary>
-    /// Logs every WASAPI render endpoint with both its list position and its DeviceId, then what the
-    /// saved settings resolve to. This is the record to read when a device selection appears to land
-    /// on the neighbouring device: it shows whether the saved name and the saved DeviceId disagree.
+    /// Opens the output the saved settings actually name. The saved MMDevice endpoint id is the
+    /// identity, so a device that has moved in the enumeration still opens, and a device that has
+    /// gone away falls back to the system default output rather than to whatever now occupies its
+    /// old index. Every WASAPI render endpoint and the resolution itself are logged first, so a
+    /// mis-selection report can be read against the endpoint ids.
     /// </summary>
-    private void LogWasapiEnumeration(MMDeviceCollection devices)
+    private IWavePlayer OpenConfiguredOutput()
     {
+        MMDeviceEnumerator enumerator;
+        IReadOnlyList<AudioDevice> enumerated;
+
         try
         {
-            string? defaultDeviceId = null;
-            try
-            {
-                defaultDeviceId = new MMDeviceEnumerator()
-                    .GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug("No default render endpoint available: {Error}", ex.Message);
-            }
-
-            var enumerated = new List<AudioDevice>(devices.Count);
-            for (var i = 0; i < devices.Count; i++)
-            {
-                var device = devices[i];
-                enumerated.Add(new AudioDevice
-                {
-                    DeviceId = i,
-                    Name = device.FriendlyName,
-                    Driver = "WASAPI",
-                    IsDefault = defaultDeviceId != null && device.ID == defaultDeviceId,
-                    IsAvailable = device.State == DeviceState.Active
-                });
-            }
-
-            foreach (var line in AudioDeviceDiagnostics.DescribeEnumeration(enumerated, "WASAPI render"))
-            {
-                _logger.LogInformation("Audio devices - {Device}", line);
-            }
-
-            _logger.LogInformation("Audio devices - {Selection}", AudioDeviceDiagnostics.DescribeConfiguredSelection(
-                enumerated, _settings.Audio.AudioDeviceId, _settings.Audio.AudioDeviceName));
+            enumerator = new MMDeviceEnumerator();
+            enumerated = EnumerateRenderEndpoints(enumerator);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to log WASAPI device enumeration");
+            // No WASAPI here: the default output is the only thing left to try.
+            _logger.LogWarning(ex, "Failed to enumerate WASAPI render endpoints, using the default output");
+            return new WaveOutEvent();
         }
+
+        foreach (var line in AudioDeviceDiagnostics.DescribeEnumeration(enumerated, "WASAPI render"))
+        {
+            _logger.LogInformation("Audio devices - {Device}", line);
+        }
+
+        var resolution = AudioDeviceResolver.Resolve(
+            enumerated,
+            _settings.Audio.AudioDeviceEndpointId,
+            _settings.Audio.AudioDeviceName,
+            _settings.Audio.AudioDeviceId);
+
+        _logger.LogInformation("Audio devices - {Selection}", resolution.Reason);
+
+        if (resolution.IsUsable)
+        {
+            try
+            {
+                var endpoint = enumerator.GetDevice(resolution.EndpointId);
+                _logger.LogInformation("✓ Using audio device: {DeviceName} (endpoint {EndpointId})",
+                    endpoint.FriendlyName, resolution.EndpointId);
+
+                return new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 200);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "⚠ Endpoint {EndpointId} could not be opened, falling back to default",
+                    resolution.EndpointId);
+            }
+        }
+        else if (!resolution.IsSystemDefault)
+        {
+            _logger.LogWarning("⚠ {Selection}", resolution.Reason);
+        }
+
+        _logger.LogInformation("Using default audio device: {DefaultDevice}", GetDefaultAudioDevice() ?? "Unknown");
+        return new WaveOutEvent();
+    }
+
+    /// <summary>Active render endpoints as plain models, each carrying its endpoint id.</summary>
+    private IReadOnlyList<AudioDevice> EnumerateRenderEndpoints(MMDeviceEnumerator enumerator)
+    {
+        string? defaultEndpointId = null;
+        try
+        {
+            defaultEndpointId = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("No default render endpoint available: {Error}", ex.Message);
+        }
+
+        var endpoints = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+        var enumerated = new List<AudioDevice>(endpoints.Count);
+
+        for (var i = 0; i < endpoints.Count; i++)
+        {
+            var endpoint = endpoints[i];
+            enumerated.Add(new AudioDevice
+            {
+                EndpointId = endpoint.ID,
+                DeviceId = i,
+                Name = endpoint.FriendlyName,
+                Driver = "WASAPI",
+                Channels = 2,
+                IsDefault = defaultEndpointId != null && endpoint.ID == defaultEndpointId,
+                IsAvailable = endpoint.State == DeviceState.Active
+            });
+        }
+
+        return enumerated;
     }
 
     private void LogWaveOutConfiguration()

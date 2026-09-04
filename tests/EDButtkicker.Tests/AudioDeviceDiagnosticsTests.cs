@@ -12,9 +12,15 @@ namespace EDButtkicker.Tests;
 /// </summary>
 public class AudioDeviceDiagnosticsTests
 {
-    private static AudioDevice Device(int deviceId, string name, bool isDefault = false, bool isAvailable = true) =>
+    private static AudioDevice Device(
+        int deviceId,
+        string name,
+        bool isDefault = false,
+        bool isAvailable = true,
+        string? endpointId = null) =>
         new()
         {
+            EndpointId = endpointId ?? $"{{0.0.0.00000000}}.{{{deviceId:D8}}}",
             DeviceId = deviceId,
             Name = name,
             Driver = "WASAPI",
@@ -37,13 +43,16 @@ public class AudioDeviceDiagnosticsTests
 
         Assert.Equal(3, lines.Count);
         Assert.Equal(
-            "WASAPI render position 1 of 3: DeviceId=0 name='Speakers (Realtek)' default=no available=yes",
+            "WASAPI render position 1 of 3: DeviceId=0 endpoint='{0.0.0.00000000}.{00000000}' " +
+            "name='Speakers (Realtek)' default=no available=yes",
             lines[0]);
         Assert.Equal(
-            "WASAPI render position 2 of 3: DeviceId=1 name='Buttkicker (USB Audio)' default=yes available=yes",
+            "WASAPI render position 2 of 3: DeviceId=1 endpoint='{0.0.0.00000000}.{00000001}' " +
+            "name='Buttkicker (USB Audio)' default=yes available=yes",
             lines[1]);
         Assert.Equal(
-            "WASAPI render position 3 of 3: DeviceId=2 name='Headphones (USB Audio)' default=no available=yes",
+            "WASAPI render position 3 of 3: DeviceId=2 endpoint='{0.0.0.00000000}.{00000002}' " +
+            "name='Headphones (USB Audio)' default=no available=yes",
             lines[2]);
     }
 
@@ -54,7 +63,8 @@ public class AudioDeviceDiagnosticsTests
         // more than one. Both coordinates still have to appear on every line.
         var webList = new List<AudioDevice>
         {
-            Device(-1, "Default Audio Device", isDefault: true),
+            // The synthetic default is a choice rather than an endpoint, so it has no endpoint id.
+            Device(-1, "Default Audio Device", isDefault: true, endpointId: ""),
             Device(0, "Speakers (Realtek)"),
             Device(1, "Buttkicker (USB Audio)")
         };
@@ -62,10 +72,12 @@ public class AudioDeviceDiagnosticsTests
         var lines = AudioDeviceDiagnostics.DescribeEnumeration(webList, "web device list");
 
         Assert.Equal(
-            "web device list position 1 of 3: DeviceId=-1 name='Default Audio Device' default=yes available=yes",
+            "web device list position 1 of 3: DeviceId=-1 endpoint='' name='Default Audio Device' " +
+            "default=yes available=yes",
             lines[0]);
         Assert.Equal(
-            "web device list position 3 of 3: DeviceId=1 name='Buttkicker (USB Audio)' default=no available=yes",
+            "web device list position 3 of 3: DeviceId=1 endpoint='{0.0.0.00000000}.{00000001}' " +
+            "name='Buttkicker (USB Audio)' default=no available=yes",
             lines[2]);
     }
 
@@ -76,7 +88,10 @@ public class AudioDeviceDiagnosticsTests
             new List<AudioDevice> { Device(0, "Unplugged", isAvailable: false) },
             "WASAPI render");
 
-        Assert.Equal("WASAPI render position 1 of 1: DeviceId=0 name='Unplugged' default=no available=no", lines[0]);
+        Assert.Equal(
+            "WASAPI render position 1 of 1: DeviceId=0 endpoint='{0.0.0.00000000}.{00000000}' " +
+            "name='Unplugged' default=no available=no",
+            lines[0]);
     }
 
     [Fact]

@@ -27,7 +27,17 @@ internal sealed class FakeAudioDeviceCatalog : IAudioDeviceCatalog
         _devices = devices.ToList();
     }
 
-    /// <summary>The system default entry plus the named outputs, numbered as WASAPI would.</summary>
+    /// <summary>
+    /// A stable stand-in for an MMDevice endpoint id, shaped like the real thing so that anything
+    /// which round trips one through JSON or settings is exercised on the real character set.
+    /// </summary>
+    public static string EndpointIdFor(int index) => $"{{0.0.0.00000000}}.{{{index:D8}}}";
+
+    /// <summary>
+    /// The system default entry plus the named outputs, numbered as WASAPI would and each carrying
+    /// its own endpoint id. The default entry gets an empty endpoint id, because it is a choice
+    /// rather than an endpoint.
+    /// </summary>
     public static FakeAudioDeviceCatalog With(params string[] names)
     {
         var devices = new List<AudioDevice>
@@ -45,6 +55,7 @@ internal sealed class FakeAudioDeviceCatalog : IAudioDeviceCatalog
 
         devices.AddRange(names.Select((name, index) => new AudioDevice
         {
+            EndpointId = EndpointIdFor(index),
             DeviceId = index,
             Name = name,
             Driver = "WASAPI",

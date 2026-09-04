@@ -18,6 +18,9 @@ public class SetupState
 
     public DateTime? AudioDeviceConfirmedAtUtc { get; set; }
     public string? AudioDeviceName { get; set; }
+
+    /// <summary>Endpoint id of the confirmed output; null when the system default was chosen.</summary>
+    public string? AudioDeviceEndpointId { get; set; }
     public int? AudioDeviceId { get; set; }
 
     public DateTime? AudioTestedAtUtc { get; set; }
