@@ -32,7 +32,7 @@ public class JournalReplayPathTraversalTests
     [InlineData("Journal.2026-09-09T000000.01.log")]
     public async Task StartJournalReplay_WithAFileOutsideTheEnumeration_Returns400AndReplaysNothing(string journalFile)
     {
-        using var fixture = new ReplayFixture();
+        await using var fixture = new ReplayFixture();
 
         var response = await fixture.PostReplayStart(journalFile);
 
@@ -44,7 +44,7 @@ public class JournalReplayPathTraversalTests
     [Fact]
     public async Task StartJournalReplay_WithARootedPathToTheSecret_Returns400AndReplaysNothing()
     {
-        using var fixture = new ReplayFixture();
+        await using var fixture = new ReplayFixture();
 
         var response = await fixture.PostReplayStart(fixture.SecretPath);
 
@@ -55,7 +55,7 @@ public class JournalReplayPathTraversalTests
     [Fact]
     public async Task StartJournalReplay_WithAnEnumeratedJournalFile_IsAccepted()
     {
-        using var fixture = new ReplayFixture();
+        await using var fixture = new ReplayFixture();
 
         var response = await fixture.PostReplayStart(LegitJournalName);
 
@@ -72,7 +72,7 @@ public class JournalReplayPathTraversalTests
     [Fact]
     public async Task StartJournalReplay_WithoutAJournalFile_StillFallsBackToRecentEvents()
     {
-        using var fixture = new ReplayFixture();
+        await using var fixture = new ReplayFixture();
         fixture.EventStore.Add(new JournalEvent
         {
             Timestamp = DateTime.UtcNow,
@@ -90,13 +90,36 @@ public class JournalReplayPathTraversalTests
         await fixture.StopReplay();
     }
 
+    /// <summary>
+    /// The restart path over the controller. Starting again used to block the request thread on the
+    /// previous replay task while holding that replay's lock, so this asserts on the clock: both
+    /// requests, and the stop, return well inside the old two second wait.
+    /// </summary>
+    [Fact]
+    public async Task StartJournalReplay_WhileAReplayIsRunning_RestartsWithoutBlockingTheRequest()
+    {
+        await using var fixture = new ReplayFixture();
+
+        var first = await fixture.PostReplayStart(LegitJournalName).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(200, first.StatusCode);
+
+        // The journal's two events are 30 seconds apart, so the first replay is still sitting in
+        // its capped gap when the second request arrives.
+        var second = await fixture.PostReplayStart(LegitJournalName).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(200, second.StatusCode);
+
+        await fixture.StopReplay().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.False(fixture.Replay.GetStatus().IsReplaying);
+    }
+
     private sealed record ReplayResponse(int StatusCode, string Body);
 
     /// <summary>
     /// A temp journal folder holding one legitimate journal file, and a secret file in the parent
     /// folder that no request may reach. The controller is the real one, wired to fakes.
     /// </summary>
-    private sealed class ReplayFixture : IDisposable
+    private sealed class ReplayFixture : IAsyncDisposable
     {
         private readonly TempDirectory _root = new("edbk-journal-replay");
 
@@ -130,13 +153,15 @@ public class JournalReplayPathTraversalTests
                 new AudioEngineService(NullLogger<AudioEngineService>.Instance, Settings),
                 new JournalMonitorStatus(TimeProvider.System));
 
+            Replay = new JournalReplayService(NullLogger<JournalReplayService>.Instance, Pipeline);
+
             Controller = new JournalApiController(
                 NullLogger<JournalApiController>.Instance,
                 Settings,
                 EventStore,
-                Pipeline,
                 new JournalMonitorStatus(TimeProvider.System),
-                persistence);
+                persistence,
+                Replay);
         }
 
         public string JournalDirectory { get; }
@@ -148,6 +173,8 @@ public class JournalReplayPathTraversalTests
         public JournalEventStore EventStore { get; } = new();
 
         public RecordingJournalPipeline Pipeline { get; } = new();
+
+        public JournalReplayService Replay { get; }
 
         public JournalApiController Controller { get; }
 
@@ -192,7 +219,15 @@ public class JournalReplayPathTraversalTests
             Assert.Empty(Pipeline.Processed);
         }
 
-        public void Dispose() => _root.Dispose();
+        /// <summary>
+        /// Teardown drains the replay instead of only cancelling it, so no run is still handing
+        /// events to the pipeline while the next test's temp folder is being built.
+        /// </summary>
+        public async ValueTask DisposeAsync()
+        {
+            await Replay.DisposeAsync();
+            _root.Dispose();
+        }
 
         private static string JournalLine(DateTime timestamp, string eventName, string starSystem) =>
             JsonSerializer.Serialize(new Dictionary<string, object>
