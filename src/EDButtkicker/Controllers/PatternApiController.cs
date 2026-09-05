@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
@@ -110,18 +111,14 @@ public class PatternApiController
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+            if (json == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
                 return;
             }
 
-            var patternData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            if (patternData == null)
+            if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var patternData) ||
+                patternData == null)
             {
                 context.Response.StatusCode = 400;
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
@@ -176,13 +173,9 @@ public class PatternApiController
                 return;
             }
 
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+            if (json == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
                 return;
             }
 
@@ -259,27 +252,31 @@ public class PatternApiController
                 StationName = "Test Station"
             };
 
-            // Check for custom pattern parameters in request body
-            if (context.Request.ContentLength > 0)
+            // Check for custom pattern parameters in request body. No body is allowed here: it means
+            // "play the stored pattern for this event".
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, emptyBodyError: null);
+            if (json == null)
             {
-                using var reader = new StreamReader(context.Request.Body);
-                var json = await reader.ReadToEndAsync();
-                
-                if (!string.IsNullOrEmpty(json))
+                return;
+            }
+
+            if (json.Length > 0 &&
+                BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var customParams) &&
+                customParams != null)
+            {
+                patternToTest = CreateCustomTestPattern(eventType, customParams);
+
+                var limitErrors = PatternLimitsGuard.Validate(patternToTest, $"Event '{eventType}'");
+                if (limitErrors.Count > 0)
                 {
-                    try
+                    context.Response.StatusCode = 400;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
                     {
-                        var customParams = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-                        if (customParams != null)
-                        {
-                            patternToTest = CreateCustomTestPattern(eventType, customParams);
-                        }
-                    }
-                    catch
-                    {
-                        // If JSON parsing fails, use default pattern
-                        patternToTest = null;
-                    }
+                        error = "Pattern exceeds the accepted limits",
+                        errors = limitErrors
+                    }));
+                    return;
                 }
             }
 
@@ -338,18 +335,14 @@ public class PatternApiController
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Pattern parameters are required");
+            if (json == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Pattern parameters are required" }));
                 return;
             }
 
-            var patternParams = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-            if (patternParams == null)
+            if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var patternParams) ||
+                patternParams == null)
             {
                 context.Response.StatusCode = 400;
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid pattern parameters" }));
@@ -357,7 +350,20 @@ public class PatternApiController
             }
 
             var testPattern = CreateCustomTestPattern("CustomTest", patternParams);
-            
+
+            var limitErrors = PatternLimitsGuard.Validate(testPattern, "Custom pattern");
+            if (limitErrors.Count > 0)
+            {
+                context.Response.StatusCode = 400;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new
+                {
+                    error = "Pattern exceeds the accepted limits",
+                    errors = limitErrors
+                }));
+                return;
+            }
+
             var testEvent = new JournalEvent
             {
                 Event = "CustomTest",

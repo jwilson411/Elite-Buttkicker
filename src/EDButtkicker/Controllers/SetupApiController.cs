@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
@@ -110,7 +111,12 @@ public class SetupApiController
     {
         try
         {
-            var body = await ReadJsonAsync(context);
+            var (handled, body) = await ReadJsonAsync(context);
+            if (handled)
+            {
+                return;
+            }
+
             var requestedPath = ReadString(body, "path");
 
             if (string.IsNullOrWhiteSpace(requestedPath))
@@ -177,7 +183,12 @@ public class SetupApiController
     {
         try
         {
-            var body = await ReadJsonAsync(context);
+            var (handled, body) = await ReadJsonAsync(context);
+            if (handled)
+            {
+                return;
+            }
+
             var requestedEndpointId = ReadString(body, "endpointId");
             var requestedName = ReadString(body, "name");
             var requestedId = ReadInt(body, "deviceId");
@@ -472,17 +483,32 @@ public class SetupApiController
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private static async Task<Dictionary<string, JsonElement>?> ReadJsonAsync(HttpContext context)
+    /// <summary>
+    /// The request body as JSON, read under the shared byte cap. <c>Handled</c> means the response
+    /// is already written - 413 for a body over the cap, 400 for JSON this API will not parse - and
+    /// a null <c>Body</c> with <c>Handled</c> false means the caller sent no body at all.
+    /// </summary>
+    private static async Task<(bool Handled, Dictionary<string, JsonElement>? Body)> ReadJsonAsync(HttpContext context)
     {
-        using var reader = new StreamReader(context.Request.Body);
-        var json = await reader.ReadToEndAsync();
+        var body = await BoundedRequestReader.ReadAsync(context);
 
-        if (string.IsNullOrWhiteSpace(json))
+        switch (body.Status)
         {
-            return null;
+            case BoundedBodyStatus.TooLarge:
+                await BoundedRequestReader.WriteTooLargeAsync(context);
+                return (true, null);
+
+            case BoundedBodyStatus.Empty:
+                return (false, null);
         }
 
-        return JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+        if (!BoundedRequestReader.TryDeserialize<Dictionary<string, JsonElement>>(body.Text, out var parsed))
+        {
+            await WriteBadRequestAsync(context, "Request body is not valid JSON");
+            return (true, null);
+        }
+
+        return (false, parsed);
     }
 
     private static string? ReadString(Dictionary<string, JsonElement>? body, string key) =>

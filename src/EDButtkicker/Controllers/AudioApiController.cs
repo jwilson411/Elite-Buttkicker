@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
@@ -96,17 +97,19 @@ public class AudioApiController
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+            if (json == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
                 return;
             }
 
-            var deviceData = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json);
+            if (!BoundedRequestReader.TryDeserialize<Dictionary<string, JsonElement>>(json, out var deviceData))
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is not valid JSON" }));
+                return;
+            }
+
             var requestedEndpointId = ReadString(deviceData, "endpointId");
             var requestedDeviceId = ReadInt(deviceData, "deviceId");
 

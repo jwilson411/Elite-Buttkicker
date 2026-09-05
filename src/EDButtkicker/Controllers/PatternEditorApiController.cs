@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using EDButtkicker.Hosting;
 using EDButtkicker.Services;
 using EDButtkicker.Models;
 using System.Text.Json;
@@ -129,9 +130,15 @@ public class PatternEditorController : ControllerBase
             // Validate pack name format
             if (!IsValidPackName(request.PackName))
             {
-                return BadRequest(new { 
-                    error = "Invalid pack name. Use only letters, numbers, spaces, underscores, and hyphens" 
+                return BadRequest(new {
+                    error = "Invalid pack name. Use only letters, numbers, spaces, underscores, and hyphens"
                 });
+            }
+
+            var limitErrors = PatternLimitsGuard.Validate(request);
+            if (limitErrors.Count > 0)
+            {
+                return BadRequest(new { error = "Pattern pack exceeds the allowed limits", errors = limitErrors });
             }
 
             // Generate safe filename
@@ -188,6 +195,12 @@ public class PatternEditorController : ControllerBase
             if (request.PatternFile?.Metadata == null)
             {
                 return BadRequest(new { error = "Pattern file data is required" });
+            }
+
+            var limitErrors = PatternLimitsGuard.Validate(request.PatternFile);
+            if (limitErrors.Count > 0)
+            {
+                return BadRequest(new { error = "Pattern pack exceeds the allowed limits", errors = limitErrors });
             }
 
             // Generate safe filename if not provided
@@ -357,12 +370,18 @@ public class PatternEditorController : ControllerBase
                                 validation.Warnings.Add($"Ship '{ship.Key}' event '{eventPattern.Key}': Frequency should be between 10-100Hz");
                             if (pattern.Intensity < 1 || pattern.Intensity > 100)
                                 validation.Errors.Add($"Ship '{ship.Key}' event '{eventPattern.Key}': Intensity must be between 1-100%");
-                            if (pattern.Duration < 50 || pattern.Duration > 10000)
+                            // Over the cap is an error, reported by the limits guard below; a short
+                            // pattern is merely questionable, so it stays a warning.
+                            if (pattern.Duration < 50)
                                 validation.Warnings.Add($"Ship '{ship.Key}' event '{eventPattern.Key}': Duration should be between 50-10000ms");
                         }
                     }
                 }
             }
+
+            // The content limits the pack must respect to be accepted at all: size, depth of lists
+            // and how long a single pattern may play.
+            validation.Errors.AddRange(PatternLimitsGuard.Validate(patternFile));
 
             validation.IsValid = !validation.Errors.Any();
 
@@ -383,6 +402,12 @@ public class PatternEditorController : ControllerBase
             if (request.Pattern == null)
             {
                 return BadRequest(new { error = "Pattern is required for testing" });
+            }
+
+            var limitErrors = PatternLimitsGuard.Validate(request.Pattern);
+            if (limitErrors.Count > 0)
+            {
+                return BadRequest(new { error = "Pattern exceeds the allowed limits", errors = limitErrors });
             }
 
             // Test the pattern by playing it
@@ -566,17 +591,17 @@ public class PatternEditorController : ControllerBase
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var requestBody = await reader.ReadToEndAsync();
-            var request = JsonSerializer.Deserialize<CreatePatternRequest>(requestBody, new JsonSerializerOptions
+            var requestBody = await BoundedRequestReader.ReadOrRespondAsync(context, "Invalid request body");
+            if (requestBody == null)
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                PropertyNameCaseInsensitive = true
-            });
+                return;
+            }
 
-            if (request == null)
+            if (!BoundedRequestReader.TryDeserialize<CreatePatternRequest>(
+                    requestBody, out var request, RequestLimits.CamelCaseJson) || request == null)
             {
                 context.Response.StatusCode = 400;
+                context.Response.ContentType = "application/json";
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
                 return;
             }
@@ -612,17 +637,17 @@ public class PatternEditorController : ControllerBase
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var requestBody = await reader.ReadToEndAsync();
-            var request = JsonSerializer.Deserialize<SavePatternRequest>(requestBody, new JsonSerializerOptions
+            var requestBody = await BoundedRequestReader.ReadOrRespondAsync(context, "Invalid request body");
+            if (requestBody == null)
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                PropertyNameCaseInsensitive = true
-            });
+                return;
+            }
 
-            if (request == null)
+            if (!BoundedRequestReader.TryDeserialize<SavePatternRequest>(
+                    requestBody, out var request, RequestLimits.CamelCaseJson) || request == null)
             {
                 context.Response.StatusCode = 400;
+                context.Response.ContentType = "application/json";
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
                 return;
             }
@@ -689,17 +714,17 @@ public class PatternEditorController : ControllerBase
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var requestBody = await reader.ReadToEndAsync();
-            var request = JsonSerializer.Deserialize<PatternFileDefinition>(requestBody, new JsonSerializerOptions
+            var requestBody = await BoundedRequestReader.ReadOrRespondAsync(context, "Invalid request body");
+            if (requestBody == null)
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                PropertyNameCaseInsensitive = true
-            });
+                return;
+            }
 
-            if (request == null)
+            if (!BoundedRequestReader.TryDeserialize<PatternFileDefinition>(
+                    requestBody, out var request, RequestLimits.CamelCaseJson) || request == null)
             {
                 context.Response.StatusCode = 400;
+                context.Response.ContentType = "application/json";
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
                 return;
             }
@@ -735,17 +760,17 @@ public class PatternEditorController : ControllerBase
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var requestBody = await reader.ReadToEndAsync();
-            var request = JsonSerializer.Deserialize<TestPatternRequest>(requestBody, new JsonSerializerOptions
+            var requestBody = await BoundedRequestReader.ReadOrRespondAsync(context, "Invalid request body");
+            if (requestBody == null)
             {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                PropertyNameCaseInsensitive = true
-            });
+                return;
+            }
 
-            if (request == null)
+            if (!BoundedRequestReader.TryDeserialize<TestPatternRequest>(
+                    requestBody, out var request, RequestLimits.CamelCaseJson) || request == null)
             {
                 context.Response.StatusCode = 400;
+                context.Response.ContentType = "application/json";
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid request body" }));
                 return;
             }

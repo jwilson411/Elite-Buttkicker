@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using EDButtkicker.Hosting;
 using EDButtkicker.Services;
 using EDButtkicker.Models;
 
@@ -265,11 +266,31 @@ public class PatternFilesController : ControllerBase
                 return BadRequest(new { error = "Invalid file name" });
             }
 
+            // The declared length is refused before a byte is written; the bounded copy below is what
+            // actually enforces the cap, because the declaration is the caller's word for it.
+            if (file.Length > RequestLimits.MaxRequestBodyBytes)
+            {
+                return StatusCode(StatusCodes.Status413PayloadTooLarge,
+                    new { error = RequestLimits.UploadTooLargeError });
+            }
+
             // Save to temporary location first
             var tempPath = Path.GetTempFileName();
+            bool withinLimit;
             using (var stream = new FileStream(tempPath, FileMode.Create))
             {
-                await file.CopyToAsync(stream);
+                withinLimit = await BoundedRequestReader.CopyBoundedAsync(
+                    file.OpenReadStream(),
+                    stream,
+                    RequestLimits.MaxRequestBodyBytes,
+                    HttpContext?.RequestAborted ?? CancellationToken.None);
+            }
+
+            if (!withinLimit)
+            {
+                System.IO.File.Delete(tempPath);
+                return StatusCode(StatusCodes.Status413PayloadTooLarge,
+                    new { error = RequestLimits.UploadTooLargeError });
             }
 
             // Import the file
@@ -422,10 +443,20 @@ public class PatternFilesController : ControllerBase
     {
         try
         {
-            var body = await new StreamReader(context.Request.Body).ReadToEndAsync();
-            var request = System.Text.Json.JsonSerializer.Deserialize<ExportPatternRequest>(body);
-            
-            var result = await ExportPatternPack(request!);
+            var body = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+            if (body == null)
+            {
+                return;
+            }
+
+            if (!BoundedRequestReader.TryDeserialize<ExportPatternRequest>(body, out var request) || request == null)
+            {
+                await BoundedRequestReader.WriteErrorAsync(
+                    context, StatusCodes.Status400BadRequest, "Request body is not valid JSON");
+                return;
+            }
+
+            var result = await ExportPatternPack(request);
             
             context.Response.ContentType = "application/json";
             
