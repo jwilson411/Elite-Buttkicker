@@ -148,6 +148,22 @@ body {
     animation: fadeIn 0.3s ease;
 }
 
+/* Unselected panels and closed dialogs carry the hidden attribute; it has to win over the
+   layout rules above, so that what is hidden from a screen reader is hidden on screen too. */
+[hidden] {
+    display: none !important;
+}
+
+/* Keyboard focus has to be visible - tabs, dialog controls and panels are all reached by key. */
+.nav-tab:focus-visible,
+.tab-panel:focus-visible,
+.modal-close:focus-visible,
+.btn-close:focus-visible,
+.btn:focus-visible {
+    outline: 3px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
 .tab-panel.active {
     display: block;
 }
