@@ -19,6 +19,9 @@ class TimelineEditor {
         this.panX = 0;
         this.gridTimeStep = 250;
         this.gridIntensityStep = 10;
+        // Keyboard nudge steps for the selected control point.
+        this.pointTimeStep = 10;
+        this.pointIntensityStep = 5;
         this.globalCurveType = 'Linear';
         this.renderScheduled = false;
         this.layerColors = ['#ff6b35', '#f7931e', '#00bcd4', '#4caf50', '#ff9800'];
@@ -33,6 +36,29 @@ class TimelineEditor {
 
         // Resolve CSS colors for canvas use
         this.initializeColors();
+        this.initializeMotionPreference();
+    }
+
+    /// Someone who has asked the system for less motion gets instant updates instead of animated
+    /// ones: renders are applied straight away rather than queued onto an animation frame.
+    initializeMotionPreference() {
+        this.reducedMotion = false;
+
+        if (typeof window.matchMedia !== 'function') return;
+
+        try {
+            const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+            this.reducedMotion = !!query.matches;
+
+            const onChange = event => { this.reducedMotion = !!event.matches; };
+            if (typeof query.addEventListener === 'function') {
+                query.addEventListener('change', onChange);
+            } else if (typeof query.addListener === 'function') {
+                query.addListener(onChange);
+            }
+        } catch (error) {
+            console.warn('Timeline Editor: Could not read motion preference:', error);
+        }
     }
 
     initializeColors() {
@@ -56,6 +82,7 @@ class TimelineEditor {
             this.addDefaultLayer();
         }
 
+        this.updatePointInspector();
         this.render();
         return this;
     }
@@ -125,16 +152,71 @@ class TimelineEditor {
             ]),
 
             el('div', { className: 'timeline-content' }, [
-                el('div', { className: 'timeline-canvas-wrapper' }, [
-                    el('canvas', {
-                        id: 'timelineCanvas',
-                        className: 'timeline-canvas',
-                        attrs: {
-                            role: 'img',
-                            tabindex: '0',
-                            'aria-label': 'Timeline visualization canvas. Use arrow keys to navigate, Space to pan, mouse to add control points'
-                        }
-                    })
+                el('div', { className: 'timeline-canvas-column' }, [
+                    el('div', { className: 'timeline-canvas-wrapper' }, [
+                        el('canvas', {
+                            id: 'timelineCanvas',
+                            className: 'timeline-canvas',
+                            attrs: {
+                                role: 'img',
+                                tabindex: '0',
+                                'aria-keyshortcuts': 'A Insert Delete PageUp PageDown Home End Shift+ArrowLeft Shift+ArrowRight ArrowUp ArrowDown',
+                                'aria-describedby': 'timelineCanvasHelp',
+                                'aria-label': 'Timeline visualization canvas'
+                            }
+                        })
+                    ]),
+
+                    // Everything the canvas can be told to do by mouse has a keyboard equivalent, and
+                    // the selected point's numbers are editable here rather than only by dragging.
+                    el('div', {
+                        id: 'pointInspector',
+                        className: 'point-inspector',
+                        attrs: { role: 'group', 'aria-label': 'Selected control point' }
+                    }, [
+                        el('span', {
+                            id: 'pointSelectionStatus',
+                            className: 'point-inspector-status',
+                            text: 'No control point selected',
+                            attrs: { 'aria-live': 'polite' }
+                        }),
+                        el('div', { className: 'control-group' }, [
+                            el('label', { text: 'Time:', attrs: { for: 'pointTimeInput' } }),
+                            el('input', {
+                                id: 'pointTimeInput',
+                                disabled: true,
+                                attrs: {
+                                    type: 'number', min: 0, max: this.duration, step: this.pointTimeStep,
+                                    'aria-label': 'Selected control point time in milliseconds'
+                                }
+                            }),
+                            el('span', { text: 'ms' })
+                        ]),
+                        el('div', { className: 'control-group' }, [
+                            el('label', { text: 'Intensity:', attrs: { for: 'pointIntensityInput' } }),
+                            el('input', {
+                                id: 'pointIntensityInput',
+                                disabled: true,
+                                attrs: {
+                                    type: 'number', min: 0, max: 100, step: 1,
+                                    'aria-label': 'Selected control point intensity percent'
+                                }
+                            }),
+                            el('span', { text: '%' })
+                        ]),
+                        el('div', { className: 'point-actions', attrs: { role: 'group', 'aria-label': 'Control Point Actions' } }, [
+                            button('prevPointBtn', 'Select previous control point', '‹ Prev'),
+                            button('nextPointBtn', 'Select next control point', 'Next ›'),
+                            button('removePointBtn', 'Delete selected control point', 'Delete Point', { className: 'danger' })
+                        ]),
+                        el('p', {
+                            id: 'timelineCanvasHelp',
+                            className: 'point-inspector-help',
+                            text: 'Canvas keys: A or Insert adds a point, Page Up and Page Down select the previous or next point, '
+                                + 'Home and End select the first or last, arrow up and down change intensity, '
+                                + 'Shift with arrow left or right moves the point in time, Delete removes it.'
+                        })
+                    ])
                 ]),
 
                 el('div', { className: 'layer-panel', attrs: { role: 'complementary', 'aria-label': 'Layer Management Panel' } }, [
@@ -265,6 +347,9 @@ class TimelineEditor {
         const zoomOutBtn = this.safeQuery('#zoomOutBtn');
         const resetZoomBtn = this.safeQuery('#resetZoomBtn');
         const addPointBtn = this.safeQuery('#addPointBtn');
+        const prevPointBtn = this.safeQuery('#prevPointBtn');
+        const nextPointBtn = this.safeQuery('#nextPointBtn');
+        const removePointBtn = this.safeQuery('#removePointBtn');
 
         if (e.target === addLayerBtn && addLayerBtn) this.addLayer();
         if (e.target === removeLayerBtn && removeLayerBtn) this.removeSelectedLayer();
@@ -276,6 +361,9 @@ class TimelineEditor {
         if (e.target === zoomOutBtn && zoomOutBtn) this.zoomOut();
         if (e.target === resetZoomBtn && resetZoomBtn) this.resetZoom();
         if (e.target === addPointBtn && addPointBtn) this.addControlPoint();
+        if (e.target === prevPointBtn && prevPointBtn) this.selectPrevPoint();
+        if (e.target === nextPointBtn && nextPointBtn) this.selectNextPoint();
+        if (e.target === removePointBtn && removePointBtn) this.removeSelectedPoint();
     }
 
     handleContainerInput(e) {
@@ -287,7 +375,15 @@ class TimelineEditor {
         const fadeInSlider = this.safeQuery('#fadeInSlider');
         const fadeOutSlider = this.safeQuery('#fadeOutSlider');
         const durationInput = this.safeQuery('#durationInput');
+        const pointTimeInput = this.safeQuery('#pointTimeInput');
+        const pointIntensityInput = this.safeQuery('#pointIntensityInput');
 
+        if (e.target === pointTimeInput && pointTimeInput) {
+            this.setSelectedPointTime(parseFloat(e.target.value), '#pointTimeInput');
+        }
+        if (e.target === pointIntensityInput && pointIntensityInput) {
+            this.setSelectedPointIntensity(parseFloat(e.target.value), '#pointIntensityInput');
+        }
         if (e.target === durationInput && durationInput) {
             this.updatePatternDuration(parseInt(e.target.value));
         }
@@ -388,18 +484,28 @@ class TimelineEditor {
     }
 
     removeSelectedLayer() {
-        if (!this.selectedLayer) return;
+        this.removeLayer(this.selectedLayer);
+    }
 
-        const index = this.layers.findIndex(l => l.id === this.selectedLayer.id);
-        if (index !== -1) {
-            this.layers.splice(index, 1);
-            this.selectedLayer = null;
-            this.updateLayerList();
-            this.updateLayerControls();
-            this.render();
-            this.callbacks.onLayerRemoved();
-            this.callbacks.onPatternChanged();
+    /// Removing a layer from the keyboard (Delete on a layer item) and from the Remove button are the
+    /// same operation; both leave the selection somewhere sensible.
+    removeLayer(layer) {
+        if (!layer) return;
+
+        const index = this.layers.findIndex(l => l.id === layer.id);
+        if (index === -1) return;
+
+        this.layers.splice(index, 1);
+
+        if (this.selectedLayer && this.selectedLayer.id === layer.id) {
+            this.selectedLayer = this.layers[Math.min(index, this.layers.length - 1)] || null;
         }
+
+        this.updateLayerList();
+        this.updateLayerControls();
+        this.render();
+        this.callbacks.onLayerRemoved();
+        this.callbacks.onPatternChanged();
     }
 
     duplicateSelectedLayer() {
@@ -867,7 +973,11 @@ class TimelineEditor {
         this.render();
     }
 
+    // Space is pan-with-drag, but only while the canvas itself holds focus - a global handler would
+    // take Space away from every button, checkbox and text field on the page.
     handleKeyDown(e) {
+        if (e.target !== this.canvas) return;
+
         if (e.code === 'Space' && !this.spacePressed) {
             this.spacePressed = true;
             this.canvas.style.cursor = 'move';
@@ -876,9 +986,9 @@ class TimelineEditor {
     }
 
     handleKeyUp(e) {
-        if (e.code === 'Space') {
+        if (e.code === 'Space' && this.spacePressed) {
             this.spacePressed = false;
-            this.canvas.style.cursor = 'default';
+            if (this.canvas) this.canvas.style.cursor = 'default';
         }
     }
 
@@ -890,24 +1000,29 @@ class TimelineEditor {
 
         switch (e.code) {
             case 'ArrowLeft':
-                this.panX += step;
-                this.constrainViewport();
-                this.scheduleRender();
+                // Shift (or Ctrl) with left/right moves the selected point in time; plain arrows pan.
+                if ((e.shiftKey || e.ctrlKey) && this.selectedPoint) {
+                    this.nudgeSelectedPointTime(-this.pointTimeStep);
+                } else {
+                    this.panX += step;
+                    this.constrainViewport();
+                    this.scheduleRender();
+                }
                 e.preventDefault();
                 break;
             case 'ArrowRight':
-                this.panX -= step;
-                this.constrainViewport();
-                this.scheduleRender();
+                if ((e.shiftKey || e.ctrlKey) && this.selectedPoint) {
+                    this.nudgeSelectedPointTime(this.pointTimeStep);
+                } else {
+                    this.panX -= step;
+                    this.constrainViewport();
+                    this.scheduleRender();
+                }
                 e.preventDefault();
                 break;
             case 'ArrowUp':
                 if (this.selectedPoint) {
-                    this.selectedPoint.intensity = Math.min(100, this.selectedPoint.intensity + 5);
-                    this.controlPoints.sort((a, b) => a.time - b.time);
-                    this.updateSelectedPointIndex();
-                    this.scheduleRender();
-                    this.callbacks.onPatternChanged();
+                    this.setSelectedPointIntensity(this.selectedPoint.intensity + this.pointIntensityStep);
                 } else {
                     this.panY = (this.panY || 0) + step;
                     this.constrainViewport();
@@ -917,11 +1032,7 @@ class TimelineEditor {
                 break;
             case 'ArrowDown':
                 if (this.selectedPoint) {
-                    this.selectedPoint.intensity = Math.max(0, this.selectedPoint.intensity - 5);
-                    this.controlPoints.sort((a, b) => a.time - b.time);
-                    this.updateSelectedPointIndex();
-                    this.scheduleRender();
-                    this.callbacks.onPatternChanged();
+                    this.setSelectedPointIntensity(this.selectedPoint.intensity - this.pointIntensityStep);
                 } else {
                     this.panY = (this.panY || 0) - step;
                     this.constrainViewport();
@@ -960,23 +1071,39 @@ class TimelineEditor {
                 break;
             case 'Delete':
             case 'Backspace':
-                if (this.selectedPoint && this.controlPoints.length > 2) {
-                    // Remove the selected point and select the nearest remaining point
-                    const sortedPoints = this.getSortedPoints();
-                    const currentIndex = sortedPoints.findIndex(p => p === this.selectedPoint);
-
-                    this.removeControlPoint(this.selectedPoint);
-
-                    // Select the nearest remaining point
-                    const remainingPoints = this.getSortedPoints();
-                    if (remainingPoints.length > 0) {
-                        const newIndex = Math.min(currentIndex, remainingPoints.length - 1);
-                        this.selectControlPointByIndex(newIndex);
-                    } else {
-                        this.selectedPoint = null;
-                        this.selectedPointIndex = -1;
-                    }
-
+                if (this.removeSelectedPoint()) {
+                    e.preventDefault();
+                }
+                break;
+            case 'Insert':
+            case 'KeyA':
+                // Add a point without the mouse. Ctrl/Meta are left alone so browser shortcuts work.
+                if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+                    this.addControlPoint();
+                    e.preventDefault();
+                }
+                break;
+            case 'PageUp':
+                if (this.controlPoints.length > 0) {
+                    this.selectPrevPoint();
+                    e.preventDefault();
+                }
+                break;
+            case 'PageDown':
+                if (this.controlPoints.length > 0) {
+                    this.selectNextPoint();
+                    e.preventDefault();
+                }
+                break;
+            case 'Home':
+                if (this.controlPoints.length > 0) {
+                    this.selectControlPointByIndex(0);
+                    e.preventDefault();
+                }
+                break;
+            case 'End':
+                if (this.controlPoints.length > 0) {
+                    this.selectControlPointByIndex(this.controlPoints.length - 1);
                     e.preventDefault();
                 }
                 break;
@@ -1009,17 +1136,8 @@ class TimelineEditor {
                     e.preventDefault();
                 }
                 break;
-            case 'Tab':
-                // Navigate between control points (prevent default to keep focus on canvas)
-                if (this.controlPoints.length > 0) {
-                    if (e.shiftKey) {
-                        this.selectPrevPoint();
-                    } else {
-                        this.selectNextPoint();
-                    }
-                    e.preventDefault();
-                }
-                break;
+            // Tab is deliberately absent: it has to leave the canvas for the point inspector and the
+            // layer panel. Point-to-point traversal is on [ / ] and Page Up / Page Down instead.
             case 'BracketLeft': // [ key - alternative shortcut for previous
                 if (this.controlPoints.length > 0) {
                     this.selectPrevPoint();
@@ -1034,15 +1152,8 @@ class TimelineEditor {
                 break;
         }
 
-        // Announce changes to screen readers
-        if (this.selectedPoint && (e.code.startsWith('Arrow') || e.code === 'Delete' || e.code === 'Backspace')) {
-            const timeDisplay = this.safeQuery('.time-display');
-            if (timeDisplay) {
-                timeDisplay.setAttribute('aria-live', 'assertive');
-                timeDisplay.textContent = `Control point at ${(this.selectedPoint.time / 1000).toFixed(1)}s, intensity ${this.selectedPoint.intensity.toFixed(0)}%`;
-                setTimeout(() => timeDisplay.setAttribute('aria-live', 'polite'), 100);
-            }
-        }
+        // Selection, edits and deletions announce themselves from the point-editing methods, into the
+        // offscreen live region - the time display keeps saying the playback time.
     }
 
     handleResize() {
@@ -1080,22 +1191,51 @@ class TimelineEditor {
         const time = this.xToTime(x);
         const intensity = this.yToIntensity(y);
 
-        if (time < 0 || time > this.duration || intensity < 0 || intensity > 100) return;
+        if (time < 0 || time > this.duration || intensity < 0 || intensity > 100) return null;
 
-        const point = { time, intensity, curveType: 'Linear' };
+        return this.insertControlPoint(time, intensity);
+    }
+
+    /// The one way a point is created, whatever pointed at it: click, Add Point button, or A/Insert
+    /// on the canvas. The new point becomes the selection so the next keystroke acts on it.
+    insertControlPoint(time, intensity) {
+        const point = {
+            time: Math.max(0, Math.min(this.duration, time)),
+            intensity: Math.max(0, Math.min(100, intensity)),
+            curveType: 'Linear'
+        };
+
         this.controlPoints.push(point);
         this.controlPoints.sort((a, b) => a.time - b.time);
 
-        // Update selected point index if we have a selection
+        this.selectedPoint = point;
         this.updateSelectedPointIndex();
+        this.updatePointInspector();
+        this.announceSelectedPoint('Added point');
 
         this.render();
         this.callbacks.onPatternChanged();
+
+        return point;
     }
 
+    /// Keyboard/button add: halfway to the next point when one is selected, otherwise the middle of
+    /// what is on screen - either way at the intensity the curve already has there.
     addControlPoint() {
-        // Add point at center of timeline
-        this.addControlPointAt(this.canvas.width / 2, this.canvas.height / 2);
+        const sorted = this.getSortedPoints();
+        let time;
+
+        if (this.selectedPoint) {
+            const index = sorted.indexOf(this.selectedPoint);
+            const next = sorted[index + 1];
+            time = next
+                ? (this.selectedPoint.time + next.time) / 2
+                : Math.min(this.duration, this.selectedPoint.time + this.gridTimeStep);
+        } else {
+            time = this.xToTime(this.logicalWidth / 2);
+        }
+
+        return this.insertControlPoint(time, this.interpolateIntensity(time));
     }
 
     removeControlPoint(point) {
@@ -1111,9 +1251,59 @@ class TimelineEditor {
                 this.updateSelectedPointIndex();
             }
 
+            this.updatePointInspector();
             this.render();
             this.callbacks.onPatternChanged();
         }
+    }
+
+    /// Delete on the canvas and the Delete Point button. A curve needs two points to mean anything,
+    /// so the last two stay. Returns whether anything was removed.
+    removeSelectedPoint() {
+        if (!this.selectedPoint || this.controlPoints.length <= 2) return false;
+
+        const removedIndex = this.getSortedPoints().indexOf(this.selectedPoint);
+        this.removeControlPoint(this.selectedPoint);
+
+        const remaining = this.getSortedPoints();
+        if (remaining.length > 0) {
+            this.selectControlPointByIndex(Math.min(removedIndex, remaining.length - 1));
+        } else {
+            this.updatePointInspector();
+        }
+
+        this.announce('Deleted point');
+        return true;
+    }
+
+    /// Numeric time field and Shift+Arrow both land here, so both re-sort, re-render and report the
+    /// change exactly like a drag does.
+    setSelectedPointTime(time, skipSelector) {
+        if (!this.selectedPoint || !Number.isFinite(time)) return;
+
+        this.selectedPoint.time = Math.max(0, Math.min(this.duration, time));
+        this.controlPoints.sort((a, b) => a.time - b.time);
+        this.updateSelectedPointIndex();
+        this.updatePointInspector(skipSelector);
+        this.announceSelectedPoint();
+        this.scheduleRender();
+        this.callbacks.onPatternChanged();
+    }
+
+    setSelectedPointIntensity(intensity, skipSelector) {
+        if (!this.selectedPoint || !Number.isFinite(intensity)) return;
+
+        this.selectedPoint.intensity = Math.max(0, Math.min(100, intensity));
+        this.updateSelectedPointIndex();
+        this.updatePointInspector(skipSelector);
+        this.announceSelectedPoint();
+        this.scheduleRender();
+        this.callbacks.onPatternChanged();
+    }
+
+    nudgeSelectedPointTime(deltaMs) {
+        if (!this.selectedPoint) return;
+        this.setSelectedPointTime(this.selectedPoint.time + deltaMs);
     }
 
     moveControlPoint(point, x, y) {
@@ -1125,6 +1315,7 @@ class TimelineEditor {
 
         // Update selected point index after sorting
         this.updateSelectedPointIndex();
+        this.updatePointInspector();
     }
 
     // Coordinate conversion methods with bounds checking
@@ -1177,6 +1368,7 @@ class TimelineEditor {
         if (index >= 0 && index < sortedPoints.length) {
             this.selectedPoint = sortedPoints[index];
             this.selectedPointIndex = index;
+            this.updatePointInspector();
             this.announceSelectedPoint();
             this.scheduleRender();
         }
@@ -1206,16 +1398,68 @@ class TimelineEditor {
         }
     }
 
-    announceSelectedPoint() {
+    /// The point inspector is the keyboard's view of the selection: the same numbers a drag would
+    /// change, in fields that can be typed into. `skipSelector` names the field currently being
+    /// typed in - rewriting its value mid-edit would fight the caret, so it is left alone.
+    updatePointInspector(skipSelector) {
+        const status = this.safeQuery('#pointSelectionStatus');
+        const timeInput = this.safeQuery('#pointTimeInput');
+        const intensityInput = this.safeQuery('#pointIntensityInput');
+        const removeBtn = this.safeQuery('#removePointBtn');
+
+        if (removeBtn) {
+            removeBtn.disabled = !this.selectedPoint || this.controlPoints.length <= 2;
+        }
+
+        if (!this.selectedPoint) {
+            if (status) status.textContent = 'No control point selected';
+            if (timeInput) {
+                timeInput.disabled = true;
+                timeInput.value = '';
+            }
+            if (intensityInput) {
+                intensityInput.disabled = true;
+                intensityInput.value = '';
+            }
+            return;
+        }
+
+        const sortedPoints = this.getSortedPoints();
+        const position = sortedPoints.indexOf(this.selectedPoint) + 1;
+
+        if (status) {
+            status.textContent = `Point ${position} of ${sortedPoints.length}`;
+        }
+
+        if (timeInput) {
+            timeInput.disabled = false;
+            timeInput.max = this.duration;
+            if (skipSelector !== '#pointTimeInput') {
+                timeInput.value = String(Math.round(this.selectedPoint.time));
+            }
+        }
+
+        if (intensityInput) {
+            intensityInput.disabled = false;
+            if (skipSelector !== '#pointIntensityInput') {
+                intensityInput.value = String(Math.round(this.selectedPoint.intensity));
+            }
+        }
+    }
+
+    /// Anything the keyboard does that has no other visible trace says so here.
+    announce(message) {
+        const node = this.safeQuery('.sr-only-announce');
+        if (node) node.textContent = message;
+    }
+
+    announceSelectedPoint(prefix) {
         if (!this.selectedPoint) return;
 
-        const ariaLiveElement = this.safeQuery('.sr-only-announce');
-        if (ariaLiveElement) {
-            const sortedPoints = this.getSortedPoints();
-            const pointIndex = sortedPoints.findIndex(p => p === this.selectedPoint);
-            const text = `Selected point ${pointIndex + 1}/${sortedPoints.length} at ${this.selectedPoint.time} ms, ${this.selectedPoint.intensity.toFixed(0)}%`;
-            ariaLiveElement.textContent = text;
-        }
+        const sortedPoints = this.getSortedPoints();
+        const pointIndex = sortedPoints.indexOf(this.selectedPoint);
+        const lead = prefix || 'Selected point';
+        this.announce(`${lead} ${pointIndex + 1}/${sortedPoints.length} at ${Math.round(this.selectedPoint.time)} ms, ${this.selectedPoint.intensity.toFixed(0)}%`);
     }
 
     updateSelectedPointIndex() {
@@ -1230,6 +1474,12 @@ class TimelineEditor {
 
     // Schedule render with RAF throttling
     scheduleRender() {
+        // Less motion means the change lands now rather than on the next animation frame.
+        if (this.reducedMotion) {
+            this.render();
+            return;
+        }
+
         if (!this.renderScheduled) {
             this.renderScheduled = true;
             requestAnimationFrame(() => {
@@ -1731,6 +1981,8 @@ class TimelineEditor {
         // Clear existing data
         this.layers = [];
         this.controlPoints = [];
+        this.selectedPoint = null;
+        this.selectedPointIndex = -1;
 
         // Set basic properties
         this.duration = pattern.Duration || 3000;
@@ -1800,6 +2052,7 @@ class TimelineEditor {
             timeDisplay.textContent = `${(this.currentTime / 1000).toFixed(1)}s / ${(this.duration / 1000).toFixed(1)}s`;
         }
 
+        this.updatePointInspector();
         this.render();
     }
 
