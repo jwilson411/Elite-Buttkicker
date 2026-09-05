@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
 
@@ -66,7 +67,12 @@ public class ConfigurationApiController
     {
         try
         {
-            var root = await ReadJsonAsync(context);
+            var (handled, root) = await ReadJsonAsync(context);
+            if (handled)
+            {
+                return;
+            }
+
             if (root == null)
             {
                 await WriteBadRequestAsync(context, "Request body is empty");
@@ -166,7 +172,12 @@ public class ConfigurationApiController
     {
         try
         {
-            var root = await ReadJsonAsync(context);
+            var (handled, root) = await ReadJsonAsync(context);
+            if (handled)
+            {
+                return;
+            }
+
             if (root == null)
             {
                 await WriteBadRequestAsync(context, "No configuration data provided");
@@ -224,18 +235,32 @@ public class ConfigurationApiController
         }
     }
 
-    private static async Task<JsonElement?> ReadJsonAsync(HttpContext context)
+    /// <summary>
+    /// The request body as JSON, read under the shared byte cap. <c>Handled</c> means the response
+    /// is already written - 413 for a body over the cap, 400 for JSON this API will not parse - and
+    /// a null <c>Root</c> with <c>Handled</c> false means the caller sent no body at all.
+    /// </summary>
+    private static async Task<(bool Handled, JsonElement? Root)> ReadJsonAsync(HttpContext context)
     {
-        using var reader = new StreamReader(context.Request.Body);
-        var json = await reader.ReadToEndAsync();
+        var body = await BoundedRequestReader.ReadAsync(context);
 
-        if (string.IsNullOrWhiteSpace(json))
+        switch (body.Status)
         {
-            return null;
+            case BoundedBodyStatus.TooLarge:
+                await BoundedRequestReader.WriteTooLargeAsync(context);
+                return (true, null);
+
+            case BoundedBodyStatus.Empty:
+                return (false, null);
         }
 
-        using var document = JsonDocument.Parse(json);
-        return document.RootElement.Clone();
+        if (!BoundedRequestReader.TryParseDocument(body.Text, out var root))
+        {
+            await WriteBadRequestAsync(context, "Request body is not valid JSON");
+            return (true, null);
+        }
+
+        return (false, root);
     }
 
     /// <summary>

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,9 @@ namespace EDButtkicker.Controllers;
 
 public class JournalApiController
 {
+    /// <summary>The replay window: the last five minutes of the source's own timeline.</summary>
+    private static readonly TimeSpan ReplayWindow = TimeSpan.FromMinutes(5);
+
     private readonly ILogger<JournalApiController> _logger;
     private readonly AppSettings _settings;
     private readonly IJournalEventStore _eventStore;
@@ -105,17 +109,19 @@ public class JournalApiController
     {
         try
         {
-            using var reader = new StreamReader(context.Request.Body);
-            var json = await reader.ReadToEndAsync();
-            
-            if (string.IsNullOrEmpty(json))
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+            if (json == null)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
                 return;
             }
 
-            var pathData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+            if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var pathData))
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is not valid JSON" }));
+                return;
+            }
+
             if (pathData == null || !pathData.ContainsKey("path"))
             {
                 context.Response.StatusCode = 400;
@@ -128,6 +134,16 @@ public class JournalApiController
             {
                 context.Response.StatusCode = 400;
                 await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Path cannot be empty" }));
+                return;
+            }
+
+            if (journalPath.Length > RequestLimits.MaxPathLength)
+            {
+                context.Response.StatusCode = 400;
+                await context.Response.WriteAsync(JsonSerializer.Serialize(new
+                {
+                    error = $"Path must not exceed {RequestLimits.MaxPathLength} characters"
+                }));
                 return;
             }
 
@@ -261,19 +277,28 @@ public class JournalApiController
     {
         try
         {
-            // Parse request body to get journal file selection
-            string? selectedJournalFile = null;
-            if (context.Request.ContentLength > 0)
+            // Parse request body to get journal file selection. No body at all is allowed: that is
+            // the "replay what is in memory" case.
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, emptyBodyError: null);
+            if (json == null)
             {
-                using var reader = new StreamReader(context.Request.Body);
-                var json = await reader.ReadToEndAsync();
-                if (!string.IsNullOrEmpty(json))
+                return;
+            }
+
+            string? selectedJournalFile = null;
+            if (json.Length > 0)
+            {
+                if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var requestData))
                 {
-                    var requestData = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-                    if (requestData != null && requestData.ContainsKey("journalFile"))
-                    {
-                        selectedJournalFile = requestData["journalFile"].ToString();
-                    }
+                    context.Response.StatusCode = 400;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is not valid JSON" }));
+                    return;
+                }
+
+                if (requestData != null && requestData.ContainsKey("journalFile"))
+                {
+                    selectedJournalFile = requestData["journalFile"].ToString();
                 }
             }
 
@@ -473,67 +498,29 @@ public class JournalApiController
     /// </summary>
     private async Task<List<JournalEvent>> ReadLastFiveMinutesFromJournalFile(string fullPath)
     {
-        var events = new List<JournalEvent>();
         var journalFileName = Path.GetFileName(fullPath);
 
         try
         {
-            if (!File.Exists(fullPath))
+            // Only the tail is read: a session that has been running for hours is a large file, and
+            // none of it outside the replay window is worth holding.
+            var events = await JournalReplayTailReader.ReadTailAsync(fullPath, ReplayWindow, _logger);
+
+            if (events.Count == 0)
             {
-                _logger.LogWarning("Journal file not found: {FilePath}", fullPath);
+                _logger.LogWarning("No valid events found in the replay window of journal file: {FilePath}", fullPath);
                 return events;
             }
-
-            var allLines = await File.ReadAllLinesAsync(fullPath);
-            var allEvents = new List<JournalEvent>();
-
-            // Parse all events from the journal file
-            foreach (var line in allLines)
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                try
-                {
-                    var journalEvent = JsonSerializer.Deserialize<JournalEvent>(line);
-                    if (journalEvent != null)
-                    {
-                        allEvents.Add(journalEvent);
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogDebug("Failed to parse journal line: {Line} - {Error}", line, ex.Message);
-                }
-            }
-
-            if (!allEvents.Any())
-            {
-                _logger.LogWarning("No valid events found in journal file: {FilePath}", fullPath);
-                return events;
-            }
-
-            // Sort events by timestamp
-            allEvents = allEvents.OrderBy(e => e.Timestamp).ToList();
-            
-            // Find the last event timestamp and calculate 5 minutes before that
-            var lastEventTime = allEvents.Last().Timestamp;
-            var cutoffTime = lastEventTime.AddMinutes(-5);
-
-            // Get events from the last 5 minutes of the journal's timeline
-            events = allEvents
-                .Where(e => e.Timestamp >= cutoffTime)
-                .OrderBy(e => e.Timestamp)
-                .ToList();
 
             _logger.LogInformation("Loaded {EventCount} events from last 5 minutes of journal {FileName} (from {StartTime} to {EndTime})",
-                events.Count, journalFileName, cutoffTime, lastEventTime);
+                events.Count, journalFileName, events[0].Timestamp, events[^1].Timestamp);
 
+            return events;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reading journal file: {FileName}", journalFileName);
+            return new List<JournalEvent>();
         }
-
-        return events;
     }
 }

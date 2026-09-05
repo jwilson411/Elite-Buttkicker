@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using System.Text.Json;
 using EDButtkicker.Configuration;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
@@ -105,23 +106,17 @@ public class ContextualIntelligenceApiController
 	{
 		try
 		{
-			using var reader = new StreamReader(context.Request.Body);
-			var json = await reader.ReadToEndAsync();
-
-			if (string.IsNullOrEmpty(json))
+			var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+			if (json == null)
 			{
-				context.Response.StatusCode = 400;
-				context.Response.ContentType = "application/json";
-				await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Request body is empty" }));
 				return;
 			}
 
-			var configUpdate = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-			if (configUpdate == null)
+			if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var configUpdate) ||
+				configUpdate == null)
 			{
-				context.Response.StatusCode = 400;
-				context.Response.ContentType = "application/json";
-				await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
+				await BoundedRequestReader.WriteErrorAsync(
+					context, StatusCodes.Status400BadRequest, "Request body is not valid JSON");
 				return;
 			}
 

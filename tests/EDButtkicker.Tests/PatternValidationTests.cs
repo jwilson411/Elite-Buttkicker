@@ -1,4 +1,5 @@
 using EDButtkicker.Controllers;
+using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -126,18 +127,42 @@ public class PatternValidationTests : IClassFixture<WebUiTestServerFixture>
         Assert.Contains(result.Warnings, w => w.Contains("Frequency should be between 10-100Hz"));
     }
 
-    [Theory]
-    [InlineData(49)]
-    [InlineData(10001)]
-    public void DurationOutsideFiftyToTenThousandMs_IsAWarningNotAnError(int duration)
+    [Fact]
+    public void DurationBelowFiftyMs_IsAWarningNotAnError()
     {
         var file = Pack();
-        file.Ships["anaconda"].Events["HullDamage"].Duration = duration;
+        file.Ships["anaconda"].Events["HullDamage"].Duration = 49;
 
         var result = Validate(file);
 
         Assert.True(result.IsValid);
         Assert.Contains(result.Warnings, w => w.Contains("Duration should be between 50-10000ms"));
+    }
+
+    [Fact]
+    public void DurationOverTenThousandMs_IsAnError()
+    {
+        var file = Pack();
+        file.Ships["anaconda"].Events["HullDamage"].Duration = 10001;
+
+        var result = Validate(file);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("Duration must not exceed 10000ms"));
+    }
+
+    [Fact]
+    public void PatternWithMoreLayersThanTheCap_IsAnError()
+    {
+        var file = Pack();
+        file.Ships["anaconda"].Events["HullDamage"].Layers =
+            Enumerable.Range(0, RequestLimits.MaxPatternLayers + 1).Select(_ => new PatternLayer()).ToList();
+
+        var result = Validate(file);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Contains("layers"));
+        Assert.Contains(result.Errors, e => e.Contains(RequestLimits.MaxPatternLayers.ToString()));
     }
 
     [Fact]

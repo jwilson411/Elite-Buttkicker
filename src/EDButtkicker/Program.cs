@@ -174,7 +174,14 @@ class Program
             .ConfigureWebHostDefaults(webBuilder =>
             {
                 // The web app lives in the primary service provider - there is no second container.
-                webBuilder.UseKestrel(options => options.ListenLocalhost(WebUiConfiguration.Port));
+                webBuilder.UseKestrel(options =>
+                {
+                    options.ListenLocalhost(WebUiConfiguration.Port);
+
+                    // First line of the body bound: the server refuses an oversize request before a
+                    // handler sees it. Every handler enforces the same cap on what it actually reads.
+                    options.Limits.MaxRequestBodySize = RequestLimits.MaxRequestBodyBytes;
+                });
                 webBuilder.Configure(WebUiConfiguration.Configure);
             })
             .ConfigureLogging(logging =>
