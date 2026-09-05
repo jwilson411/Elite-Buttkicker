@@ -65,7 +65,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting current ship information");
-            return StatusCode(500, new { error = "Failed to get current ship information", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get current ship information" });
         }
     }
 
@@ -102,7 +102,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting ship patterns library");
-            return StatusCode(500, new { error = "Failed to get ship patterns library", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get ship patterns library" });
         }
     }
 
@@ -146,7 +146,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting ship details for {ShipKey}", shipKey);
-            return StatusCode(500, new { error = "Failed to get ship details", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get ship details" });
         }
     }
 
@@ -172,7 +172,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting ship pattern for {ShipKey}", shipKey);
-            return StatusCode(500, new { error = "Failed to set ship pattern", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to set ship pattern" });
         }
     }
 
@@ -192,7 +192,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error removing ship pattern for {ShipKey}", shipKey);
-            return StatusCode(500, new { error = "Failed to remove ship pattern", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to remove ship pattern" });
         }
     }
 
@@ -219,7 +219,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error applying recommended patterns for {ShipKey}", shipKey);
-            return StatusCode(500, new { error = "Failed to apply recommended patterns", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to apply recommended patterns" });
         }
     }
 
@@ -238,7 +238,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error removing ship {ShipKey}", shipKey);
-            return StatusCode(500, new { error = "Failed to remove ship", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to remove ship" });
         }
     }
 
@@ -265,7 +265,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting ship classifications");
-            return StatusCode(500, new { error = "Failed to get ship classifications", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get ship classifications" });
         }
     }
 
@@ -287,7 +287,7 @@ public class ShipPatternsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting recommendations for {ShipKey}", shipKey);
-            return StatusCode(500, new { error = "Failed to get ship recommendations", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get ship recommendations" });
         }
     }
 

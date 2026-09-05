@@ -93,12 +93,7 @@ public class ContextualIntelligenceApiController
 		catch (Exception ex)
 		{
 			_logger.LogError(ex, "Error getting contextual intelligence status");
-			if (!context.Response.HasStarted)
-			{
-				context.Response.StatusCode = 500;
-				context.Response.ContentType = "application/json";
-				await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
-			}
+			await ApiError.WriteAsync(context, 500, "Failed to read the contextual intelligence status");
 		}
 	}
 
@@ -180,12 +175,7 @@ public class ContextualIntelligenceApiController
 		catch (Exception ex)
 		{
 			_logger.LogError(ex, "Error updating contextual intelligence configuration");
-			if (!context.Response.HasStarted)
-			{
-				context.Response.StatusCode = 500;
-				context.Response.ContentType = "application/json";
-				await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
-			}
+			await ApiError.WriteAsync(context, 500, "Failed to update the contextual intelligence configuration");
 		}
 	}
 
@@ -221,12 +211,7 @@ public class ContextualIntelligenceApiController
 		catch (Exception ex)
 		{
 			_logger.LogError(ex, "Error getting game context predictions");
-			if (!context.Response.HasStarted)
-			{
-				context.Response.StatusCode = 500;
-				context.Response.ContentType = "application/json";
-				await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
-			}
+			await ApiError.WriteAsync(context, 500, "Failed to get game context predictions");
 		}
 	}
 }

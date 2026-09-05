@@ -52,7 +52,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting pattern packs");
-            return StatusCode(500, new { error = "Failed to get pattern packs", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get pattern packs" });
         }
     }
 
@@ -93,7 +93,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting ship patterns");
-            return StatusCode(500, new { error = "Failed to get ship patterns", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get ship patterns" });
         }
     }
 
@@ -142,7 +142,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting patterns for ship type: {ShipType}", shipType);
-            return StatusCode(500, new { error = "Failed to get ship type patterns", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get ship type patterns" });
         }
     }
 
@@ -185,7 +185,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting event pattern options for {ShipType}.{EventName}", shipType, eventName);
-            return StatusCode(500, new { error = "Failed to get event pattern options", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get event pattern options" });
         }
     }
 
@@ -211,7 +211,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reloading pattern files");
-            return StatusCode(500, new { error = "Failed to reload pattern files", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to reload pattern files" });
         }
     }
 
@@ -241,7 +241,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting pattern pack: {PackName}", request.PackName);
-            return StatusCode(500, new { error = "Failed to export pattern pack", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to export pattern pack" });
         }
     }
 
@@ -315,7 +315,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error importing pattern file");
-            return StatusCode(500, new { error = "Failed to import pattern file", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to import pattern file" });
         }
     }
 
@@ -342,7 +342,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error downloading pattern file: {FileName}", fileName);
-            return StatusCode(500, new { error = "Failed to download pattern file", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to download pattern file" });
         }
     }
 
@@ -382,7 +382,7 @@ public class PatternFilesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting pattern file: {FileName}", fileName);
-            return StatusCode(500, new { error = "Failed to delete pattern file", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to delete pattern file" });
         }
     }
 
@@ -481,10 +481,8 @@ public class PatternFilesController : ControllerBase
         }
         catch (Exception ex)
         {
-            context.Response.StatusCode = 500;
-            context.Response.ContentType = "application/json";
-            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Failed to export pattern pack", details = ex.Message });
-            await context.Response.WriteAsync(errorJson);
+            _logger.LogError(ex, "Error exporting pattern pack");
+            await ApiError.WriteAsync(context, 500, "Failed to export pattern pack");
         }
     }
 
@@ -501,10 +499,8 @@ public class PatternFilesController : ControllerBase
         }
         catch (Exception ex)
         {
-            context.Response.StatusCode = 500;
-            context.Response.ContentType = "application/json";
-            var errorJson = System.Text.Json.JsonSerializer.Serialize(new { error = "Failed to import pattern file", details = ex.Message });
-            await context.Response.WriteAsync(errorJson);
+            _logger.LogError(ex, "Error importing pattern file");
+            await ApiError.WriteAsync(context, 500, "Failed to import pattern file");
         }
     }
 }

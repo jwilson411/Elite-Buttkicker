@@ -129,7 +129,9 @@ public class SetupApiController
 
             if (!Directory.Exists(journalPath))
             {
-                await WriteBadRequestAsync(context, "That folder does not exist", new { path = journalPath });
+                // Deliberately without the path: the response body must not echo a local filesystem
+                // location back, even one the caller just typed.
+                await WriteBadRequestAsync(context, "That folder does not exist");
                 return;
             }
 
@@ -471,12 +473,17 @@ public class SetupApiController
     {
         var setup = await BuildStatusAsync();
 
+        _logger.LogWarning(
+            "Setup {What} applied to this session but could not be saved to {SettingsPath}",
+            what,
+            _userSettings.GetUserSettingsPath());
+
         context.Response.StatusCode = 500;
         context.Response.ContentType = "application/json";
 
         await context.Response.WriteAsync(JsonSerializer.Serialize(new
         {
-            error = $"The {what} is in use for this session but could not be saved to {_userSettings.GetUserSettingsPath()}, " +
+            error = $"The {what} is in use for this session but could not be saved to the settings file, " +
                 "so this step is not marked complete. Check that the file is writable and try again.",
             saved = false,
             setup
@@ -554,8 +561,8 @@ public class SetupApiController
 
     private async Task WriteErrorAsync(HttpContext context, Exception ex, string message)
     {
+        // The exception belongs in the operator's log; the caller gets the stable sentence only.
         _logger.LogError(ex, "{Message}", message);
-        context.Response.StatusCode = 500;
-        await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+        await ApiError.WriteAsync(context, 500, message);
     }
 }

@@ -106,9 +106,11 @@ public sealed class SettingsUpdateResult
                 return "No settings changed.";
             }
 
+            // Neither the settings file's location nor the exception that stopped the write belongs
+            // in a response body; both are already in the log line next to the failure.
             var where = Saved
-                ? $"Saved to {SettingsPath}."
-                : $"NOT saved to {SettingsPath} ({SaveError}) - these values apply to this session only and will be gone after a restart.";
+                ? "Saved to the settings file."
+                : "NOT saved to the settings file - these values apply to this session only and will be gone after a restart.";
 
             var live = Changes.Where(c => c.AppliedNow).Select(c => c.Setting).ToList();
             var pending = RestartRequiredSettings;
@@ -129,7 +131,6 @@ public sealed class SettingsUpdateResult
     public object ToPayload() => new
     {
         saved = Saved,
-        settings_path = SettingsPath,
         applied = AppliedState,
         restart_required = RestartRequired,
         restart_required_settings = RestartRequiredSettings,
@@ -539,7 +540,7 @@ public class SettingsPersistenceService
             _logger.LogError(ex, "Could not reopen the audio output after a device change");
 
             return (false,
-                $"Saved, but the audio output could not be reopened ({ex.Message}), so this device is used " +
+                "Saved, but the audio output could not be reopened, so this device is used " +
                 "the next time the application starts.");
         }
     }

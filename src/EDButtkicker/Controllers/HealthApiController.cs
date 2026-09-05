@@ -28,8 +28,7 @@ public class HealthApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error building the health report");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to build the health report");
         }
     }
 
@@ -72,8 +71,7 @@ public class HealthApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrying health component {Component}", componentId);
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to retry the health component");
         }
     }
 
