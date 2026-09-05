@@ -6,13 +6,20 @@ using System.IO;
 
 namespace EDButtkicker.Services;
 
-public class PatternFileService : IPatternCatalog
+public class PatternFileService : IPatternCatalog, IDisposable
 {
     private readonly ILogger<PatternFileService> _logger;
     private readonly string _patternsPath;
     private readonly JsonSerializerOptions _jsonOptions;
     private readonly FileSystemWatcher _fileWatcher;
-    
+
+    // Every watcher event goes through one serialized queue, so reloads never overlap and every
+    // pending debounce delay ends with the shutdown token below.
+    private readonly PatternFileWatchQueue _watchQueue;
+    private readonly CancellationTokenSource _watchShutdown = new();
+    private readonly Task _watchConsumer;
+    private int _disposed;
+
     private Dictionary<string, PatternFile> _loadedFiles = new();
     private Dictionary<string, List<ShipPatternDefinition>> _shipPatterns = new();
     private readonly object _lock = new object();
@@ -20,20 +27,25 @@ public class PatternFileService : IPatternCatalog
     public event Action<PatternFileChangeEventArgs>? PatternFilesChanged;
 
     public PatternFileService(ILogger<PatternFileService> logger)
+        : this(logger, ResolveDefaultPatternsPath(), null)
+    {
+    }
+
+    /// <summary>
+    /// Explicit-path constructor used by tests so nothing is read from the developer's real
+    /// profile and the debounce windows can be shortened.
+    /// </summary>
+    public PatternFileService(ILogger<PatternFileService> logger, string patternsPath, PatternWatchOptions? watchOptions)
     {
         _logger = logger;
-        
-        // Use patterns directory - check project root first, then application directory
-        var projectRootPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "patterns");
-        var appPath = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
-        
-        _patternsPath = Directory.Exists(projectRootPath) ? Path.GetFullPath(projectRootPath) : appPath;
+
+        _patternsPath = Path.GetFullPath(patternsPath);
         Directory.CreateDirectory(_patternsPath);
-        
+
         // Ensure Custom directory exists for user patterns
         var customPath = Path.Combine(_patternsPath, "Custom");
         Directory.CreateDirectory(customPath);
-        
+
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -49,17 +61,30 @@ public class PatternFileService : IPatternCatalog
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.LastWrite | NotifyFilters.FileName
         };
-        
+
+        _watchQueue = new PatternFileWatchQueue(ProcessWatchWorkAsync, watchOptions, _logger);
+        _watchConsumer = Task.Run(() => _watchQueue.RunAsync(_watchShutdown.Token));
+
         _fileWatcher.Changed += OnFileChanged;
         _fileWatcher.Created += OnFileChanged;
         _fileWatcher.Deleted += OnFileDeleted;
         _fileWatcher.Renamed += OnFileRenamed;
+        _fileWatcher.Error += OnWatcherError;
         _fileWatcher.EnableRaisingEvents = true;
 
         _logger.LogInformation("PatternFileService initialized with path: {PatternsPath}", _patternsPath);
     }
 
-    public async Task LoadAllPatternsAsync()
+    /// <summary>Patterns directory - project root when running from a checkout, otherwise the app directory.</summary>
+    private static string ResolveDefaultPatternsPath()
+    {
+        var projectRootPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "patterns");
+        var appPath = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
+
+        return Directory.Exists(projectRootPath) ? Path.GetFullPath(projectRootPath) : appPath;
+    }
+
+    public async Task LoadAllPatternsAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -80,9 +105,11 @@ public class PatternFileService : IPatternCatalog
 
             foreach (var filePath in jsonFiles)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
-                    var patternFile = await LoadPatternFileAsync(filePath);
+                    var patternFile = await LoadPatternFileAsync(filePath, cancellationToken);
                     if (patternFile != null)
                     {
                         lock (_lock)
@@ -131,6 +158,10 @@ public class PatternFileService : IPatternCatalog
                 
             NotifyPatternFilesChanged(PatternFileChangeType.Reload, null);
         }
+        catch (OperationCanceledException)
+        {
+            throw; // Shutdown, not a failure worth logging as one.
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading pattern files");
@@ -138,11 +169,11 @@ public class PatternFileService : IPatternCatalog
         }
     }
 
-    private async Task<PatternFile?> LoadPatternFileAsync(string filePath)
+    private async Task<PatternFile?> LoadPatternFileAsync(string filePath, CancellationToken cancellationToken = default)
     {
         try
         {
-            var json = await File.ReadAllTextAsync(filePath);
+            var json = await File.ReadAllTextAsync(filePath, cancellationToken);
             var patternFile = JsonSerializer.Deserialize<PatternFile>(json, _jsonOptions);
             
             if (patternFile?.Metadata == null)
@@ -167,6 +198,11 @@ public class PatternFileService : IPatternCatalog
         {
             _logger.LogError(ex, "Invalid JSON in pattern file: {FilePath}", filePath);
             return null;
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown, not a read failure - let the consumer loop end.
+            throw;
         }
         catch (Exception ex)
         {
@@ -354,59 +390,104 @@ public class PatternFileService : IPatternCatalog
         }
     }
 
-    private async void OnFileChanged(object sender, FileSystemEventArgs e)
+    // The watcher handlers only ever enqueue. They run on watcher threads, so they must not block,
+    // must not throw, and must not start work of their own - the consumer loop owns all of that.
+    private void OnFileChanged(object sender, FileSystemEventArgs e)
     {
-        try
+        if (!IsWatchablePatternFile(e.FullPath))
         {
-            // Debounce file changes
-            await Task.Delay(500);
-            
-            if (Path.GetExtension(e.FullPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug("Pattern file changed: {FilePath}", e.FullPath);
-                await ReloadPatternFileAsync(e.FullPath);
-            }
+            return;
         }
-        catch (Exception ex)
+
+        _logger.LogDebug("Pattern file changed: {FilePath}", e.FullPath);
+        _watchQueue.Enqueue(PatternWatchAction.Reload, e.FullPath);
+    }
+
+    private void OnFileDeleted(object sender, FileSystemEventArgs e)
+    {
+        if (!IsWatchablePatternFile(e.FullPath))
         {
-            _logger.LogError(ex, "Error handling file change: {FilePath}", e.FullPath);
+            return;
+        }
+
+        _logger.LogDebug("Pattern file deleted: {FilePath}", e.FullPath);
+        _watchQueue.Enqueue(PatternWatchAction.Remove, e.FullPath);
+    }
+
+    private void OnFileRenamed(object sender, RenamedEventArgs e)
+    {
+        var oldIsPattern = IsWatchablePatternFile(e.OldFullPath);
+        var newIsPattern = IsWatchablePatternFile(e.FullPath);
+
+        _logger.LogDebug("Pattern file renamed: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
+
+        if (newIsPattern)
+        {
+            // Remove-then-reload travels as one work item, so no other event can land between the
+            // two halves of the rename.
+            _watchQueue.Enqueue(PatternWatchAction.Reload, e.FullPath, oldIsPattern ? e.OldFullPath : null);
+        }
+        else if (oldIsPattern)
+        {
+            // Renamed out of the pattern set (e.g. .json -> .bak): it is simply gone.
+            _watchQueue.Enqueue(PatternWatchAction.Remove, e.OldFullPath);
         }
     }
 
-    private async void OnFileDeleted(object sender, FileSystemEventArgs e)
+    private void OnWatcherError(object sender, ErrorEventArgs e)
     {
-        try
+        // The OS buffer overflowed, so individual events were lost. Re-reading the directory is the
+        // only honest recovery.
+        _logger.LogWarning(e.GetException(), "Pattern file watcher error; scheduling a full reload");
+        _watchQueue.Enqueue(PatternWatchAction.ReloadAll, _patternsPath);
+    }
+
+    /// <summary>Same set of files <see cref="LoadAllPatternsAsync"/> reads, so the two never disagree.</summary>
+    private static bool IsWatchablePatternFile(string fullPath)
+    {
+        if (!Path.GetExtension(fullPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
         {
-            if (Path.GetExtension(e.FullPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug("Pattern file deleted: {FilePath}", e.FullPath);
-                RemovePatternFile(e.FullPath);
-            }
+            return false;
         }
-        catch (Exception ex)
+
+        var fileName = Path.GetFileName(fullPath);
+
+        return !fileName.StartsWith(".", StringComparison.Ordinal) &&
+               !fileName.Equals("schema.json", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The single consumer of the watch queue: one item at a time, cancelled by dispose.</summary>
+    private async Task ProcessWatchWorkAsync(PatternWatchWork work, CancellationToken cancellationToken)
+    {
+        switch (work.Action)
         {
-            _logger.LogError(ex, "Error handling file deletion: {FilePath}", e.FullPath);
+            case PatternWatchAction.ReloadAll:
+                await LoadAllPatternsAsync(cancellationToken);
+                break;
+
+            case PatternWatchAction.Remove:
+                RemovePatternFile(work.FullPath);
+                break;
+
+            case PatternWatchAction.Reload:
+                if (work.RemovedPath != null)
+                {
+                    RemovePatternFile(work.RemovedPath);
+                }
+
+                if (!File.Exists(work.FullPath))
+                {
+                    // Created and deleted again before the debounce elapsed.
+                    RemovePatternFile(work.FullPath);
+                    break;
+                }
+
+                await ReloadPatternFileAsync(work.FullPath, cancellationToken);
+                break;
         }
     }
 
-    private async void OnFileRenamed(object sender, RenamedEventArgs e)
-    {
-        try
-        {
-            if (Path.GetExtension(e.FullPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogDebug("Pattern file renamed: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
-                RemovePatternFile(e.OldFullPath);
-                await ReloadPatternFileAsync(e.FullPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error handling file rename: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
-        }
-    }
-
-    private async Task ReloadPatternFileAsync(string fullPath)
+    private async Task ReloadPatternFileAsync(string fullPath, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -416,7 +497,7 @@ public class PatternFileService : IPatternCatalog
             RemovePatternFile(fullPath);
             
             // Load new version
-            var patternFile = await LoadPatternFileAsync(fullPath);
+            var patternFile = await LoadPatternFileAsync(fullPath, cancellationToken);
             if (patternFile != null)
             {
                 lock (_lock)
@@ -448,6 +529,10 @@ public class PatternFileService : IPatternCatalog
                 
                 NotifyPatternFilesChanged(PatternFileChangeType.Updated, relativePath);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -509,9 +594,55 @@ public class PatternFileService : IPatternCatalog
         }
     }
 
+    /// <summary>
+    /// Deterministic shutdown: the watcher stops raising events and is unsubscribed before it is
+    /// disposed, the queue stops accepting work, and the consumer's token cancels any debounce
+    /// delay or reload that is still in flight. Safe to call twice - the DI container owns this
+    /// singleton under two registrations.
+    /// </summary>
     public void Dispose()
     {
-        _fileWatcher?.Dispose();
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            _fileWatcher.EnableRaisingEvents = false;
+            _fileWatcher.Changed -= OnFileChanged;
+            _fileWatcher.Created -= OnFileChanged;
+            _fileWatcher.Deleted -= OnFileDeleted;
+            _fileWatcher.Renamed -= OnFileRenamed;
+            _fileWatcher.Error -= OnWatcherError;
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already torn down by the runtime.
+        }
+
+        _fileWatcher.Dispose();
+
+        _watchQueue.Complete();
+        _watchShutdown.Cancel();
+
+        try
+        {
+            // The consumer only ever awaits a cancellable delay or one file read, so this returns
+            // promptly; the timeout is a backstop, not the expected path.
+            if (!_watchConsumer.Wait(TimeSpan.FromSeconds(5)))
+            {
+                _logger.LogWarning("Pattern watch consumer did not stop within the shutdown timeout");
+            }
+        }
+        catch (AggregateException ex)
+        {
+            // Observed here so a cancelled consumer never surfaces as an unobserved task exception.
+            _logger.LogDebug(ex, "Pattern watch consumer ended with an exception during shutdown");
+        }
+
+        _watchQueue.Dispose();
+        _watchShutdown.Dispose();
     }
 }
 
