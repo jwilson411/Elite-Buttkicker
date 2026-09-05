@@ -34,7 +34,7 @@ public class PatternSelectionController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting pattern conflicts");
-            return StatusCode(500, new { error = "Failed to get pattern conflicts", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get pattern conflicts" });
         }
     }
 
@@ -58,7 +58,7 @@ public class PatternSelectionController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting available patterns for {ShipType}.{EventName}", shipType, eventName);
-            return StatusCode(500, new { error = "Failed to get available patterns", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get available patterns" });
         }
     }
 
@@ -88,7 +88,7 @@ public class PatternSelectionController : ControllerBase
         {
             _logger.LogError(ex, "Error selecting pattern for {ShipType}.{EventName}: {SourceId}", 
                 request.ShipType, request.EventName, request.SourceId);
-            return StatusCode(500, new { error = "Failed to select pattern", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to select pattern" });
         }
     }
 
@@ -171,7 +171,7 @@ public class PatternSelectionController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error auto-resolving pattern conflicts");
-            return StatusCode(500, new { error = "Failed to auto-resolve conflicts", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to auto-resolve conflicts" });
         }
     }
 
@@ -186,7 +186,7 @@ public class PatternSelectionController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting pattern selection stats");
-            return StatusCode(500, new { error = "Failed to get stats", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get stats" });
         }
     }
 
@@ -213,7 +213,7 @@ public class PatternSelectionController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error refreshing pattern sources");
-            return StatusCode(500, new { error = "Failed to refresh sources", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to refresh sources" });
         }
     }
 }

@@ -113,7 +113,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting pattern templates");
-            return StatusCode(500, new { error = "Failed to get pattern templates", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get pattern templates" });
         }
     }
 
@@ -183,7 +183,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating new pattern");
-            return StatusCode(500, new { error = "Failed to create new pattern", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to create new pattern" });
         }
     }
 
@@ -230,8 +230,8 @@ public class PatternEditorController : ControllerBase
 
             // Determine save location
             var saveDirectory = request.SaveToCustom ? "Custom" : "patterns";
-            var fullPath = PatternPathGuard.ResolveUnderRoot(
-                Path.Combine(Directory.GetCurrentDirectory(), "patterns"), fileName, saveDirectory);
+            var patternsRoot = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
+            var fullPath = PatternPathGuard.ResolveUnderRoot(patternsRoot, fileName, saveDirectory);
             if (fullPath == null)
             {
                 return BadRequest(new { error = "Invalid file name" });
@@ -264,7 +264,9 @@ public class PatternEditorController : ControllerBase
             {
                 Message = $"Pattern file '{fileName}' saved successfully",
                 FileName = fileName,
-                FilePath = fullPath,
+                // Relative to the patterns root: where the file sits is useful to the page, where
+                // the patterns root sits on this machine is not the caller's business.
+                FilePath = Path.GetRelativePath(patternsRoot, fullPath),
                 SaveLocation = saveDirectory,
                 Created = System.IO.File.GetCreationTime(fullPath),
                 FileSize = new FileInfo(fullPath).Length
@@ -273,7 +275,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving pattern file");
-            return StatusCode(500, new { error = "Failed to save pattern file", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to save pattern file" });
         }
     }
 
@@ -314,7 +316,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading pattern file for editing: {FileName}", fileName);
-            return StatusCode(500, new { error = "Failed to load pattern file", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to load pattern file" });
         }
     }
 
@@ -390,7 +392,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error validating pattern file");
-            return StatusCode(500, new { error = "Failed to validate pattern file", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to validate pattern file" });
         }
     }
 
@@ -418,7 +420,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing pattern");
-            return StatusCode(500, new { error = "Failed to test pattern", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to test pattern" });
         }
     }
 
@@ -483,7 +485,7 @@ public class PatternEditorController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting user files for author: {Author}", author);
-            return StatusCode(500, new { error = "Failed to get user files", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to get user files" });
         }
     }
 
@@ -628,8 +630,8 @@ public class PatternEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+            _logger.LogError(ex, "Error creating a new pattern");
+            await ApiError.WriteAsync(context, 500, "Internal server error");
         }
     }
 
@@ -674,8 +676,8 @@ public class PatternEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+            _logger.LogError(ex, "Error saving a pattern file");
+            await ApiError.WriteAsync(context, 500, "Internal server error");
         }
     }
 
@@ -751,8 +753,8 @@ public class PatternEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+            _logger.LogError(ex, "Error validating a pattern file");
+            await ApiError.WriteAsync(context, 500, "Internal server error");
         }
     }
 
@@ -797,8 +799,8 @@ public class PatternEditorController : ControllerBase
         }
         catch (Exception ex)
         {
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Internal server error", details = ex.Message }));
+            _logger.LogError(ex, "Error testing a pattern");
+            await ApiError.WriteAsync(context, 500, "Internal server error");
         }
     }
 

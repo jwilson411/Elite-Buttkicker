@@ -88,8 +88,7 @@ public class AudioApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting audio devices");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to list audio devices");
         }
     }
 
@@ -184,8 +183,7 @@ public class AudioApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting audio device");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to set the audio device");
         }
     }
 
@@ -203,8 +201,7 @@ public class AudioApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reading audio status");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to read the audio status");
         }
     }
 
@@ -264,8 +261,7 @@ public class AudioApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing audio");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to test the audio output");
         }
     }
 
@@ -293,8 +289,7 @@ public class AudioApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error stopping audio playback");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to stop audio playback");
         }
     }
 

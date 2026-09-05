@@ -100,8 +100,7 @@ public class JournalApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting journal status");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to read the journal status");
         }
     }
 
@@ -210,8 +209,7 @@ public class JournalApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting journal path");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to set the journal folder");
         }
     }
 
@@ -264,8 +262,7 @@ public class JournalApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting recent events");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to read recent journal events");
         }
     }
 
@@ -386,8 +383,7 @@ public class JournalApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting journal replay");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to start the journal replay");
         }
     }
 
@@ -414,8 +410,7 @@ public class JournalApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error stopping journal replay");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to stop the journal replay");
         }
     }
 
@@ -446,8 +441,7 @@ public class JournalApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting replay status");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to read the replay status");
         }
     }
 

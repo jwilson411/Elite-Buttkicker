@@ -38,7 +38,7 @@ public class UserSettingsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving user settings");
-            return StatusCode(500, new { error = "Failed to retrieve user settings", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to retrieve user settings" });
         }
     }
 
@@ -91,14 +91,13 @@ public class UserSettingsController : ControllerBase
             {
                 message = result.Message,
                 timestamp = DateTime.UtcNow,
-                settingsPath = result.SettingsPath,
                 settings = result.ToPayload()
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving user settings");
-            return StatusCode(500, new { error = "Failed to save user settings", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to save user settings" });
         }
     }
 
@@ -128,7 +127,7 @@ public class UserSettingsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resetting user settings");
-            return StatusCode(500, new { error = "Failed to reset user settings", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to reset user settings" });
         }
     }
 
@@ -161,8 +160,7 @@ public class UserSettingsController : ControllerBase
                     EnablePredictivePatterns = _appSettings.ContextualIntelligence.EnablePredictivePatterns,
                     EnableContextualVoice = _appSettings.ContextualIntelligence.EnableContextualVoice
                 } : null,
-                UserSettingsExist = _userSettingsService.UserSettingsExist(),
-                UserSettingsPath = _userSettingsService.GetUserSettingsPath()
+                UserSettingsExist = _userSettingsService.UserSettingsExist()
             };
 
             return Ok(response);
@@ -170,7 +168,7 @@ public class UserSettingsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error retrieving current settings");
-            return StatusCode(500, new { error = "Failed to retrieve current settings", details = ex.Message });
+            return StatusCode(500, new { error = "Failed to retrieve current settings" });
         }
     }
 }
@@ -203,8 +201,8 @@ public class CurrentSettingsResponse
     public CurrentAudioSettings Audio { get; set; } = new();
     public CurrentEliteDangerousSettings EliteDangerous { get; set; } = new();
     public CurrentContextualIntelligenceSettings? ContextualIntelligence { get; set; }
+    /// <summary>Whether a settings file has been written yet. Where it lives stays on the machine.</summary>
     public bool UserSettingsExist { get; set; }
-    public string UserSettingsPath { get; set; } = string.Empty;
 }
 
 public class CurrentAudioSettings

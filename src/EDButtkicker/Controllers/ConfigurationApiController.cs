@@ -52,8 +52,7 @@ public class ConfigurationApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting configuration");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to read the configuration");
         }
     }
 
@@ -126,8 +125,7 @@ public class ConfigurationApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating configuration");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to update the configuration");
         }
     }
 
@@ -163,8 +161,7 @@ public class ConfigurationApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting configuration");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to export the configuration");
         }
     }
 
@@ -230,8 +227,7 @@ public class ConfigurationApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error importing configuration");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to import the configuration");
         }
     }
 

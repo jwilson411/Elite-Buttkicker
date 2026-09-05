@@ -102,8 +102,7 @@ public class PatternApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting patterns");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to get patterns");
         }
     }
 
@@ -156,8 +155,7 @@ public class PatternApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating pattern");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to create the pattern");
         }
     }
 
@@ -192,8 +190,7 @@ public class PatternApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating pattern");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to update the pattern");
         }
     }
 
@@ -222,8 +219,7 @@ public class PatternApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting pattern");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to delete the pattern");
         }
     }
 
@@ -326,8 +322,7 @@ public class PatternApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing pattern for event: {EventType}", ExtractEventTypeFromPath(context.Request.Path));
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to test the pattern");
         }
     }
 
@@ -396,8 +391,7 @@ public class PatternApiController
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error testing custom pattern");
-            context.Response.StatusCode = 500;
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = ex.Message }));
+            await ApiError.WriteAsync(context, 500, "Failed to test the custom pattern");
         }
     }
     
