@@ -154,6 +154,48 @@
     min-height: 0;
 }
 
+/* The canvas and the point inspector below it are one column, so the inspector's numeric fields
+   stay next to the drawing they describe. */
+.timeline-canvas-column {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+}
+
+/* Point Inspector */
+.point-inspector {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--primary-bg);
+    border-top: 1px solid var(--border-color);
+}
+
+.point-inspector .control-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.point-inspector input {
+    width: 80px;
+}
+
+.point-inspector-status {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+}
+
+.point-inspector-help {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+}
+
 /* Canvas Wrapper */
 .timeline-canvas-wrapper {
     flex: 1;
@@ -616,6 +658,26 @@
 .layer-item:focus {
     outline: 2px solid var(--primary-color);
     outline-offset: 1px;
+}
+
+/* Keyboard focus has to be visible on everything the keyboard can reach - the canvas itself is a
+   focus stop now, and so are the point inspector's number fields. */
+.timeline-canvas:focus-visible,
+.point-inspector input:focus-visible,
+.control-btn:focus-visible,
+.layer-item:focus-visible {
+    outline: 3px solid var(--accent-color);
+    outline-offset: 2px;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+    .timeline-editor-main *,
+    .timeline-editor-main *::before,
+    .timeline-editor-main *::after {
+        transition: none !important;
+        animation: none !important;
+    }
 }
 
 /* High Contrast Mode Support */
