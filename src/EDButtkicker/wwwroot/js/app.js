@@ -8,9 +8,12 @@ class ButtkickerApp {
     }
 
     init() {
-        // Tab switching
-        document.querySelectorAll('.nav-tab').forEach(tab => {
+        // Tab switching. The nav is a tablist: clicking a tab still selects it, and so do the
+        // arrow keys, Home and End, with only the selected tab in the tab order.
+        const tabs = Array.from(document.querySelectorAll('.nav-tab'));
+        tabs.forEach(tab => {
             tab.addEventListener('click', () => this.switchTab(tab.dataset.tab));
+            tab.addEventListener('keydown', event => this.onTabKeydown(event, tabs));
         });
 
         // Range input updates
@@ -28,15 +31,41 @@ class ButtkickerApp {
         setInterval(() => this.updateSystemStatus(), 10000); // Every 10 seconds
     }
 
+    // Enter and Space are the button's own activation and already reach the click handler, so only
+    // the roving-focus keys are handled here.
+    onTabKeydown(event, tabs) {
+        const current = tabs.indexOf(event.currentTarget);
+        if (current < 0) return;
+
+        let next;
+        switch (event.key) {
+            case 'ArrowRight': next = (current + 1) % tabs.length; break;
+            case 'ArrowLeft': next = (current - 1 + tabs.length) % tabs.length; break;
+            case 'Home': next = 0; break;
+            case 'End': next = tabs.length - 1; break;
+            default: return;
+        }
+
+        event.preventDefault();
+        this.switchTab(tabs[next].dataset.tab);
+        tabs[next].focus();
+    }
+
     switchTab(tabName) {
         // Update nav tabs
         document.querySelectorAll('.nav-tab').forEach(tab => {
-            tab.classList.toggle('active', tab.dataset.tab === tabName);
+            const selected = tab.dataset.tab === tabName;
+            tab.classList.toggle('active', selected);
+            tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+            tab.tabIndex = selected ? 0 : -1;
         });
 
-        // Update tab panels
+        // Update tab panels. The unselected ones are hidden outright, so nothing in them is
+        // reachable by a screen reader or by Tab.
         document.querySelectorAll('.tab-panel').forEach(panel => {
-            panel.classList.toggle('active', panel.id === tabName);
+            const selected = panel.id === tabName;
+            panel.classList.toggle('active', selected);
+            panel.hidden = !selected;
         });
 
         // Load tab content
@@ -188,13 +217,13 @@ class ButtkickerApp {
         if (!modal) return;
 
         this.activeStep = stepId || (this.setup ? this.setup.current_step : 'journal');
-        modal.classList.add('active');
+        // Render first so the step's own controls are what focus lands on.
         this.renderSetup();
+        openDialog('setupWizard');
     }
 
     closeSetupWizard() {
-        const modal = document.getElementById('setupWizard');
-        if (modal) modal.classList.remove('active');
+        closeDialog('setupWizard');
     }
 
     renderSetup() {
@@ -906,8 +935,15 @@ class ButtkickerApp {
 
     showToast(message, type = 'success') {
         const toastContainer = document.getElementById('toastContainer');
-        const toast = document.createElement('div');
-        toast.className = `toast ${type}`;
+        // A toast is the only report some actions give, so it is a live region: errors interrupt
+        // (alert), everything else waits for a pause (status).
+        const toast = dom.el('div', {
+            className: `toast ${type}`,
+            attrs: {
+                role: type === 'error' ? 'alert' : 'status',
+                'aria-atomic': 'true'
+            }
+        });
         // Toast text is frequently an error string straight off the API - shown, never parsed.
         dom.append(toast, dom.el('div', {
             style: { display: 'flex', alignItems: 'center', gap: '0.5rem' }
@@ -928,6 +964,103 @@ class ButtkickerApp {
         }, 4000);
     }
 }
+
+// ----- Modal dialogs -----
+//
+// Both modals are role="dialog" aria-modal="true". While one is open, Tab stays inside it, Escape
+// closes it, and whatever was focused before it opened gets the focus back - otherwise a screen
+// reader or keyboard user is left behind the dialog with no way back.
+const DIALOG_FOCUSABLE = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])'
+].join(', ');
+
+let activeDialog = null;
+let dialogReturnFocus = null;
+
+function dialogFocusables(dialog) {
+    return Array.from(dialog.querySelectorAll(DIALOG_FOCUSABLE)).filter(node => !node.closest('[hidden]'));
+}
+
+function focusIntoDialog(dialog) {
+    const focusables = dialogFocusables(dialog);
+    // With nothing focusable inside - a dialog still loading its body - the heading takes focus so
+    // the reader at least starts where the dialog does.
+    const target = focusables[0] || dialog.querySelector('.modal-header h3') || dialog;
+    if (focusables.length === 0) target.setAttribute('tabindex', '-1');
+    target.focus();
+}
+
+function openDialog(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return null;
+
+    // Reopening the wizard on a later step must not steal the caller's place in the dialog, nor
+    // forget where focus came from originally.
+    const alreadyOpen = dialog === activeDialog;
+    if (!alreadyOpen) {
+        dialogReturnFocus = document.activeElement;
+        activeDialog = dialog;
+    }
+
+    dialog.hidden = false;
+    dialog.classList.add('active');
+
+    if (!alreadyOpen) focusIntoDialog(dialog);
+    return dialog;
+}
+
+function closeDialog(id) {
+    const dialog = document.getElementById(id);
+    if (!dialog) return;
+
+    dialog.classList.remove('active');
+    dialog.hidden = true;
+
+    if (dialog !== activeDialog) return;
+    activeDialog = null;
+
+    const restore = dialogReturnFocus;
+    dialogReturnFocus = null;
+    if (restore && typeof restore.focus === 'function' && document.contains(restore)) {
+        restore.focus();
+    }
+}
+
+document.addEventListener('keydown', (event) => {
+    const dialog = activeDialog;
+    if (!dialog) return;
+
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDialog(dialog.id);
+        return;
+    }
+
+    if (event.key !== 'Tab') return;
+
+    const focusables = dialogFocusables(dialog);
+    if (focusables.length === 0) {
+        event.preventDefault();
+        return;
+    }
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault();
+        first.focus();
+    }
+});
 
 // Global functions for inline event handlers
 window.refreshDashboard = () => app.loadDashboard();
@@ -1142,9 +1275,9 @@ window.importConfiguration = () => {
 };
 
 // Pattern editor modal functions
-window.closePatternModal = () => {
-    document.getElementById('patternModal').classList.remove('active');
-};
+window.openPatternModal = () => openDialog('patternModal');
+
+window.closePatternModal = () => closeDialog('patternModal');
 
 window.savePattern = () => {
     app.showToast('Pattern saved - Coming soon!', 'warning');

@@ -16,37 +16,45 @@
                     <h1>Elite Dangerous Buttkicker</h1>
                 </div>
                 <div class="header-status">
-                    <div class="status-indicator" id="systemStatus">
-                        <i class="fas fa-circle status-icon"></i>
+                    <!-- The connection state is announced, and always spelled out in words: the
+                         coloured dot is decorative, the .status-text is the real label. -->
+                    <div class="status-indicator" id="systemStatus" role="status" aria-live="polite" aria-atomic="true">
+                        <i class="fas fa-circle status-icon" aria-hidden="true"></i>
                         <span class="status-text">Initializing...</span>
                     </div>
                 </div>
             </div>
-            <nav class="main-nav">
-                <button class="nav-tab active" data-tab="dashboard">
-                    <i class="fas fa-tachometer-alt"></i> Dashboard
+            <nav class="main-nav" role="tablist" aria-label="Main sections">
+                <button class="nav-tab active" id="tab-dashboard" role="tab" data-tab="dashboard"
+                        aria-controls="dashboard" aria-selected="true" tabindex="0">
+                    <i class="fas fa-tachometer-alt" aria-hidden="true"></i> Dashboard
                 </button>
-                <button class="nav-tab" data-tab="patterns">
-                    <i class="fas fa-wave-square"></i> Patterns
+                <button class="nav-tab" id="tab-patterns" role="tab" data-tab="patterns"
+                        aria-controls="patterns" aria-selected="false" tabindex="-1">
+                    <i class="fas fa-wave-square" aria-hidden="true"></i> Patterns
                 </button>
-                <button class="nav-tab" data-tab="audio">
-                    <i class="fas fa-volume-up"></i> Audio
+                <button class="nav-tab" id="tab-audio" role="tab" data-tab="audio"
+                        aria-controls="audio" aria-selected="false" tabindex="-1">
+                    <i class="fas fa-volume-up" aria-hidden="true"></i> Audio
                 </button>
-                <button class="nav-tab" data-tab="journal">
-                    <i class="fas fa-file-alt"></i> Journal
+                <button class="nav-tab" id="tab-journal" role="tab" data-tab="journal"
+                        aria-controls="journal" aria-selected="false" tabindex="-1">
+                    <i class="fas fa-file-alt" aria-hidden="true"></i> Journal
                 </button>
-                <button class="nav-tab" data-tab="context">
-                    <i class="fas fa-brain"></i> Intelligence
+                <button class="nav-tab" id="tab-context" role="tab" data-tab="context"
+                        aria-controls="context" aria-selected="false" tabindex="-1">
+                    <i class="fas fa-brain" aria-hidden="true"></i> Intelligence
                 </button>
-                <button class="nav-tab" data-tab="settings">
-                    <i class="fas fa-cog"></i> Settings
+                <button class="nav-tab" id="tab-settings" role="tab" data-tab="settings"
+                        aria-controls="settings" aria-selected="false" tabindex="-1">
+                    <i class="fas fa-cog" aria-hidden="true"></i> Settings
                 </button>
             </nav>
         </header>
 
         <main class="main-content">
             <!-- Dashboard Tab -->
-            <div class="tab-panel active" id="dashboard">
+            <div class="tab-panel active" id="dashboard" role="tabpanel" tabindex="0" aria-labelledby="tab-dashboard">
                 <div class="panel-header">
                     <h2><i class="fas fa-tachometer-alt"></i> System Dashboard</h2>
                     <div class="header-actions">
@@ -63,7 +71,7 @@
                     <div class="stats-card">
                         <div class="card-header">
                             <h3><i class="fas fa-heartbeat"></i> System Health</h3>
-                            <button class="btn btn-sm" data-bind="refreshHealth">
+                            <button class="btn btn-sm" data-bind="refreshHealth" aria-label="Refresh system health">
                                 <i class="fas fa-sync-alt"></i>
                             </button>
                         </div>
@@ -99,7 +107,7 @@
                     <div class="stats-card full-width">
                         <div class="card-header">
                             <h3><i class="fas fa-history"></i> Recent Events</h3>
-                            <button class="btn btn-sm" data-bind="loadRecentEvents">
+                            <button class="btn btn-sm" data-bind="loadRecentEvents" aria-label="Refresh recent events">
                                 <i class="fas fa-refresh"></i>
                             </button>
                         </div>
@@ -113,7 +121,7 @@
             </div>
 
             <!-- Patterns Tab -->
-            <div class="tab-panel" id="patterns">
+            <div class="tab-panel" id="patterns" role="tabpanel" tabindex="0" aria-labelledby="tab-patterns" hidden>
                 <div class="panel-header">
                     <h2><i class="fas fa-wave-square"></i> Haptic Patterns</h2>
                     <div class="header-actions">
@@ -141,7 +149,7 @@
                     <div class="pattern-tester" id="patternTester" style="display: none;">
                         <div class="tester-header">
                             <h3><i class="fas fa-vial"></i> Pattern Tester</h3>
-                            <button class="btn-close" data-bind="hidePatternTester">&times;</button>
+                            <button class="btn-close" data-bind="hidePatternTester" aria-label="Close pattern tester"><span aria-hidden="true">&times;</span></button>
                         </div>
                         
                         <div class="tester-content">
@@ -245,7 +253,7 @@
             </div>
 
             <!-- Audio Tab -->
-            <div class="tab-panel" id="audio">
+            <div class="tab-panel" id="audio" role="tabpanel" tabindex="0" aria-labelledby="tab-audio" hidden>
                 <div class="panel-header">
                     <h2><i class="fas fa-volume-up"></i> Audio Configuration</h2>
                     <button class="btn btn-primary" data-bind="testAudio">
@@ -283,7 +291,7 @@
             </div>
 
             <!-- Journal Tab -->
-            <div class="tab-panel" id="journal">
+            <div class="tab-panel" id="journal" role="tabpanel" tabindex="0" aria-labelledby="tab-journal" hidden>
                 <div class="panel-header">
                     <h2><i class="fas fa-file-alt"></i> Journal Monitoring</h2>
                     <button class="btn btn-primary" data-bind="refreshJournalStatus">
@@ -324,7 +332,7 @@
                                         <select id="journalFileSelect" class="journal-select">
                                             <option value="">Loading journal files...</option>
                                         </select>
-                                        <button class="btn btn-sm btn-secondary" data-bind="refreshJournalFiles">
+                                        <button class="btn btn-sm btn-secondary" data-bind="refreshJournalFiles" aria-label="Refresh journal file list">
                                             <i class="fas fa-sync-alt"></i>
                                         </button>
                                     </div>
@@ -361,7 +369,7 @@
             </div>
 
             <!-- Contextual Intelligence Tab -->
-            <div class="tab-panel" id="context">
+            <div class="tab-panel" id="context" role="tabpanel" tabindex="0" aria-labelledby="tab-context" hidden>
                 <div class="panel-header">
                     <h2><i class="fas fa-brain"></i> Contextual Intelligence</h2>
                     <div class="header-actions">
@@ -449,7 +457,7 @@
             </div>
 
             <!-- Settings Tab -->
-            <div class="tab-panel" id="settings">
+            <div class="tab-panel" id="settings" role="tabpanel" tabindex="0" aria-labelledby="tab-settings" hidden>
                 <div class="panel-header">
                     <h2><i class="fas fa-cog"></i> Configuration Settings</h2>
                     <div class="header-actions">
@@ -517,11 +525,13 @@
 
     <!-- First-Run Setup Wizard: opens by itself until setup has been completed once, and can be
          reopened from the dashboard at any time. -->
-    <div class="modal" id="setupWizard">
+    <div class="modal" id="setupWizard" role="dialog" aria-modal="true" aria-labelledby="setupWizardTitle" hidden>
         <div class="modal-content">
             <div class="modal-header">
-                <h3><i class="fas fa-magic"></i> First-Run Setup</h3>
-                <button class="modal-close" data-bind="closeSetupWizard">&times;</button>
+                <h3 id="setupWizardTitle"><i class="fas fa-magic" aria-hidden="true"></i> First-Run Setup</h3>
+                <button class="modal-close" data-bind="closeSetupWizard" aria-label="Close setup wizard">
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
             <div class="modal-body">
                 <ol class="setup-steps" id="setupSteps"></ol>
@@ -537,11 +547,13 @@
     </div>
 
     <!-- Pattern Editor Modal -->
-    <div class="modal" id="patternModal">
+    <div class="modal" id="patternModal" role="dialog" aria-modal="true" aria-labelledby="patternModalTitle" hidden>
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="patternModalTitle">Edit Pattern</h3>
-                <button class="modal-close" data-bind="closePatternModal">&times;</button>
+                <button class="modal-close" data-bind="closePatternModal" aria-label="Close pattern editor">
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
             <div class="modal-body">
                 <div class="pattern-editor" id="patternEditor">
@@ -557,7 +569,7 @@
     </div>
 
     <!-- Toast Notifications -->
-    <div class="toast-container" id="toastContainer"></div>
+    <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="false"></div>
 
     <script src="js/dom.js"></script>
     <script src="js/csrf.js"></script>
