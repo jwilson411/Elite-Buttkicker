@@ -60,6 +60,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPatternCatalog>(sp => sp.GetRequiredService<PatternFileService>());
         services.AddSingleton<PatternSourceCatalogReconciler>();
         services.AddSingleton<IJournalEventPipeline, JournalEventPipeline>();
+
+        // Replay outlives the request that starts it, so its cancellation source, task and status
+        // live in one singleton the container disposes on shutdown - not in the controller.
+        services.AddSingleton<JournalReplayService>();
         // IntensityCurveProcessor is a static class, no need to register
         // AdvancedWaveformGenerator and MultiLayerPatternGenerator are created as needed
 

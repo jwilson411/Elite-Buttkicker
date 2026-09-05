@@ -16,29 +16,24 @@ public class JournalApiController
     private readonly ILogger<JournalApiController> _logger;
     private readonly AppSettings _settings;
     private readonly IJournalEventStore _eventStore;
-    private readonly IJournalEventPipeline _pipeline;
     private readonly JournalMonitorStatus _monitorStatus;
     private readonly SettingsPersistenceService _settingsPersistence;
-
-    // Replay functionality
-    private CancellationTokenSource? _replayTokenSource;
-    private Task? _replayTask;
-    private readonly object ReplayLock = new object();
+    private readonly JournalReplayService _replay;
 
     public JournalApiController(
         ILogger<JournalApiController> logger,
         AppSettings settings,
         IJournalEventStore eventStore,
-        IJournalEventPipeline pipeline,
         JournalMonitorStatus monitorStatus,
-        SettingsPersistenceService settingsPersistence)
+        SettingsPersistenceService settingsPersistence,
+        JournalReplayService replay)
     {
         _logger = logger;
         _settings = settings;
         _eventStore = eventStore;
-        _pipeline = pipeline;
         _monitorStatus = monitorStatus;
         _settingsPersistence = settingsPersistence;
+        _replay = replay;
     }
 
     public async Task GetJournalStatus(HttpContext context)
@@ -283,6 +278,7 @@ public class JournalApiController
             }
 
             string? selectedJournalFile = null;
+            var speed = JournalReplayService.DefaultSpeed;
             if (json.Length > 0)
             {
                 if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var requestData))
@@ -296,6 +292,15 @@ public class JournalApiController
                 if (requestData != null && requestData.ContainsKey("journalFile"))
                 {
                     selectedJournalFile = requestData["journalFile"].ToString();
+                }
+
+                // Optional accelerator. Out-of-range values are clamped by the replay service
+                // rather than refused: the request is still a valid "replay this file".
+                if (requestData != null &&
+                    requestData.TryGetValue("speed", out var requestedSpeed) &&
+                    double.TryParse(requestedSpeed.ToString(), out var parsedSpeed))
+                {
+                    speed = parsedSpeed;
                 }
             }
 
@@ -339,29 +344,7 @@ public class JournalApiController
                 eventsToReplay = _eventStore.GetSince(cutoffTime).ToList();
             }
             
-            // Now handle replay start/stop in lock
-            lock (ReplayLock)
-            {
-                // Stop any existing replay
-                if (_replayTokenSource != null && !_replayTokenSource.Token.IsCancellationRequested)
-                {
-                    _replayTokenSource.Cancel();
-                    _replayTask?.Wait(TimeSpan.FromSeconds(2));
-                }
-
-                if (eventsToReplay.Any())
-                {
-                    // Start new replay
-                    _replayTokenSource = new CancellationTokenSource();
-                    _replayTask = Task.Run(async () => await ReplayEventsAsync(eventsToReplay, _replayTokenSource.Token));
-
-                    _logger.LogInformation("Started journal replay with {Count} events from {Source}",
-                        eventsToReplay.Count,
-                        sourceFile ?? "recent events");
-                }
-            }
-            
-            if (!eventsToReplay.Any())
+            if (eventsToReplay.Count == 0)
             {
                 context.Response.StatusCode = 404;
                 var errorMessage = sourceFile != null
@@ -371,13 +354,18 @@ public class JournalApiController
                 return;
             }
 
+            // Cancelling and draining any previous replay happens inside the service, on awaits:
+            // the request thread hands the run over and returns rather than waiting on it.
+            await _replay.StartAsync(eventsToReplay, speed, sourceFile, context.RequestAborted);
+
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new
+            {
                 success = true,
                 message = $"Journal replay started from {sourceFile ?? "recent events"}",
                 events_count = eventsToReplay.Count,
-                source = sourceFile ?? "recent_events"
+                source = sourceFile ?? "recent_events",
+                speed = _replay.GetStatus().Speed
             }));
         }
         catch (Exception ex)
@@ -391,14 +379,7 @@ public class JournalApiController
     {
         try
         {
-            lock (ReplayLock)
-            {
-                if (_replayTokenSource != null && !_replayTokenSource.Token.IsCancellationRequested)
-                {
-                    _replayTokenSource.Cancel();
-                    _logger.LogInformation("Stopped journal replay");
-                }
-            }
+            await _replay.StopAsync(context.RequestAborted);
 
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(JsonSerializer.Serialize(new 
@@ -418,63 +399,24 @@ public class JournalApiController
     {
         try
         {
-            bool isReplaying = false;
-            int eventsCount = 0;
-
-            lock (ReplayLock)
-            {
-                isReplaying = _replayTokenSource != null && 
-                             !_replayTokenSource.Token.IsCancellationRequested &&
-                             _replayTask != null && 
-                             !_replayTask.IsCompleted;
-                eventsCount = GetEventsToReplayCount();
-            }
+            var replay = _replay.GetStatus();
 
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                is_replaying = isReplaying,
-                events_available = eventsCount,
-                last_5_minutes_events = GetEventsInLast5Minutes()
+            await context.Response.WriteAsync(JsonSerializer.Serialize(new
+            {
+                is_replaying = replay.IsReplaying,
+                events_available = GetEventsToReplayCount(),
+                last_5_minutes_events = GetEventsInLast5Minutes(),
+                replay_source = replay.Source ?? "recent_events",
+                replay_events_total = replay.TotalEvents,
+                replay_events_replayed = replay.EventsReplayed,
+                replay_speed = replay.Speed
             }));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting replay status");
             await ApiError.WriteAsync(context, 500, "Failed to read the replay status");
-        }
-    }
-
-    private async Task ReplayEventsAsync(List<JournalEvent> events, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogInformation("Starting replay of {Count} journal events", events.Count);
-            
-            foreach (var journalEvent in events)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                // Same ordered pipeline as live monitoring, minus the history write - these
-                // events are historical and (for the in-memory source) already in the store.
-                await _pipeline.ProcessAsync(journalEvent, skipHistory: true);
-                
-                _logger.LogDebug("Replayed event: {EventType} at {Timestamp}", journalEvent.Event, journalEvent.Timestamp);
-
-                // Add a small delay between events to make it more realistic
-                await Task.Delay(500, cancellationToken);
-            }
-            
-            _logger.LogInformation("Journal replay completed");
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogInformation("Journal replay was cancelled");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during journal replay");
         }
     }
 
