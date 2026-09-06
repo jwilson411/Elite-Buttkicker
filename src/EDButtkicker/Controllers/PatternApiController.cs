@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
@@ -8,7 +9,13 @@ using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
 
-public class PatternApiController
+/// <summary>
+/// The built-in event patterns the UI lists, edits and plays. Routes live here as attributes,
+/// so the routing table and this file cannot disagree about what /api/patterns serves.
+/// </summary>
+[ApiController]
+[Route("api/patterns")]
+public class PatternApiController : ControllerBase
 {
     private readonly ILogger<PatternApiController> _logger;
     private readonly EventMappingService _eventMapping;
@@ -27,8 +34,11 @@ public class PatternApiController
         _patternSequencer = patternSequencer;
     }
 
-    public async Task GetPatterns(HttpContext context)
+    [HttpGet]
+    public async Task GetPatterns()
     {
+        var context = HttpContext;
+
         try
         {
             var eventMappings = EventMappingsConfig.GetDefault();
@@ -106,8 +116,11 @@ public class PatternApiController
         }
     }
 
-    public async Task CreatePattern(HttpContext context)
+    [HttpPost]
+    public async Task CreatePattern()
     {
+        var context = HttpContext;
+
         try
         {
             var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
@@ -159,11 +172,13 @@ public class PatternApiController
         }
     }
 
-    public async Task UpdatePattern(HttpContext context)
+    [HttpPut("{eventType}")]
+    public async Task UpdatePattern(string eventType)
     {
+        var context = HttpContext;
+
         try
         {
-            var eventType = ExtractEventTypeFromPath(context.Request.Path);
             if (string.IsNullOrEmpty(eventType))
             {
                 context.Response.StatusCode = 400;
@@ -194,11 +209,13 @@ public class PatternApiController
         }
     }
 
-    public async Task DeletePattern(HttpContext context)
+    [HttpDelete("{eventType}")]
+    public async Task DeletePattern(string eventType)
     {
+        var context = HttpContext;
+
         try
         {
-            var eventType = ExtractEventTypeFromPath(context.Request.Path);
             if (string.IsNullOrEmpty(eventType))
             {
                 context.Response.StatusCode = 400;
@@ -223,11 +240,13 @@ public class PatternApiController
         }
     }
 
-    public async Task TestPattern(HttpContext context)
+    [HttpPost("{eventType}/test")]
+    public async Task TestPattern(string eventType)
     {
+        var context = HttpContext;
+
         try
         {
-            var eventType = ExtractEventTypeFromPath(context.Request.Path);
             if (string.IsNullOrEmpty(eventType))
             {
                 context.Response.StatusCode = 400;
@@ -321,13 +340,16 @@ public class PatternApiController
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error testing pattern for event: {EventType}", ExtractEventTypeFromPath(context.Request.Path));
+            _logger.LogError(ex, "Error testing pattern for event: {EventType}", eventType);
             await ApiError.WriteAsync(context, 500, "Failed to test the pattern");
         }
     }
 
-    public async Task TestCustomPattern(HttpContext context)
+    [HttpPost("test/custom")]
+    public async Task TestCustomPattern()
     {
+        var context = HttpContext;
+
         try
         {
             var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Pattern parameters are required");
@@ -493,16 +515,5 @@ public class PatternApiController
         }
 
         return pattern;
-    }
-
-    private string ExtractEventTypeFromPath(string path)
-    {
-        // Extract event type from paths like "/api/patterns/FSDJump/test"
-        var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length >= 3 && segments[0] == "api" && segments[1] == "patterns")
-        {
-            return segments[2]; // The event type
-        }
-        return string.Empty;
     }
 }

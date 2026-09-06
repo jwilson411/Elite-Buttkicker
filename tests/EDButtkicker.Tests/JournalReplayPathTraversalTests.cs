@@ -5,6 +5,7 @@ using EDButtkicker.Controllers;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -193,7 +194,9 @@ public class JournalReplayPathTraversalTests
                 context.Request.Body = new MemoryStream(bytes);
             }
 
-            await Controller.StartJournalReplay(context);
+            Controller.ControllerContext = new ControllerContext { HttpContext = context };
+
+            await Controller.StartJournalReplay();
 
             return new ReplayResponse(context.Response.StatusCode, Encoding.UTF8.GetString(responseBody.ToArray()));
         }
@@ -203,7 +206,9 @@ public class JournalReplayPathTraversalTests
             var context = new DefaultHttpContext();
             context.Response.Body = new MemoryStream();
 
-            return Controller.StopJournalReplay(context);
+            Controller.ControllerContext = new ControllerContext { HttpContext = context };
+
+            return Controller.StopJournalReplay();
         }
 
         /// <summary>

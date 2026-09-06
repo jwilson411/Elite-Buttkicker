@@ -1,4 +1,9 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using EDButtkicker.Configuration;
 using EDButtkicker.Controllers;
 using EDButtkicker.Services;
@@ -80,26 +85,79 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Every controller the process can resolve, registered in the same graph as its dependencies.
+    /// MVC plus every controller the process can resolve, registered in the same graph as its
+    /// dependencies. Routing, model binding and the endpoint metadata the inventory is built from
+    /// all come from here; <see cref="WebUiConfiguration"/> only maps what this registers.
     /// </summary>
     public static IServiceCollection AddEliteButtkickerControllers(this IServiceCollection services)
     {
-        // Routed by the web UI middleware in WebUiConfiguration.
-        services.AddSingleton<ConfigurationApiController>();
-        services.AddSingleton<PatternApiController>();
-        services.AddSingleton<AudioApiController>();
-        services.AddSingleton<JournalApiController>();
-        services.AddSingleton<PatternFilesController>();
-        services.AddSingleton<PatternEditorController>();
-        services.AddSingleton<ContextualIntelligenceApiController>();
-        services.AddSingleton<SetupApiController>();
-        services.AddSingleton<HealthApiController>();
-        services.AddSingleton<PatternSelectionController>();
+        // Controllers are discovered from this assembly and no other. Naming the part explicitly,
+        // rather than letting MVC scan whatever assembly happens to be the entry point, is what
+        // makes the test server route exactly the endpoints the process routes.
+        var parts = new ApplicationPartManager();
+        parts.ApplicationParts.Add(new AssemblyPart(typeof(ServiceCollectionExtensions).Assembly));
+        services.TryAddSingleton(parts);
 
-        // Not routed today, but they belong to the same graph so they stay resolvable.
-        services.AddSingleton<UserSettingsController>();
-        services.AddSingleton<ShipPatternsController>();
+        services
+            .AddControllers(options => options.Conventions.Add(new UnroutedControllerConvention()))
+            .AddJsonOptions(options =>
+            {
+                // One JSON contract for every endpoint: camelCase as the pages read it, enums by
+                // name as the conflicts page sends and shows them, and the shared depth cap so
+                // deeply nested request JSON is a bad request rather than a stack overflow.
+                options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+                options.JsonSerializerOptions.MaxDepth = RequestLimits.MaxJsonDepth;
+                options.JsonSerializerOptions.Converters.Add(
+                    new JsonStringEnumConverter(allowIntegerValues: true));
+            })
+            // Controllers are activated out of this container, so a controller and the runtime hold
+            // the very same singletons - there is no second graph behind MVC.
+            .AddControllersAsServices();
+
+        services.AddEndpointsApiExplorer();
+
+        // Mapped by MapControllers in WebUiConfiguration. Transient because MVC hands each request's
+        // ControllerContext to the instance it activates; a shared instance would race on it.
+        services.AddTransient<ConfigurationApiController>();
+        services.AddTransient<PatternApiController>();
+        services.AddTransient<AudioApiController>();
+        services.AddTransient<JournalApiController>();
+        services.AddTransient<PatternFilesController>();
+        services.AddTransient<PatternEditorController>();
+        services.AddTransient<ContextualIntelligenceApiController>();
+        services.AddTransient<SetupApiController>();
+        services.AddTransient<HealthApiController>();
+        services.AddTransient<PatternSelectionController>();
+
+        // Not routed today - UnroutedControllerConvention takes them back out of the application
+        // model - but they belong to the same graph so they stay resolvable.
+        services.AddTransient<UserSettingsController>();
+        services.AddTransient<ShipPatternsController>();
 
         return services;
+    }
+}
+
+/// <summary>
+/// Keeps controllers that the web UI does not call out of the routing table. They are registered
+/// and resolvable, but nothing may reach them over HTTP until the UI actually needs them.
+/// </summary>
+internal sealed class UnroutedControllerConvention : IApplicationModelConvention
+{
+    private static readonly HashSet<Type> Unrouted = new()
+    {
+        typeof(UserSettingsController),
+        typeof(ShipPatternsController)
+    };
+
+    public void Apply(ApplicationModel application)
+    {
+        foreach (var controller in application.Controllers
+                     .Where(c => Unrouted.Contains(c.ControllerType.AsType()))
+                     .ToList())
+        {
+            application.Controllers.Remove(controller);
+        }
     }
 }

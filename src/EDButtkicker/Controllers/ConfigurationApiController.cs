@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
@@ -7,7 +8,9 @@ using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
 
-public class ConfigurationApiController
+[ApiController]
+[Route("api/config")]
+public class ConfigurationApiController : ControllerBase
 {
     private readonly ILogger<ConfigurationApiController> _logger;
     private readonly AppSettings _settings;
@@ -23,8 +26,11 @@ public class ConfigurationApiController
         _settingsPersistence = settingsPersistence;
     }
 
-    public async Task GetConfiguration(HttpContext context)
+    [HttpGet]
+    public async Task GetConfiguration()
     {
+        var context = HttpContext;
+
         try
         {
             var config = new
@@ -62,8 +68,11 @@ public class ConfigurationApiController
     /// what can be applied now, and persists the result - so a 200 here is a change that survives a
     /// restart, and the response says which parts are live already.
     /// </summary>
-    public async Task UpdateConfiguration(HttpContext context)
+    [HttpPost]
+    public async Task UpdateConfiguration()
     {
+        var context = HttpContext;
+
         try
         {
             var (handled, root) = await ReadJsonAsync(context);
@@ -129,8 +138,11 @@ public class ConfigurationApiController
         }
     }
 
-    public async Task ExportConfiguration(HttpContext context)
+    [HttpGet("export")]
+    public async Task ExportConfiguration()
     {
+        var context = HttpContext;
+
         try
         {
             var exportData = new
@@ -165,8 +177,11 @@ public class ConfigurationApiController
         }
     }
 
-    public async Task ImportConfiguration(HttpContext context)
+    [HttpPost("import")]
+    public async Task ImportConfiguration()
     {
+        var context = HttpContext;
+
         try
         {
             var (handled, root) = await ReadJsonAsync(context);

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
@@ -8,7 +9,9 @@ using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
 
-public class ContextualIntelligenceApiController
+[ApiController]
+[Route("api/context")]
+public class ContextualIntelligenceApiController : ControllerBase
 {
 	private readonly ILogger<ContextualIntelligenceApiController> _logger;
 	private readonly AppSettings _settings;
@@ -27,8 +30,11 @@ public class ContextualIntelligenceApiController
 		_settingsPersistence = settingsPersistence;
 	}
 
-	public async Task GetContextualIntelligenceStatus(HttpContext context)
+	[HttpGet("status")]
+	public async Task GetContextualIntelligenceStatus()
 	{
+		var context = HttpContext;
+
 		try
 		{
 			var gameContext = _contextualIntelligence.GetCurrentContext();
@@ -97,8 +103,11 @@ public class ContextualIntelligenceApiController
 		}
 	}
 
-	public async Task UpdateContextualIntelligenceConfig(HttpContext context)
+	[HttpPost("config")]
+	public async Task UpdateContextualIntelligenceConfig()
 	{
+		var context = HttpContext;
+
 		try
 		{
 			var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
@@ -179,8 +188,11 @@ public class ContextualIntelligenceApiController
 		}
 	}
 
-	public async Task GetGameContextPredictions(HttpContext context)
+	[HttpGet("predictions")]
+	public async Task GetGameContextPredictions()
 	{
+		var context = HttpContext;
+
 		try
 		{
 			var predictions = _contextualIntelligence.GetPredictedUpcomingEvents();

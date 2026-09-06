@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Reflection;
 using System.Text;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -35,6 +37,16 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
     {
         var services = new ServiceCollection();
         services.AddLogging();
+
+        // MVC's own registrations expect the two things a web host always supplies - the hosting
+        // environment and the diagnostics listener - and validation constructs them too. Standing
+        // them up here keeps the assertion about our graph rather than about the missing host.
+        services.AddSingleton<IWebHostEnvironment>(new StubWebHostEnvironment());
+        services.AddSingleton<IHostEnvironment>(sp => sp.GetRequiredService<IWebHostEnvironment>());
+        var diagnostics = new DiagnosticListener("EDButtkicker.Tests");
+        services.AddSingleton(diagnostics);
+        services.AddSingleton<DiagnosticSource>(diagnostics);
+
         services.AddEliteButtkicker(new AppSettings());
 
         // ValidateOnBuild turns a missing controller dependency into a build failure instead of a
@@ -243,6 +255,27 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
 
         return (T)field!.GetValue(instance)!;
     }
+}
+
+/// <summary>
+/// The hosting environment MVC expects to find, for the graph-validation test that builds a service
+/// collection with no host behind it. It points at the test binaries and is never read from.
+/// </summary>
+internal sealed class StubWebHostEnvironment : IWebHostEnvironment
+{
+    public string EnvironmentName { get; set; } = Environments.Development;
+
+    public string ApplicationName { get; set; } = typeof(StubWebHostEnvironment).Assembly.GetName().Name!;
+
+    public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+
+    public IFileProvider ContentRootFileProvider { get; set; } =
+        new PhysicalFileProvider(AppContext.BaseDirectory);
+
+    public string WebRootPath { get; set; } = AppContext.BaseDirectory;
+
+    public IFileProvider WebRootFileProvider { get; set; } =
+        new PhysicalFileProvider(AppContext.BaseDirectory);
 }
 
 /// <summary>
