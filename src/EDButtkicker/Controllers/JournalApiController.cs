@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
@@ -8,7 +9,9 @@ using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
 
-public class JournalApiController
+[ApiController]
+[Route("api/journal")]
+public class JournalApiController : ControllerBase
 {
     /// <summary>The replay window: the last five minutes of the source's own timeline.</summary>
     private static readonly TimeSpan ReplayWindow = TimeSpan.FromMinutes(5);
@@ -36,8 +39,11 @@ public class JournalApiController
         _replay = replay;
     }
 
-    public async Task GetJournalStatus(HttpContext context)
+    [HttpGet("status")]
+    public async Task GetJournalStatus()
     {
+        var context = HttpContext;
+
         try
         {
             var journalPath = _settings.EliteDangerous.JournalPath;
@@ -51,7 +57,8 @@ public class JournalApiController
                     // Same glob the replay guard resolves against, so the names offered here are
                     // exactly the names replay will accept.
                     journalFiles = Directory.GetFiles(journalPath, JournalFileGuard.JournalGlob)
-                        .OrderByDescending(f => File.GetLastWriteTime(f))
+                        // Fully qualified: ControllerBase.File shadows the type name here.
+                        .OrderByDescending(f => System.IO.File.GetLastWriteTime(f))
                         .Take(5)
                         .Select(Path.GetFileName)
                         .Where(name => name != null)
@@ -99,8 +106,11 @@ public class JournalApiController
         }
     }
 
-    public async Task SetJournalPath(HttpContext context)
+    [HttpPost("path")]
+    public async Task SetJournalPath()
     {
+        var context = HttpContext;
+
         try
         {
             var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
@@ -208,8 +218,11 @@ public class JournalApiController
         }
     }
 
-    public async Task GetRecentEvents(HttpContext context)
+    [HttpGet("events/recent")]
+    public async Task GetRecentEvents()
     {
+        var context = HttpContext;
+
         try
         {
             var limit = 50; // Default limit
@@ -265,8 +278,11 @@ public class JournalApiController
 
     private DateTime? GetLastEventTime() => _eventStore.LastTimestamp;
 
-    public async Task StartJournalReplay(HttpContext context)
+    [HttpPost("replay/start")]
+    public async Task StartJournalReplay()
     {
+        var context = HttpContext;
+
         try
         {
             // Parse request body to get journal file selection. No body at all is allowed: that is
@@ -375,8 +391,11 @@ public class JournalApiController
         }
     }
 
-    public async Task StopJournalReplay(HttpContext context)
+    [HttpPost("replay/stop")]
+    public async Task StopJournalReplay()
     {
+        var context = HttpContext;
+
         try
         {
             await _replay.StopAsync(context.RequestAborted);
@@ -395,8 +414,11 @@ public class JournalApiController
         }
     }
 
-    public async Task GetJournalReplayStatus(HttpContext context)
+    [HttpGet("replay/status")]
+    public async Task GetJournalReplayStatus()
     {
+        var context = HttpContext;
+
         try
         {
             var replay = _replay.GetStatus();

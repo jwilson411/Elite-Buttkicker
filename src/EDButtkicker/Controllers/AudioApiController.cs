@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
@@ -8,7 +9,9 @@ using Microsoft.Extensions.Logging;
 
 namespace EDButtkicker.Controllers;
 
-public class AudioApiController
+[ApiController]
+[Route("api/audio")]
+public class AudioApiController : ControllerBase
 {
     private readonly ILogger<AudioApiController> _logger;
     private readonly AppSettings _settings;
@@ -30,8 +33,11 @@ public class AudioApiController
         _settingsPersistence = settingsPersistence;
     }
 
-    public async Task GetAudioDevices(HttpContext context)
+    [HttpGet("devices")]
+    public async Task GetAudioDevices()
     {
+        var context = HttpContext;
+
         try
         {
             var devices = GetAvailableAudioDevices();
@@ -92,8 +98,11 @@ public class AudioApiController
         }
     }
 
-    public async Task SetAudioDevice(HttpContext context)
+    [HttpPost("device")]
+    public async Task SetAudioDevice()
     {
+        var context = HttpContext;
+
         try
         {
             var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
@@ -192,8 +201,11 @@ public class AudioApiController
     /// a device is open, and why the last playback failed. Reading this never opens a device, so the
     /// UI can show "not opened yet" without provoking hardware.
     /// </summary>
-    public async Task GetAudioStatus(HttpContext context)
+    [HttpGet("status")]
+    public async Task GetAudioStatus()
     {
+        var context = HttpContext;
+
         try
         {
             await WriteJsonAsync(context, BuildStatusPayload());
@@ -210,8 +222,11 @@ public class AudioApiController
     /// reached an open output: a scheduled effect on a device that was never opened is not a
     /// successful test, and reporting it as one is what let a silent rig look healthy.
     /// </summary>
-    public async Task TestAudio(HttpContext context)
+    [HttpPost("test")]
+    public async Task TestAudio()
     {
+        var context = HttpContext;
+
         try
         {
             _logger.LogInformation("Testing audio output");
@@ -269,8 +284,11 @@ public class AudioApiController
     /// Silences everything playing right now. This is the way out of a tone that is too strong, so
     /// it takes effect immediately rather than waiting for the effect's own cleanup.
     /// </summary>
-    public async Task StopAudio(HttpContext context)
+    [HttpPost("stop")]
+    public async Task StopAudio()
     {
+        var context = HttpContext;
+
         try
         {
             var stopped = _audioEngine.StopAllEffects();

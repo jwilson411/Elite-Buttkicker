@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -9,9 +11,11 @@ using EDButtkicker.Controllers;
 namespace EDButtkicker.Hosting;
 
 /// <summary>
-/// The web pipeline - static files plus the middleware router - as a reusable Configure callback.
-/// Program attaches it to the generic host so requests resolve controllers out of the primary
-/// service provider; the integration tests attach the exact same callback to a TestServer.
+/// The web pipeline - the security headers, the request guard, static files and the routing table -
+/// as a reusable Configure callback. Program attaches it to the generic host so requests resolve
+/// controllers out of the primary service provider; the integration tests attach the exact same
+/// callback to a TestServer.
+/// Routes themselves live on the controllers, so adding an endpoint never means editing this file.
 /// </summary>
 public static class WebUiConfiguration
 {
@@ -19,7 +23,7 @@ public static class WebUiConfiguration
     public const int Port = 47811;
 
     /// <summary>
-    /// Wires static file serving and the API routes onto <paramref name="app"/>.
+    /// Wires static file serving and the mapped API endpoints onto <paramref name="app"/>.
     /// Everything is resolved from <c>context.RequestServices</c>, i.e. the host's provider.
     /// </summary>
     public static void Configure(IApplicationBuilder app)
@@ -55,6 +59,28 @@ public static class WebUiConfiguration
             await next();
         });
 
+        // The one place a failure nobody handled becomes a response. Handlers that already answer
+        // their own errors keep doing so; anything that escapes leaves as the API's error shape and
+        // nothing else, because the exception text is for the log the operator has, not the browser.
+        app.Use(async (context, next) =>
+        {
+            try
+            {
+                await next();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(
+                    ex,
+                    "Unhandled error handling {Method} {Path}",
+                    context.Request.Method,
+                    context.Request.Path.ToString());
+
+                await ApiError.WriteAsync(context, StatusCodes.Status500InternalServerError,
+                    "The request could not be completed");
+            }
+        });
+
         // Ahead of everything, including static files: a mutation that cannot prove it came from our
         // own page never reaches a handler, and a safe request leaves with the token it needs.
         app.Use(async (context, next) =>
@@ -84,376 +110,79 @@ public static class WebUiConfiguration
             await next();
         });
 
+        // The body cap as the server's own rule, not only as something every handler remembers to
+        // apply: a request that declares or streams more than this is refused by the pipeline.
+        // Kestrel is configured with the same number in Program; this covers any other transport.
+        app.Use(async (context, next) =>
+        {
+            var bodySize = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (bodySize is { IsReadOnly: false })
+            {
+                bodySize.MaxRequestBodySize = RequestLimits.MaxRequestBodyBytes;
+            }
+
+            await next();
+        });
+
         app.UseStaticFiles(new StaticFileOptions
         {
             FileProvider = new PhysicalFileProvider(webRootPath),
             RequestPath = ""
         });
 
-        // Simple middleware-based routing
-        app.Use(async (context, next) =>
+        // From here on the routing table decides. Every API route lives on a controller as an
+        // attribute, so adding an endpoint never means editing this file - and the inventory served
+        // at /api/openapi is read from the very table matched against below.
+        app.UseRouting();
+
+        EndpointDataSource? routeTable = null;
+
+        app.UseEndpoints(endpoints =>
         {
-            var path = context.Request.Path.ToString();
-            var method = context.Request.Method;
+            endpoints.MapControllers();
 
-            try
+            // Anti-forgery token for the same-origin UI. A cross-origin page can issue this GET
+            // but cannot read its response or its cookies, so the token stays ours.
+            // The cookies are already on the response - every safe request leaves with them.
+            endpoints.MapGet("/api/csrf", context =>
             {
-                // Anti-forgery token for the same-origin UI. A cross-origin page can issue this GET
-                // but cannot read its response or its cookies, so the token stays ours.
-                // The cookies are already on the response - every safe request leaves with them.
-                if (path == "/api/csrf" && method == "GET")
-                {
-                    context.Response.ContentType = "application/json";
-                    await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        token = tokens.Token,
-                        header = CsrfTokenProvider.HeaderName
-                    }));
-                    return;
-                }
-                // Configuration API
-                else if (path == "/api/config" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<ConfigurationApiController>();
-                    await controller!.GetConfiguration(context);
-                    return;
-                }
-                else if (path == "/api/config" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<ConfigurationApiController>();
-                    await controller!.UpdateConfiguration(context);
-                    return;
-                }
-                else if (path == "/api/config/export" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<ConfigurationApiController>();
-                    await controller!.ExportConfiguration(context);
-                    return;
-                }
-                else if (path == "/api/config/import" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<ConfigurationApiController>();
-                    await controller!.ImportConfiguration(context);
-                    return;
-                }
-                // Pattern API
-                else if (path == "/api/patterns" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<PatternApiController>();
-                    await controller!.GetPatterns(context);
-                    return;
-                }
-                else if (path == "/api/patterns" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternApiController>();
-                    await controller!.CreatePattern(context);
-                    return;
-                }
-                else if (path.StartsWith("/api/patterns/") && path.EndsWith("/test") && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternApiController>();
-                    await controller!.TestPattern(context);
-                    return;
-                }
-                else if (path.StartsWith("/api/patterns/") && method == "PUT")
-                {
-                    var controller = context.RequestServices.GetService<PatternApiController>();
-                    await controller!.UpdatePattern(context);
-                    return;
-                }
-                else if (path.StartsWith("/api/patterns/") && method == "DELETE")
-                {
-                    var controller = context.RequestServices.GetService<PatternApiController>();
-                    await controller!.DeletePattern(context);
-                    return;
-                }
-                else if (path == "/api/patterns/test/custom" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternApiController>();
-                    await controller!.TestCustomPattern(context);
-                    return;
-                }
-                // Audio API
-                else if (path == "/api/audio/devices" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<AudioApiController>();
-                    await controller!.GetAudioDevices(context);
-                    return;
-                }
-                else if (path == "/api/audio/device" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<AudioApiController>();
-                    await controller!.SetAudioDevice(context);
-                    return;
-                }
-                else if (path == "/api/audio/status" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<AudioApiController>();
-                    await controller!.GetAudioStatus(context);
-                    return;
-                }
-                else if (path == "/api/audio/test" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<AudioApiController>();
-                    await controller!.TestAudio(context);
-                    return;
-                }
-                else if (path == "/api/audio/stop" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<AudioApiController>();
-                    await controller!.StopAudio(context);
-                    return;
-                }
-                // Journal API
-                else if (path == "/api/journal/status" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<JournalApiController>();
-                    await controller!.GetJournalStatus(context);
-                    return;
-                }
-                else if (path == "/api/journal/path" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<JournalApiController>();
-                    await controller!.SetJournalPath(context);
-                    return;
-                }
-                else if (path == "/api/journal/events/recent" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<JournalApiController>();
-                    await controller!.GetRecentEvents(context);
-                    return;
-                }
-                else if (path == "/api/journal/replay/start" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<JournalApiController>();
-                    await controller!.StartJournalReplay(context);
-                    return;
-                }
-                else if (path == "/api/journal/replay/stop" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<JournalApiController>();
-                    await controller!.StopJournalReplay(context);
-                    return;
-                }
-                else if (path == "/api/journal/replay/status" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<JournalApiController>();
-                    await controller!.GetJournalReplayStatus(context);
-                    return;
-                }
-                // Pattern Files API
-                else if (path == "/api/PatternFiles/reload" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternFilesController>();
-                    await controller!.ReloadPatternFilesHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/PatternFiles/export" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternFilesController>();
-                    await controller!.ExportPatternPack(context);
-                    return;
-                }
-                else if (path == "/api/PatternFiles/import" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternFilesController>();
-                    await controller!.ImportPatternFile(context);
-                    return;
-                }
-                else if (path == "/api/PatternFiles/packs" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<PatternFilesController>();
-                    await controller!.GetPatternPacks(context);
-                    return;
-                }
-                // Pattern Editor API
-                else if (path == "/api/PatternEditor/templates" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.GetPatternTemplatesHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/PatternEditor/create" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.CreateNewPatternHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/PatternEditor/save" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.SavePatternHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/PatternEditor/validate" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.ValidatePatternHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/PatternEditor/test" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.TestPatternHttpContext(context);
-                    return;
-                }
-                else if (path.StartsWith("/api/PatternEditor/load/") && method == "GET")
-                {
-                    var fileName = path.Substring("/api/PatternEditor/load/".Length);
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.LoadPatternForEditingHttpContext(context, fileName);
-                    return;
-                }
-                else if (path.StartsWith("/api/PatternEditor/user-files/") && method == "GET")
-                {
-                    var author = path.Substring("/api/PatternEditor/user-files/".Length);
-                    var controller = context.RequestServices.GetService<PatternEditorController>();
-                    await controller!.GetUserFilesHttpContext(context, author);
-                    return;
-                }
-                // Pattern Selection API - the conflicts page. Lowercase, as wwwroot/js/pattern-conflicts.js spells it.
-                else if (path == "/api/patternselection/conflicts" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<PatternSelectionController>();
-                    await controller!.GetConflictsHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/patternselection/stats" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<PatternSelectionController>();
-                    await controller!.GetStatsHttpContext(context);
-                    return;
-                }
-                else if (path.StartsWith("/api/patternselection/available/") && method == "GET")
-                {
-                    var segments = path["/api/patternselection/available/".Length..].Split('/');
-                    if (segments.Length != 2 || segments.Any(string.IsNullOrEmpty))
-                    {
-                        await ApiError.WriteAsync(context, 400, "Ship type and event name are required");
-                        return;
-                    }
+                context.Response.ContentType = "application/json";
 
-                    var controller = context.RequestServices.GetService<PatternSelectionController>();
-                    await controller!.GetAvailablePatternsHttpContext(
-                        context,
-                        Uri.UnescapeDataString(segments[0]),
-                        Uri.UnescapeDataString(segments[1]));
-                    return;
-                }
-                else if (path == "/api/patternselection/select" && method == "POST")
+                return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    var controller = context.RequestServices.GetService<PatternSelectionController>();
-                    await controller!.SelectPatternHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/patternselection/auto-resolve" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternSelectionController>();
-                    await controller!.AutoResolveConflictsHttpContext(context);
-                    return;
-                }
-                else if (path == "/api/patternselection/refresh-sources" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<PatternSelectionController>();
-                    await controller!.RefreshSourcesHttpContext(context);
-                    return;
-                }
-                // First-run setup API
-                else if (path == "/api/setup/status" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.GetStatus(context);
-                    return;
-                }
-                else if (path == "/api/setup/journal/candidates" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.GetJournalCandidates(context);
-                    return;
-                }
-                else if (path == "/api/setup/journal" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.ConfirmJournalPath(context);
-                    return;
-                }
-                else if (path == "/api/setup/audio/device" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.SelectAudioDevice(context);
-                    return;
-                }
-                else if (path == "/api/setup/audio/test" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.RunAudioTest(context);
-                    return;
-                }
-                else if (path == "/api/setup/complete" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.CompleteSetup(context);
-                    return;
-                }
-                else if (path == "/api/setup/reopen" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<SetupApiController>();
-                    await controller!.ReopenSetup(context);
-                    return;
-                }
-                // Health API
-                else if (path == "/api/health" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<HealthApiController>();
-                    await controller!.GetHealth(context);
-                    return;
-                }
-                else if (path.StartsWith("/api/health/") && path.EndsWith("/retry") && method == "POST")
-                {
-                    var componentId = path["/api/health/".Length..^"/retry".Length];
-                    var controller = context.RequestServices.GetService<HealthApiController>();
-                    await controller!.RetryComponent(context, componentId);
-                    return;
-                }
-                // Contextual Intelligence API
-                else if (path == "/api/context/status" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<ContextualIntelligenceApiController>();
-                    await controller!.GetContextualIntelligenceStatus(context);
-                    return;
-                }
-                else if (path == "/api/context/config" && method == "POST")
-                {
-                    var controller = context.RequestServices.GetService<ContextualIntelligenceApiController>();
-                    await controller!.UpdateContextualIntelligenceConfig(context);
-                    return;
-                }
-                else if (path == "/api/context/predictions" && method == "GET")
-                {
-                    var controller = context.RequestServices.GetService<ContextualIntelligenceApiController>();
-                    await controller!.GetGameContextPredictions(context);
-                    return;
-                }
-                // Default route - serve the main UI
-                else if (path == "/" || path == "/index.html" || !path.StartsWith("/api/"))
-                {
-                    context.Response.ContentType = "text/html";
-                    var html = await GetMainHtmlPage(webRootPath);
-                    var bytes = System.Text.Encoding.UTF8.GetBytes(html);
-                    await context.Response.Body.WriteAsync(bytes, 0, bytes.Length);
-                    return;
-                }
-            }
-            catch (Exception ex)
+                    token = tokens.Token,
+                    header = CsrfTokenProvider.HeaderName
+                }));
+            });
+
+            // What this build actually serves, generated from the routing table rather than kept
+            // by hand, so it cannot drift from the endpoints above.
+            endpoints.MapGet(EndpointInventory.Path, context =>
             {
-                logger.LogError(ex, "Error handling request: {Path}", path);
-                context.Response.StatusCode = 500;
-                var errorBytes = System.Text.Encoding.UTF8.GetBytes("Internal server error");
-                await context.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length);
-                return;
-            }
+                context.Response.ContentType = "application/json";
 
-            await next();
+                return context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(
+                    EndpointInventory.BuildOpenApiDocument(routeTable!),
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            });
+
+            // The single-page fallback: any path that is not an API route and not a file on disk
+            // gets the dashboard, so a deep link into the UI still loads it. An unmatched /api path
+            // stays a 404 - answering it with HTML would tell a caller the endpoint exists.
+            endpoints.MapFallback("{*path}", async context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+                }
+
+                context.Response.ContentType = "text/html";
+                await context.Response.WriteAsync(await GetMainHtmlPage(webRootPath));
+            });
+
+            // Built last so it sees every data source mapped above, including the fallback.
+            routeTable = new CompositeEndpointDataSource(endpoints.DataSources);
         });
     }
 

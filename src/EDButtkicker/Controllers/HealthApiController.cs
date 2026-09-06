@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
@@ -8,7 +9,9 @@ namespace EDButtkicker.Controllers;
 /// <summary>
 /// Serves the dashboard's health list and the per-subsystem retry behind each indicator.
 /// </summary>
-public class HealthApiController
+[ApiController]
+[Route("api/health")]
+public class HealthApiController : ControllerBase
 {
     private readonly ILogger<HealthApiController> _logger;
     private readonly SystemHealthService _health;
@@ -19,8 +22,11 @@ public class HealthApiController
         _health = health;
     }
 
-    public async Task GetHealth(HttpContext context)
+    [HttpGet]
+    public async Task GetHealth()
     {
+        var context = HttpContext;
+
         try
         {
             await WriteJsonAsync(context, Serialize(_health.GetReport()));
@@ -33,8 +39,11 @@ public class HealthApiController
     }
 
     /// <summary>Runs the retry for one subsystem and answers with the state it produced.</summary>
-    public async Task RetryComponent(HttpContext context, string componentId)
+    [HttpPost("{componentId}/retry")]
+    public async Task RetryComponent(string componentId)
     {
+        var context = HttpContext;
+
         try
         {
             if (!SystemHealthService.CanRetry(componentId))

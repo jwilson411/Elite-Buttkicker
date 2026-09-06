@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
@@ -13,7 +14,9 @@ namespace EDButtkicker.Controllers;
 /// test, and completion. Every step reports what actually happened - a step is only "done" once the
 /// subsystem it configures accepted the value.
 /// </summary>
-public class SetupApiController
+[ApiController]
+[Route("api/setup")]
+public class SetupApiController : ControllerBase
 {
     /// <summary>
     /// The test tone is deliberately gentle: a buttkicker is a physical actuator and the user has
@@ -65,8 +68,11 @@ public class SetupApiController
         _timeProvider = timeProvider;
     }
 
-    public async Task GetStatus(HttpContext context)
+    [HttpGet("status")]
+    public async Task GetStatus()
     {
+        var context = HttpContext;
+
         try
         {
             await WriteJsonAsync(context, await BuildStatusAsync());
@@ -78,8 +84,11 @@ public class SetupApiController
     }
 
     /// <summary>Step 1: the folders the journal could be in, and what is in each of them.</summary>
-    public async Task GetJournalCandidates(HttpContext context)
+    [HttpGet("journal/candidates")]
+    public async Task GetJournalCandidates()
     {
+        var context = HttpContext;
+
         try
         {
             var candidates = _journalDiscovery.Discover();
@@ -107,8 +116,11 @@ public class SetupApiController
     }
 
     /// <summary>Step 1: confirm a journal folder, persist it, and wake the watcher.</summary>
-    public async Task ConfirmJournalPath(HttpContext context)
+    [HttpPost("journal")]
+    public async Task ConfirmJournalPath()
     {
+        var context = HttpContext;
+
         try
         {
             var (handled, body) = await ReadJsonAsync(context);
@@ -181,8 +193,11 @@ public class SetupApiController
 
     /// <summary>Step 2: choose the output. The MMDevice endpoint id is what gets persisted, because
     /// the enumeration index moves when devices are plugged in or removed.</summary>
-    public async Task SelectAudioDevice(HttpContext context)
+    [HttpPost("audio/device")]
+    public async Task SelectAudioDevice()
     {
+        var context = HttpContext;
+
         try
         {
             var (handled, body) = await ReadJsonAsync(context);
@@ -285,8 +300,11 @@ public class SetupApiController
     }
 
     /// <summary>Step 3: a short, quiet test tone, reported by what the audio engine actually did.</summary>
-    public async Task RunAudioTest(HttpContext context)
+    [HttpPost("audio/test")]
+    public async Task RunAudioTest()
     {
+        var context = HttpContext;
+
         try
         {
             var pattern = BuildTestPattern();
@@ -347,8 +365,11 @@ public class SetupApiController
     }
 
     /// <summary>Step 4: record completion. Skipped steps are listed rather than hidden.</summary>
-    public async Task CompleteSetup(HttpContext context)
+    [HttpPost("complete")]
+    public async Task CompleteSetup()
     {
+        var context = HttpContext;
+
         try
         {
             var completedAt = _timeProvider.GetUtcNow().UtcDateTime;
@@ -371,8 +392,11 @@ public class SetupApiController
     }
 
     /// <summary>Reopens the wizard without discarding the record that it was completed.</summary>
-    public async Task ReopenSetup(HttpContext context)
+    [HttpPost("reopen")]
+    public async Task ReopenSetup()
     {
+        var context = HttpContext;
+
         try
         {
             _setupState.RequestReopen();
