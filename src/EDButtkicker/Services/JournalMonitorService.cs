@@ -21,7 +21,11 @@ public class JournalMonitorService : BackgroundService
     private readonly PatternSelectionService _patternSelectionService;
     private readonly PatternFileService _patternFileService;
     private readonly PatternSourceCatalogReconciler _catalogReconciler;
-    private FileSystemWatcher? _fileWatcher;
+    // Watching and journal IO are both behind seams, so rotation and a locked file can be driven
+    // by a test instead of by the OS's own event timing.
+    private readonly IDirectoryWatcherFactory _watcherFactory;
+    private readonly IJournalStorage _storage;
+    private IDirectoryWatcher? _fileWatcher;
     private JournalSignalPump? _pump;
     private JournalTailReader? _reader;
     private bool _subscribed;
@@ -37,8 +41,12 @@ public class JournalMonitorService : BackgroundService
         ShipPatternService shipPatternService,
         PatternSelectionService patternSelectionService,
         PatternFileService patternFileService,
-        PatternSourceCatalogReconciler catalogReconciler)
+        PatternSourceCatalogReconciler catalogReconciler,
+        IDirectoryWatcherFactory watcherFactory,
+        IJournalStorage storage)
     {
+        _watcherFactory = watcherFactory;
+        _storage = storage;
         _logger = logger;
         _settings = settings;
         _status = status;
@@ -149,7 +157,8 @@ public class JournalMonitorService : BackgroundService
 
     private async Task StartMonitoring(string journalPath, CancellationToken stoppingToken)
     {
-        _reader = new JournalTailReader(journalPath, _settings.EliteDangerous.MonitorLatestOnly, _logger);
+        _reader = new JournalTailReader(
+            journalPath, _settings.EliteDangerous.MonitorLatestOnly, _logger, storage: _storage);
         _pump = new JournalSignalPump(DrainJournalAsync, _logger);
 
         var latestFile = _reader.FindLatestJournalFile();
@@ -214,16 +223,13 @@ public class JournalMonitorService : BackgroundService
         _fileWatcher?.Dispose();
 
         // Watching the directory (rather than one file) means rotation needs no watcher rebuild.
-        _fileWatcher = new FileSystemWatcher(journalPath, JournalTailReader.JournalSearchPattern)
-        {
-            NotifyFilter = NotifyFilters.Size | NotifyFilters.LastWrite | NotifyFilters.FileName,
-            EnableRaisingEvents = true
-        };
+        _fileWatcher = _watcherFactory.Create(
+            journalPath, JournalTailReader.JournalSearchPattern, includeSubdirectories: false);
 
-        _fileWatcher.Changed += (_, _) => _pump?.Signal();
-        _fileWatcher.Created += (_, _) => _pump?.Signal();
-        _fileWatcher.Renamed += (_, _) => _pump?.Signal();
-        _fileWatcher.Error += (_, e) => _logger.LogWarning(e.GetException(), "Journal file watcher error");
+        // Every notification is the same signal: the pump decides what to read and serializes it.
+        _fileWatcher.Changed += _ => _pump?.Signal();
+        _fileWatcher.Error += ex => _logger.LogWarning(ex, "Journal file watcher error");
+        _fileWatcher.Start();
 
         _logger.LogDebug("File watcher setup for: {Path}", journalPath);
     }

@@ -63,17 +63,25 @@ public sealed class PatternFileWatchQueue : IDisposable
     private readonly Func<PatternWatchWork, CancellationToken, Task> _handler;
     private readonly PatternWatchOptions _options;
     private readonly ILogger _logger;
+    private readonly TimeProvider _timeProvider;
+    private readonly IPatternStorage _storage;
 
     private int _overflowed;
 
     public PatternFileWatchQueue(
         Func<PatternWatchWork, CancellationToken, Task> handler,
         PatternWatchOptions? options = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        TimeProvider? timeProvider = null,
+        IPatternStorage? storage = null)
     {
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
         _options = options ?? new PatternWatchOptions();
         _logger = logger ?? NullLogger.Instance;
+        // Both the debounce deadlines and the delay that waits them out come from the clock, so a
+        // test can drive the whole window without sleeping for it.
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _storage = storage ?? FileSystemPatternStorage.Instance;
         _pending = new Dictionary<string, Pending>(PathComparer);
 
         // Wait + TryWrite never blocks: a full queue returns false, which is the overflow
@@ -124,7 +132,7 @@ public sealed class PatternFileWatchQueue : IDisposable
                 }
                 else
                 {
-                    var delay = NextDueDelay(DateTime.UtcNow);
+                    var delay = NextDueDelay(UtcNow);
                     if (delay > TimeSpan.Zero)
                     {
                         await WaitForEventOrTimeoutAsync(delay, cancellationToken).ConfigureAwait(false);
@@ -156,7 +164,7 @@ public sealed class PatternFileWatchQueue : IDisposable
     {
         while (_events.Reader.TryRead(out var watchEvent))
         {
-            Merge(watchEvent, DateTime.UtcNow);
+            Merge(watchEvent, UtcNow);
         }
     }
 
@@ -204,10 +212,20 @@ public sealed class PatternFileWatchQueue : IDisposable
         return earliest == DateTime.MaxValue ? TimeSpan.Zero : earliest - nowUtc;
     }
 
+    /// <summary>The clock every deadline in this queue is measured against.</summary>
+    private DateTime UtcNow => _timeProvider.GetUtcNow().UtcDateTime;
+
     private async Task WaitForEventOrTimeoutAsync(TimeSpan delay, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(delay);
+
+        // The debounce delay is timed by the injected clock rather than by CancelAfter, so a test
+        // clock ends the wait the moment it is advanced past the window.
+        using var timer = _timeProvider.CreateTimer(
+            static state => CancelQuietly((CancellationTokenSource)state!),
+            timeout,
+            delay,
+            Timeout.InfiniteTimeSpan);
 
         try
         {
@@ -232,9 +250,22 @@ public sealed class PatternFileWatchQueue : IDisposable
             .ConfigureAwait(false);
     }
 
+    /// <summary>Ends the debounce wait. The timer can fire while the source is being disposed.</summary>
+    private static void CancelQuietly(CancellationTokenSource source)
+    {
+        try
+        {
+            source.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The wait already ended for another reason.
+        }
+    }
+
     private async Task ProcessDueAsync(CancellationToken cancellationToken)
     {
-        var nowUtc = DateTime.UtcNow;
+        var nowUtc = UtcNow;
 
         var due = _pending
             .Where(kv => kv.Value.DueAtUtc <= nowUtc)
@@ -251,7 +282,7 @@ public sealed class PatternFileWatchQueue : IDisposable
                 continue;
             }
 
-            if (pending.Action == PatternWatchAction.Reload && !IsWriteStable(key, pending, DateTime.UtcNow))
+            if (pending.Action == PatternWatchAction.Reload && !IsWriteStable(key, pending, UtcNow))
             {
                 continue;
             }
@@ -269,25 +300,16 @@ public sealed class PatternFileWatchQueue : IDisposable
     /// </summary>
     private bool IsWriteStable(string path, Pending pending, DateTime nowUtc)
     {
-        var info = new FileInfo(path);
-        if (!info.Exists)
+        if (!_storage.FileExists(path))
         {
             // Nothing to wait for; the handler decides what a missing file means.
             return true;
         }
 
-        long length;
-        DateTime lastWriteUtc;
-        try
-        {
-            length = info.Length;
-            lastWriteUtc = info.LastWriteTimeUtc;
-        }
-        catch (IOException)
-        {
-            length = -1;
-            lastWriteUtc = DateTime.MinValue;
-        }
+        // An unreadable stamp is not the same as an unchanged one, so it never satisfies the probe.
+        var stamp = _storage.Stat(path);
+        var length = stamp?.Length ?? -1;
+        var lastWriteUtc = stamp?.LastWriteUtc ?? DateTime.MinValue;
 
         if (pending.Probed && pending.LastLength == length && pending.LastWriteUtc == lastWriteUtc)
         {

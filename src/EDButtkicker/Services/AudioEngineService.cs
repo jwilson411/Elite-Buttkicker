@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NAudio;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -14,6 +15,10 @@ public class AudioEngineService : IDisposable
 {
     private readonly ILogger<AudioEngineService> _logger;
     private readonly AppSettings _settings;
+    // Enumeration and opening are both behind seams: nothing here constructs a WASAPI or WinMM
+    // object, so the fallback rules are exercisable on a machine with no output device at all.
+    private readonly IAudioDeviceCatalog _deviceCatalog;
+    private readonly IAudioOutputFactory _outputFactory;
     private IWavePlayer? _waveOut;
     private MixingSampleProvider? _mixer;
     private readonly object _lock = new object();
@@ -31,10 +36,23 @@ public class AudioEngineService : IDisposable
     private readonly Dictionary<string, SignalGenerator> _activeGenerators = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeCancellations = new();
 
-    public AudioEngineService(ILogger<AudioEngineService> logger, AppSettings settings)
+    /// <summary>
+    /// The catalog and the output factory are optional so the tests that only need playback
+    /// bookkeeping keep constructing this with a logger and settings; the container always supplies
+    /// the registered implementations.
+    /// </summary>
+    public AudioEngineService(
+        ILogger<AudioEngineService> logger,
+        AppSettings settings,
+        IAudioDeviceCatalog? deviceCatalog = null,
+        IAudioOutputFactory? outputFactory = null)
     {
         _logger = logger;
         _settings = settings;
+        _deviceCatalog = deviceCatalog ??
+            new WasapiAudioDeviceCatalog(NullLogger<WasapiAudioDeviceCatalog>.Instance);
+        _outputFactory = outputFactory ??
+            new NAudioOutputFactory(NullLogger<NAudioOutputFactory>.Instance);
     }
 
     public void Initialize()
@@ -426,50 +444,30 @@ public class AudioEngineService : IDisposable
         try
         {
             _logger.LogDebug("=== System Audio Information ===");
-            
-            // Log WASAPI devices using MMDeviceEnumerator (compatible with NAudio 2.2.1)
-            try
-            {
-                var deviceEnumerator = new MMDeviceEnumerator();
-                var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-                
-                _logger.LogDebug("WASAPI Active Render Devices: {Count}", devices.Count);
-                for (int i = 0; i < devices.Count; i++)
-                {
-                    var device = devices[i];
-                    _logger.LogDebug("WASAPI Device {Index}: '{FriendlyName}' - ID: {DeviceId}, State: {State}", 
-                        i, device.FriendlyName, device.ID, device.State);
-                }
 
-                var defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                _logger.LogDebug("Default WASAPI Device: '{FriendlyName}' - ID: {DeviceId}", 
-                    defaultDevice.FriendlyName, defaultDevice.ID);
-            }
-            catch (Exception ex)
+            // The catalog already reports whatever enumeration is possible here, so a machine with
+            // no WASAPI at all logs the system default entry rather than an exception.
+            var devices = _deviceCatalog.GetDevices();
+
+            _logger.LogDebug("Render devices reported: {Count}", devices.Count);
+            foreach (var device in devices)
             {
-                _logger.LogWarning("Failed to enumerate WASAPI devices: {Error}", ex.Message);
+                _logger.LogDebug("Device {Index}: '{FriendlyName}' - ID: {DeviceId}, Driver: {Driver}, Active: {IsAvailable}",
+                    device.DeviceId, device.Name, device.EndpointId, device.Driver, device.IsAvailable);
             }
-            
+
+            var defaultDevice = devices.FirstOrDefault(d => d.IsDefault);
+            if (defaultDevice != null)
+            {
+                _logger.LogDebug("Default render device: '{FriendlyName}' - ID: {DeviceId}",
+                    defaultDevice.Name, defaultDevice.EndpointId);
+            }
+
             _logger.LogDebug("=== End System Audio Information ===");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error logging system audio information");
-        }
-    }
-
-    private string? GetDefaultAudioDevice()
-    {
-        try
-        {
-            var deviceEnumerator = new MMDeviceEnumerator();
-            var defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-            return defaultDevice.FriendlyName;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning("Failed to get default audio device name: {Error}", ex.Message);
-            return null;
         }
     }
 
@@ -482,18 +480,16 @@ public class AudioEngineService : IDisposable
     /// </summary>
     private IWavePlayer OpenConfiguredOutput()
     {
-        MMDeviceEnumerator enumerator;
         IReadOnlyList<AudioDevice> enumerated;
 
         try
         {
-            enumerator = new MMDeviceEnumerator();
-            enumerated = EnumerateRenderEndpoints(enumerator);
+            enumerated = _deviceCatalog.GetDevices();
         }
         catch (Exception ex)
         {
-            // No WASAPI here: the default output is the only thing left to try.
-            _logger.LogWarning(ex, "Failed to enumerate WASAPI render endpoints, using the default output");
+            // No enumeration at all here: the default output is the only thing left to try.
+            _logger.LogWarning(ex, "Failed to enumerate render endpoints, using the default output");
             return OpenDefaultOutput();
         }
 
@@ -514,16 +510,15 @@ public class AudioEngineService : IDisposable
         {
             try
             {
-                var endpoint = enumerator.GetDevice(resolution.EndpointId);
+                var handle = _outputFactory.OpenEndpoint(resolution.EndpointId);
                 _logger.LogInformation("✓ Using audio device: {DeviceName} (endpoint {EndpointId})",
-                    endpoint.FriendlyName, resolution.EndpointId);
+                    handle.DeviceName ?? resolution.Name, resolution.EndpointId);
 
-                var output = new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 200);
-                _backend = "WASAPI";
-                _activeEndpointId = resolution.EndpointId;
-                _activeDeviceName = endpoint.FriendlyName;
+                _backend = handle.Backend;
+                _activeEndpointId = handle.EndpointId ?? resolution.EndpointId;
+                _activeDeviceName = handle.DeviceName ?? resolution.Name;
 
-                return output;
+                return handle.Player;
             }
             catch (Exception ex)
             {
@@ -545,48 +540,14 @@ public class AudioEngineService : IDisposable
     /// </summary>
     private IWavePlayer OpenDefaultOutput()
     {
-        var defaultDevice = GetDefaultAudioDevice();
-        _logger.LogInformation("Using default audio device: {DefaultDevice}", defaultDevice ?? "Unknown");
+        var handle = _outputFactory.OpenDefault();
+        _logger.LogInformation("Using default audio device: {DefaultDevice}", handle.DeviceName ?? "Unknown");
 
-        _backend = "WaveOut";
-        _activeEndpointId = null;
-        _activeDeviceName = defaultDevice;
+        _backend = handle.Backend;
+        _activeEndpointId = handle.EndpointId;
+        _activeDeviceName = handle.DeviceName;
 
-        return new WaveOutEvent();
-    }
-
-    /// <summary>Active render endpoints as plain models, each carrying its endpoint id.</summary>
-    private IReadOnlyList<AudioDevice> EnumerateRenderEndpoints(MMDeviceEnumerator enumerator)
-    {
-        string? defaultEndpointId = null;
-        try
-        {
-            defaultEndpointId = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia).ID;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("No default render endpoint available: {Error}", ex.Message);
-        }
-
-        var endpoints = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-        var enumerated = new List<AudioDevice>(endpoints.Count);
-
-        for (var i = 0; i < endpoints.Count; i++)
-        {
-            var endpoint = endpoints[i];
-            enumerated.Add(new AudioDevice
-            {
-                EndpointId = endpoint.ID,
-                DeviceId = i,
-                Name = endpoint.FriendlyName,
-                Driver = "WASAPI",
-                Channels = 2,
-                IsDefault = defaultEndpointId != null && endpoint.ID == defaultEndpointId,
-                IsAvailable = endpoint.State == DeviceState.Active
-            });
-        }
-
-        return enumerated;
+        return handle.Player;
     }
 
     private void LogWaveOutConfiguration()
@@ -660,16 +621,14 @@ public class AudioEngineService : IDisposable
             _logger.LogDebug("Audio Engine Initialized: {IsInitialized}", _isInitialized);
             _logger.LogDebug("Active Effects Count: {ActiveCount}", _activeGenerators.Count);
             
-            // Check system audio availability using MMDevice API
+            // Check system audio availability through the same catalog the rest of the app uses.
             try
             {
-                var deviceEnumerator = new MMDeviceEnumerator();
-                var devices = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-                _logger.LogDebug("System WASAPI Device Count: {DeviceCount}", devices.Count);
+                _logger.LogDebug("System render device count: {DeviceCount}", _deviceCatalog.GetDevices().Count);
             }
             catch (Exception deviceEx)
             {
-                _logger.LogDebug("Failed to enumerate WASAPI devices: {Error}", deviceEx.Message);
+                _logger.LogDebug("Failed to enumerate render devices: {Error}", deviceEx.Message);
             }
             
             // Log configuration that might cause issues

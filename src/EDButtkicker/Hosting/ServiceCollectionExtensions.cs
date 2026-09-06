@@ -48,6 +48,15 @@ public static class ServiceCollectionExtensions
         // catalog is behind an interface so health checks work where WASAPI does not exist.
         services.AddSingleton<JournalMonitorStatus>();
         services.AddSingleton<IAudioDeviceCatalog, WasapiAudioDeviceCatalog>();
+
+        // Everything that talks to hardware or to the filesystem does it through one of these, so
+        // the graph a test builds can swap in an in-memory directory or an output that never opens
+        // a device without any service knowing the difference.
+        services.AddSingleton<IAudioOutputFactory, NAudioOutputFactory>();
+        services.AddSingleton<IDirectoryWatcherFactory, FileSystemDirectoryWatcherFactory>();
+        services.AddSingleton<IJournalStorage, FileSystemJournalStorage>();
+        services.AddSingleton<IPatternStorage, FileSystemPatternStorage>();
+
         services.AddSingleton<JournalPathDiscovery>();
         services.AddSingleton<SetupStateService>();
         services.AddSingleton<SystemHealthService>();
