@@ -33,7 +33,9 @@ public class AudioEngineService : IDisposable
     private string? _activeDeviceName;
     private string? _lastPlaybackError;
     private DateTime? _lastPlaybackAtUtc;
-    private readonly Dictionary<string, SignalGenerator> _activeGenerators = new();
+    // The actual mixer input for each effect, not a recast of it: removing an input and ramping it
+    // down both need the object the mixer is really reading from.
+    private readonly Dictionary<string, ReleaseEnvelopeSampleProvider> _activeEffects = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeCancellations = new();
 
     /// <summary>
@@ -160,7 +162,7 @@ public class AudioEngineService : IDisposable
                 _activeEndpointId,
                 _lastPlaybackError,
                 _lastPlaybackAtUtc,
-                _activeGenerators.Count);
+                _activeEffects.Count);
         }
     }
 
@@ -238,7 +240,7 @@ public class AudioEngineService : IDisposable
             lock (_lock)
             {
                 _logger.LogDebug("Current active effects: {ActiveCount}, Mixer inputs: {MixerInputs}", 
-                    _activeGenerators.Count, _mixer?.MixerInputs?.Count() ?? 0);
+                    _activeEffects.Count, _mixer?.MixerInputs?.Count() ?? 0);
             }
 
             // Create appropriate sample provider based on pattern type.
@@ -250,15 +252,25 @@ public class AudioEngineService : IDisposable
             _logger.LogDebug("Created sample provider type: {SampleProviderType}, limited to {MaxIntensity}% max intensity",
                 sampleProvider.GetType().Name, _settings.Audio.MaxIntensity);
 
+            // Everything that reaches the mixer goes through the cancellation envelope, so a stop
+            // ramps this effect to zero instead of removing it at whatever amplitude it is at.
+            // The envelope only attenuates, so the safety limiter inside the factory still holds.
+            var mixerInput = new ReleaseEnvelopeSampleProvider(sampleProvider, HapticEnvelope.ReleaseMilliseconds);
+
+            // Published under the same lock as the mixer input below, so a concurrent stop that
+            // sees the effect always sees its cancellation too and cannot leave the scheduled
+            // cleanup running against an input it has already removed.
+            var cancellationSource = new CancellationTokenSource();
+
             lock (_lock)
             {
-                // For compatibility, store the sample provider reference
-                _activeGenerators[effectId] = sampleProvider as SignalGenerator ?? new SignalGenerator(_settings.Audio.SampleRate, 1);
-                
+                _activeEffects[effectId] = mixerInput;
+                _activeCancellations[effectId] = cancellationSource;
+
                 try
                 {
-                    _mixer?.AddMixerInput(sampleProvider);
-                    _logger.LogDebug("✓ Added sample provider to mixer successfully. Active effects: {Count}", _activeGenerators.Count);
+                    _mixer?.AddMixerInput(mixerInput);
+                    _logger.LogDebug("✓ Added sample provider to mixer successfully. Active effects: {Count}", _activeEffects.Count);
                 }
                 catch (Exception ex)
                 {
@@ -266,10 +278,6 @@ public class AudioEngineService : IDisposable
                     throw;
                 }
             }
-
-            // Set up automatic cleanup
-            var cancellationSource = new CancellationTokenSource();
-            _activeCancellations[effectId] = cancellationSource;
 
             var cleanupDelay = pattern.Duration + pattern.FadeOut + 100;
             _logger.LogDebug("Scheduling cleanup for effect {EffectId} in {CleanupDelay}ms", effectId, cleanupDelay);
@@ -347,12 +355,12 @@ public class AudioEngineService : IDisposable
     {
         lock (_lock)
         {
-            if (_activeGenerators.TryGetValue(effectId, out var generator))
+            if (_activeEffects.TryGetValue(effectId, out var mixerInput))
             {
                 try
                 {
-                    _mixer?.RemoveMixerInput(generator);
-                    _activeGenerators.Remove(effectId);
+                    _mixer?.RemoveMixerInput(mixerInput);
+                    _activeEffects.Remove(effectId);
                     _logger.LogDebug("Cleaned up audio effect: {EffectId}", effectId);
                 }
                 catch (Exception ex)
@@ -373,13 +381,38 @@ public class AudioEngineService : IDisposable
     /// <summary>
     /// Silences everything that is playing right now and returns how many effects were stopped.
     /// This is the panic button behind the UI's stop control, so it takes effect immediately rather
-    /// than waiting for the scheduled cleanup of each effect.
+    /// than waiting for the scheduled cleanup of each effect. "Immediately" still means a ramp:
+    /// every active input is released to zero gain over
+    /// <see cref="HapticEnvelope.ReleaseMilliseconds"/> and only then removed from the mixer, so a
+    /// stop is a fade rather than a full-amplitude cut into the transducer.
     /// </summary>
     public virtual int StopAllEffects()
     {
+        var stopped = BeginReleaseOfAllEffects();
+
+        // Give the output the bounded interval it needs to actually play the ramp out. The wait is
+        // deliberately outside the lock: holding it here would block every status read and every
+        // new pattern for the length of the ramp. Nothing was playing means nothing to ramp, so a
+        // stop with no active effects still returns at once.
+        if (stopped > 0)
+        {
+            Thread.Sleep(HapticEnvelope.ReleaseMilliseconds + HapticEnvelope.ReleaseSettleMilliseconds);
+        }
+
+        RemoveAllReleasedEffects();
+        return stopped;
+    }
+
+    /// <summary>
+    /// Cancels the scheduled cleanups and starts every active effect's ramp to zero, returning how
+    /// many were released. Takes <see cref="_lock"/> and does not wait, so the caller owns the ramp
+    /// interval and no lock is held across it.
+    /// </summary>
+    private int BeginReleaseOfAllEffects()
+    {
         lock (_lock)
         {
-            var stopped = _activeGenerators.Count;
+            var stopped = _activeEffects.Count;
             _logger.LogInformation("Stopping all active audio effects ({Count})", stopped);
 
             foreach (var cancellation in _activeCancellations.Values)
@@ -387,25 +420,53 @@ public class AudioEngineService : IDisposable
                 cancellation.Cancel();
             }
 
-            _activeGenerators.Clear();
+            foreach (var effect in _activeEffects.Values)
+            {
+                effect.BeginRelease();
+            }
+
+            return stopped;
+        }
+    }
+
+    /// <summary>
+    /// Drops everything the mixer is reading and forgets the bookkeeping. Called once the release
+    /// ramp has had its interval, so the inputs being removed are already silent.
+    /// </summary>
+    private void RemoveAllReleasedEffects()
+    {
+        lock (_lock)
+        {
+            foreach (var effect in _activeEffects.Values)
+            {
+                _mixer?.RemoveMixerInput(effect);
+            }
+
+            _activeEffects.Clear();
+
+            foreach (var cancellation in _activeCancellations.Values)
+            {
+                cancellation.Dispose();
+            }
+
             _activeCancellations.Clear();
 
             // Clear mixer
             _mixer?.RemoveAllMixerInputs();
-
-            return stopped;
         }
     }
 
     public void Reinitialize()
     {
         _logger.LogInformation("Reinitializing Audio Engine with new device settings");
-        
+
+        // The ramp-out has to happen before the lock is taken. StopAllEffects acquires _lock
+        // itself and waits out the release interval, so calling it from inside the lock below
+        // would hold _lock across that wait and stall every other caller of this service.
+        StopAllEffects();
+
         lock (_lock)
         {
-            // Stop and dispose current audio engine
-            StopAllEffects();
-            
             if (_waveOut != null)
             {
                 _waveOut.Stop();
@@ -432,8 +493,8 @@ public class AudioEngineService : IDisposable
                 cancellation.Dispose();
             }
             _activeCancellations.Clear();
-            _activeGenerators.Clear();
-            
+            _activeEffects.Clear();
+
             // Initialize with new settings
             Initialize();
         }
@@ -619,7 +680,7 @@ public class AudioEngineService : IDisposable
             // Log current system state
             _logger.LogDebug("Current WaveOut State: {WaveOutState}", _waveOut?.PlaybackState.ToString() ?? "null");
             _logger.LogDebug("Audio Engine Initialized: {IsInitialized}", _isInitialized);
-            _logger.LogDebug("Active Effects Count: {ActiveCount}", _activeGenerators.Count);
+            _logger.LogDebug("Active Effects Count: {ActiveCount}", _activeEffects.Count);
             
             // Check system audio availability through the same catalog the rest of the app uses.
             try

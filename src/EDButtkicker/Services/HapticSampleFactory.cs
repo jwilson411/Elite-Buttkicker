@@ -27,9 +27,16 @@ public static class HapticSampleFactory
         return AudioSafety.Limit(sampleProvider, appMaxIntensity);
     }
 
+    /// <summary>
+    /// MultiLayer and Sequence. The generator already applies each layer's own StartTime/FadeIn/
+    /// FadeOut, so the pattern-level fades (and the click-prevention floor) are applied on top of the
+    /// finished mix - the whole pattern starts and ends at zero even when a layer does not.
+    /// </summary>
     public static ISampleProvider CreateMultiLayerPattern(HapticPattern pattern, int sampleRate)
     {
-        return new MultiLayerPatternGenerator(pattern, sampleRate, 1);
+        var layered = new MultiLayerPatternGenerator(pattern, sampleRate, 1);
+
+        return Shaped(layered, pattern, 0, 0);
     }
 
     public static ISampleProvider CreateStandardPattern(HapticPattern pattern, int intensity, int frequency, int sampleRate)
@@ -67,69 +74,66 @@ public static class HapticSampleFactory
         };
     }
 
+    /// <summary>
+    /// Applies the pattern-specific attack/sustain/decay shape. Every branch ends in an
+    /// <see cref="EnvelopeSampleProvider"/>, which also owns the pattern duration, so the stream is
+    /// exactly Duration long and its first and last samples are at (or heading to) zero.
+    /// </summary>
     private static ISampleProvider ApplyEnvelope(SignalGenerator generator, HapticPattern pattern, int sampleRate)
     {
-        ISampleProvider sampleProvider = generator;
-
-        // Apply pattern-specific modifications
-        switch (pattern.Pattern)
+        return pattern.Pattern switch
         {
-            case PatternType.SharpPulse:
-                sampleProvider = ApplySharpPulse(generator, pattern);
-                break;
+            PatternType.SharpPulse => ApplySharpPulse(generator, pattern),
+            PatternType.BuildupRumble => ApplyBuildupRumble(generator, pattern),
+            PatternType.SustainedRumble => ApplySustainedRumble(generator, pattern),
+            PatternType.Oscillating => ApplyOscillating(generator, pattern),
+            PatternType.Impact => ApplyImpact(generator, pattern),
+            PatternType.Fade => ApplyFade(generator, pattern),
+            // Anything else still gets its duration and its click-prevention ramps.
+            _ => Shaped(generator, pattern, 0, 0)
+        };
+    }
 
-            case PatternType.BuildupRumble:
-                sampleProvider = ApplyBuildupRumble(generator, pattern);
-                break;
+    /// <summary>
+    /// Wraps a shaped source in the sample-accurate envelope. The pattern's own FadeIn/FadeOut
+    /// compose with the shape by taking the quieter gain - for linear ramps that is simply the
+    /// longer of the two - and both ends are floored at a short click-prevention ramp so no pattern
+    /// type can start or stop at full amplitude.
+    /// </summary>
+    private static ISampleProvider Shaped(ISampleProvider source, HapticPattern pattern, double attackMs, double decayMs)
+    {
+        var floor = HapticEnvelope.MinimumRampMilliseconds(pattern.Frequency);
+        var attack = Math.Max(Math.Max(attackMs, pattern.FadeIn), floor);
+        var decay = Math.Max(Math.Max(decayMs, pattern.FadeOut), floor);
 
-            case PatternType.SustainedRumble:
-                sampleProvider = ApplySustainedRumble(generator, pattern);
-                break;
-
-            case PatternType.Oscillating:
-                sampleProvider = ApplyOscillating(generator, pattern);
-                break;
-
-            case PatternType.Impact:
-                sampleProvider = ApplyImpact(generator, pattern);
-                break;
-
-            case PatternType.Fade:
-                sampleProvider = ApplyFade(generator, pattern);
-                break;
-        }
-
-        // Apply overall fade in/out envelope
-        if (pattern.FadeIn > 0 || pattern.FadeOut > 0)
-        {
-            // For now, just use the base sample provider - fade will be implemented later
-            // sampleProvider = ApplyFadeEnvelope(sampleProvider, pattern);
-        }
-
-        // Limit duration
-        sampleProvider = sampleProvider.Take(TimeSpan.FromMilliseconds(pattern.Duration));
-
-        return sampleProvider;
+        return new EnvelopeSampleProvider(source, pattern.Duration, attack, decay);
     }
 
     private static ISampleProvider ApplySharpPulse(SignalGenerator generator, HapticPattern pattern)
     {
-        // Quick attack, quick decay for sharp impacts
-        // For now, just return the generator - envelope shaping will be implemented later
-        return generator;
+        // Quick attack, short sustain, fast decay - the click is the point, so the ramps stay short.
+        var attack = Math.Max(2.0, pattern.Duration * 0.05);
+        var decay = pattern.Duration * 0.30;
+
+        return Shaped(generator, pattern, attack, decay);
     }
 
     private static ISampleProvider ApplyBuildupRumble(SignalGenerator generator, HapticPattern pattern)
     {
-        // Gradual buildup over the first 60% of duration, then sustain
-        // For now, just return the generator - envelope shaping will be implemented later
-        return generator;
+        // Gradual buildup over the first 60% of duration, then sustain, then the tail fade.
+        return Shaped(generator, pattern, pattern.Duration * 0.60, 0);
     }
 
     private static ISampleProvider ApplySustainedRumble(SignalGenerator generator, HapticPattern pattern)
     {
-        // Just apply basic fade envelope, maintain consistent output
-        return generator;
+        // Fade in to full, hold, fade out. Without explicit fades a 20ms ramp keeps the hold clean.
+        const double defaultFadeMs = 20.0;
+
+        return Shaped(
+            generator,
+            pattern,
+            pattern.FadeIn > 0 ? pattern.FadeIn : defaultFadeMs,
+            pattern.FadeOut > 0 ? pattern.FadeOut : defaultFadeMs);
     }
 
     private static ISampleProvider ApplyOscillating(SignalGenerator generator, HapticPattern pattern)
@@ -153,20 +157,29 @@ public static class HapticSampleFactory
             _ => 0.5f // Default depth
         };
 
-        return new AmplitudeModulationSampleProvider(generator, oscFreq, modulationDepth);
+        // The modulation is free-running, so without the wrapping ramps the effect would start and
+        // stop at whatever amplitude the modulator happened to be at.
+        var modulated = new AmplitudeModulationSampleProvider(generator, oscFreq, modulationDepth);
+
+        return Shaped(modulated, pattern, 0, 0);
     }
 
     private static ISampleProvider ApplyImpact(SignalGenerator generator, HapticPattern pattern)
     {
-        // Sharp attack, longer decay
-        // For now, just return the generator - envelope shaping will be implemented later
-        return generator;
+        // Classic percussion: short attack, then the rest of the duration is decay.
+        var attack = Math.Max(2.0, pattern.Duration * 0.08);
+        var decay = Math.Max(0.0, pattern.Duration - attack);
+
+        return Shaped(generator, pattern, attack, decay);
     }
 
     private static ISampleProvider ApplyFade(SignalGenerator generator, HapticPattern pattern)
     {
-        // Gentle fade in and out
-        // For now, just return the generator - envelope shaping will be implemented later
-        return generator;
+        // Gentle in and out; without explicit fades, a fifth of the duration at each end.
+        return Shaped(
+            generator,
+            pattern,
+            pattern.FadeIn > 0 ? pattern.FadeIn : pattern.Duration * 0.20,
+            pattern.FadeOut > 0 ? pattern.FadeOut : pattern.Duration * 0.20);
     }
 }
