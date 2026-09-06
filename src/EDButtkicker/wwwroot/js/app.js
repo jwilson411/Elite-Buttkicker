@@ -1099,8 +1099,9 @@ window.editPattern = (eventType) => {
 };
 
 window.createNewPattern = () => {
-    // TODO: Implement new pattern creation
-    app.showToast('New pattern creation - Coming soon!', 'warning');
+    // The editor's wizard already starts in create mode; the explicit parameter keeps the
+    // intent visible in the URL and mirrors the ?mode=edit link above.
+    window.location.href = 'pattern-editor.html?mode=create';
 };
 
 // The endpoint id is the device identity, so it decides the highlight whenever the API reports

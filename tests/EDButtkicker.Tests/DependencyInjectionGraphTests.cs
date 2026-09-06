@@ -167,6 +167,12 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         { "POST", "/api/PatternEditor/test" },
         { "GET", "/api/PatternEditor/load/dummy.json" },
         { "GET", "/api/PatternEditor/user-files/test-author" },
+        { "GET", "/api/patternselection/conflicts" },
+        { "GET", "/api/patternselection/stats" },
+        { "GET", "/api/patternselection/available/anaconda/FSDJump" },
+        { "POST", "/api/patternselection/select" },
+        { "POST", "/api/patternselection/auto-resolve" },
+        { "POST", "/api/patternselection/refresh-sources" },
         { "GET", "/api/context/status" },
         { "POST", "/api/context/config" },
         { "GET", "/api/context/predictions" },
@@ -193,6 +199,8 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         "/api/audio/devices",
         "/api/PatternFiles/packs",
         "/api/PatternEditor/templates",
+        "/api/patternselection/conflicts",
+        "/api/patternselection/stats",
         "/api/context/predictions",
         "/api/setup/status",
         "/api/setup/journal/candidates",
@@ -218,6 +226,10 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
     {
         "/api/patterns" => """{"eventType":"FSDJump","pattern":{"name":"Test","pattern":"SharpPulse","frequency":40,"intensity":50,"duration":500}}""",
         "/api/patterns/FSDJump" => """{"eventType":"FSDJump","pattern":{"name":"Test","pattern":"SharpPulse","frequency":40,"intensity":50,"duration":500}}""",
+        // The selection endpoints reject an empty body, so send the shape the conflicts page sends:
+        // a full selection, and a resolution strategy by name rather than by ordinal.
+        "/api/patternselection/select" => """{"shipType":"anaconda","eventName":"FSDJump","sourceId":"default"}""",
+        "/api/patternselection/auto-resolve" => """{"resolutionStrategy":"LatestModified"}""",
         _ => "{}"
     };
 
@@ -242,6 +254,7 @@ public sealed class WebUiTestServerFixture : IDisposable
 {
     private readonly IWebHost _host;
     private readonly TempDirectory _setupStateDir = new("edbk-di-setup");
+    private readonly TempDirectory _patternSelectionDir = new("edbk-di-selections");
 
     public WebUiTestServerFixture()
     {
@@ -257,10 +270,14 @@ public sealed class WebUiTestServerFixture : IDisposable
                 // The one composition root, exactly as Program registers it.
                 services.AddEliteButtkicker(settings);
 
-                // The only redirection: setup completion is written to a temp directory so probing
-                // the setup routes cannot mark a developer's own first run as done.
+                // The only redirections, both for the same reason: state these routes persist goes
+                // to a temp directory, so probing them cannot mark a developer's own first run as
+                // done or rewrite their pattern selections.
                 services.Replace(ServiceDescriptor.Singleton(
                     new SetupStateService(NullLogger<SetupStateService>.Instance, _setupStateDir.Path)));
+                services.Replace(ServiceDescriptor.Singleton(
+                    new PatternSelectionService(
+                        NullLogger<PatternSelectionService>.Instance, _patternSelectionDir.Path)));
 
                 // Deliberately no AddHostedService: no JournalMonitorService, no StatusMonitorService,
                 // no WebConfigurationService, and AudioEngineService is never Initialize()d.
@@ -288,5 +305,6 @@ public sealed class WebUiTestServerFixture : IDisposable
         RawClient.Dispose();
         _host.Dispose();
         _setupStateDir.Dispose();
+        _patternSelectionDir.Dispose();
     }
 }

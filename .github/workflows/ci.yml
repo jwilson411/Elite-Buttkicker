@@ -62,6 +62,10 @@ jobs:
       - name: Restore
         run: dotnet restore EDButtkicker.sln
 
+      - name: Install jsdom for node UI tests
+        run: npm ci
+        working-directory: tests/EDButtkicker.Tests/js
+
       - name: Test
         run: dotnet test EDButtkicker.sln --configuration Release --no-restore
 

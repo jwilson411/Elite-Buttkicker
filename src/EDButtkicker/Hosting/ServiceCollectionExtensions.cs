@@ -85,10 +85,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ContextualIntelligenceApiController>();
         services.AddSingleton<SetupApiController>();
         services.AddSingleton<HealthApiController>();
+        services.AddSingleton<PatternSelectionController>();
 
         // Not routed today, but they belong to the same graph so they stay resolvable.
         services.AddSingleton<UserSettingsController>();
-        services.AddSingleton<PatternSelectionController>();
         services.AddSingleton<ShipPatternsController>();
 
         return services;
