@@ -137,10 +137,12 @@ public class JournalTailReaderTests
         using var dir = new TempJournalDirectory();
         dir.Write(FileA, Lines(Event("Locked")));
 
-        var reader = new FlakyOpenJournalTailReader(dir.Path, failuresBeforeSuccess: 3);
+        var storage = new FlakyJournalStorage(failuresBeforeSuccess: 3);
+        var reader = new JournalTailReader(dir.Path, monitorLatestOnly: false, maxReadAttempts: 10,
+            retryDelay: TimeSpan.FromMilliseconds(1), storage: storage);
 
         Assert.Equal(new[] { Event("Locked") }, await reader.ReadNewLinesAsync());
-        Assert.True(reader.OpenAttempts > 1, "reader should have retried the failed opens");
+        Assert.True(storage.OpenAttempts > 1, "reader should have retried the failed opens");
     }
 
     [Fact]
@@ -276,27 +278,35 @@ public class JournalTailReaderTests
     private static string Lines(params string[] lines) =>
         string.Concat(lines.Select(l => l + "\n"));
 
-    /// <summary>Reader whose first N opens fail with IOException, mimicking a briefly locked file.</summary>
-    private sealed class FlakyOpenJournalTailReader : JournalTailReader
+    /// <summary>
+    /// Storage whose first N opens fail with IOException, mimicking a briefly locked file. Only the
+    /// open is faked - listing and reading stay on the real directory - so the retry is proven
+    /// without having to win a race against another process holding a real lock.
+    /// </summary>
+    private sealed class FlakyJournalStorage : IJournalStorage
     {
         private readonly int _failuresBeforeSuccess;
         private int _openAttempts;
 
-        public FlakyOpenJournalTailReader(string directory, int failuresBeforeSuccess)
-            : base(directory, monitorLatestOnly: false, maxReadAttempts: 10,
-                   retryDelay: TimeSpan.FromMilliseconds(1))
+        public FlakyJournalStorage(int failuresBeforeSuccess)
         {
             _failuresBeforeSuccess = failuresBeforeSuccess;
         }
 
-        public int OpenAttempts => _openAttempts;
+        public int OpenAttempts => Volatile.Read(ref _openAttempts);
 
-        protected override FileStream OpenRead(string path)
+        public bool DirectoryExists(string directory) =>
+            FileSystemJournalStorage.Instance.DirectoryExists(directory);
+
+        public IReadOnlyList<string> ListFiles(string directory, string searchPattern) =>
+            FileSystemJournalStorage.Instance.ListFiles(directory, searchPattern);
+
+        public Stream OpenRead(string path)
         {
             if (Interlocked.Increment(ref _openAttempts) <= _failuresBeforeSuccess)
                 throw new IOException("file is locked");
 
-            return base.OpenRead(path);
+            return FileSystemJournalStorage.Instance.OpenRead(path);
         }
     }
 

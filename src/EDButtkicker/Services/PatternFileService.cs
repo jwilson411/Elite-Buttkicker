@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EDButtkicker.Models;
@@ -11,7 +12,8 @@ public class PatternFileService : IPatternCatalog, IDisposable
     private readonly ILogger<PatternFileService> _logger;
     private readonly string _patternsPath;
     private readonly JsonSerializerOptions _jsonOptions;
-    private readonly FileSystemWatcher _fileWatcher;
+    private readonly IPatternStorage _storage;
+    private readonly IDirectoryWatcher _fileWatcher;
 
     // Every watcher event goes through one serialized queue, so reloads never overlap and every
     // pending debounce delay ends with the shutdown token below.
@@ -26,25 +28,37 @@ public class PatternFileService : IPatternCatalog, IDisposable
 
     public event Action<PatternFileChangeEventArgs>? PatternFilesChanged;
 
-    public PatternFileService(ILogger<PatternFileService> logger)
-        : this(logger, ResolveDefaultPatternsPath(), null)
+    /// <summary>The container's constructor: production storage and a real directory watcher.</summary>
+    public PatternFileService(
+        ILogger<PatternFileService> logger,
+        IPatternStorage storage,
+        IDirectoryWatcherFactory watcherFactory,
+        TimeProvider timeProvider)
+        : this(logger, ResolveDefaultPatternsPath(storage), null, storage, watcherFactory, timeProvider)
     {
     }
 
     /// <summary>
     /// Explicit-path constructor used by tests so nothing is read from the developer's real
-    /// profile and the debounce windows can be shortened.
+    /// profile, the debounce windows can be shortened, and the storage and watcher can be faked.
     /// </summary>
-    public PatternFileService(ILogger<PatternFileService> logger, string patternsPath, PatternWatchOptions? watchOptions)
+    public PatternFileService(
+        ILogger<PatternFileService> logger,
+        string patternsPath,
+        PatternWatchOptions? watchOptions,
+        IPatternStorage? storage = null,
+        IDirectoryWatcherFactory? watcherFactory = null,
+        TimeProvider? timeProvider = null)
     {
         _logger = logger;
+        _storage = storage ?? FileSystemPatternStorage.Instance;
 
         _patternsPath = Path.GetFullPath(patternsPath);
-        Directory.CreateDirectory(_patternsPath);
+        _storage.CreateDirectory(_patternsPath);
 
         // Ensure Custom directory exists for user patterns
         var customPath = Path.Combine(_patternsPath, "Custom");
-        Directory.CreateDirectory(customPath);
+        _storage.CreateDirectory(customPath);
 
         _jsonOptions = new JsonSerializerOptions
         {
@@ -56,32 +70,28 @@ public class PatternFileService : IPatternCatalog, IDisposable
         };
 
         // Set up file watcher for automatic reloading
-        _fileWatcher = new FileSystemWatcher(_patternsPath, "*.json")
-        {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.LastWrite | NotifyFilters.FileName
-        };
+        _fileWatcher = (watcherFactory ?? new FileSystemDirectoryWatcherFactory(
+                NullLogger<FileSystemDirectoryWatcherFactory>.Instance))
+            .Create(_patternsPath, "*.json", includeSubdirectories: true);
 
-        _watchQueue = new PatternFileWatchQueue(ProcessWatchWorkAsync, watchOptions, _logger);
+        _watchQueue = new PatternFileWatchQueue(
+            ProcessWatchWorkAsync, watchOptions, _logger, timeProvider, _storage);
         _watchConsumer = Task.Run(() => _watchQueue.RunAsync(_watchShutdown.Token));
 
-        _fileWatcher.Changed += OnFileChanged;
-        _fileWatcher.Created += OnFileChanged;
-        _fileWatcher.Deleted += OnFileDeleted;
-        _fileWatcher.Renamed += OnFileRenamed;
+        _fileWatcher.Changed += OnWatchedFileEvent;
         _fileWatcher.Error += OnWatcherError;
-        _fileWatcher.EnableRaisingEvents = true;
+        _fileWatcher.Start();
 
         _logger.LogInformation("PatternFileService initialized with path: {PatternsPath}", _patternsPath);
     }
 
     /// <summary>Patterns directory - project root when running from a checkout, otherwise the app directory.</summary>
-    private static string ResolveDefaultPatternsPath()
+    private static string ResolveDefaultPatternsPath(IPatternStorage storage)
     {
         var projectRootPath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "patterns");
         var appPath = Path.Combine(Directory.GetCurrentDirectory(), "patterns");
 
-        return Directory.Exists(projectRootPath) ? Path.GetFullPath(projectRootPath) : appPath;
+        return storage.DirectoryExists(projectRootPath) ? Path.GetFullPath(projectRootPath) : appPath;
     }
 
     public async Task LoadAllPatternsAsync(CancellationToken cancellationToken = default)
@@ -90,8 +100,8 @@ public class PatternFileService : IPatternCatalog, IDisposable
         {
             _logger.LogInformation("Loading pattern files from {PatternsPath}", _patternsPath);
             
-            var jsonFiles = Directory.GetFiles(_patternsPath, "*.json", SearchOption.AllDirectories)
-                .Where(f => !Path.GetFileName(f).StartsWith(".") && Path.GetFileName(f) != "schema.json")
+            var jsonFiles = _storage.ListJsonFiles(_patternsPath)
+                .Where(IsWatchablePatternFile)
                 .ToList();
 
             var loadedCount = 0;
@@ -173,7 +183,7 @@ public class PatternFileService : IPatternCatalog, IDisposable
     {
         try
         {
-            var json = await File.ReadAllTextAsync(filePath, cancellationToken);
+            var json = await _storage.ReadAllTextAsync(filePath, cancellationToken);
             var patternFile = JsonSerializer.Deserialize<PatternFile>(json, _jsonOptions);
             
             if (patternFile?.Metadata == null)
@@ -340,8 +350,8 @@ public class PatternFileService : IPatternCatalog, IDisposable
             var json = JsonSerializer.Serialize(exportData, _jsonOptions);
             var exportPath = Path.Combine(_patternsPath, "exports", $"{packName}_{DateTime.Now:yyyyMMdd_HHmmss}.json");
             
-            Directory.CreateDirectory(Path.GetDirectoryName(exportPath)!);
-            await File.WriteAllTextAsync(exportPath, json);
+            _storage.CreateDirectory(Path.GetDirectoryName(exportPath)!);
+            await _storage.WriteAllTextAsync(exportPath, json);
             
             _logger.LogInformation("Exported pattern pack '{PackName}' with {ShipCount} ships to {ExportPath}",
                 packName, shipTypes.Count, exportPath);
@@ -374,8 +384,8 @@ public class PatternFileService : IPatternCatalog, IDisposable
                 return false;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
-            File.Copy(sourceFilePath, targetPath, overwrite: true);
+            _storage.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            _storage.Copy(sourceFilePath, targetPath, overwrite: true);
             
             _logger.LogInformation("Imported pattern file '{Name}' to {TargetPath}", 
                 patternFile.Metadata.Name, targetPath);
@@ -390,55 +400,64 @@ public class PatternFileService : IPatternCatalog, IDisposable
         }
     }
 
-    // The watcher handlers only ever enqueue. They run on watcher threads, so they must not block,
-    // must not throw, and must not start work of their own - the consumer loop owns all of that.
-    private void OnFileChanged(object sender, FileSystemEventArgs e)
+    // The watcher handler only ever enqueues. It runs on watcher threads, so it must not block,
+    // must not throw, and must not start work of its own - the consumer loop owns all of that.
+    private void OnWatchedFileEvent(WatchedFileEvent e)
     {
-        if (!IsWatchablePatternFile(e.FullPath))
+        switch (e.Change)
         {
-            return;
-        }
+            case WatchedFileChange.Created:
+            case WatchedFileChange.Changed:
+                if (!IsWatchablePatternFile(e.FullPath))
+                {
+                    return;
+                }
 
-        _logger.LogDebug("Pattern file changed: {FilePath}", e.FullPath);
-        _watchQueue.Enqueue(PatternWatchAction.Reload, e.FullPath);
+                _logger.LogDebug("Pattern file changed: {FilePath}", e.FullPath);
+                _watchQueue.Enqueue(PatternWatchAction.Reload, e.FullPath);
+                break;
+
+            case WatchedFileChange.Deleted:
+                if (!IsWatchablePatternFile(e.FullPath))
+                {
+                    return;
+                }
+
+                _logger.LogDebug("Pattern file deleted: {FilePath}", e.FullPath);
+                _watchQueue.Enqueue(PatternWatchAction.Remove, e.FullPath);
+                break;
+
+            case WatchedFileChange.Renamed:
+                OnFileRenamed(e.OldFullPath, e.FullPath);
+                break;
+        }
     }
 
-    private void OnFileDeleted(object sender, FileSystemEventArgs e)
+    private void OnFileRenamed(string? oldFullPath, string newFullPath)
     {
-        if (!IsWatchablePatternFile(e.FullPath))
-        {
-            return;
-        }
+        var oldIsPattern = oldFullPath != null && IsWatchablePatternFile(oldFullPath);
+        var newIsPattern = IsWatchablePatternFile(newFullPath);
 
-        _logger.LogDebug("Pattern file deleted: {FilePath}", e.FullPath);
-        _watchQueue.Enqueue(PatternWatchAction.Remove, e.FullPath);
-    }
-
-    private void OnFileRenamed(object sender, RenamedEventArgs e)
-    {
-        var oldIsPattern = IsWatchablePatternFile(e.OldFullPath);
-        var newIsPattern = IsWatchablePatternFile(e.FullPath);
-
-        _logger.LogDebug("Pattern file renamed: {OldPath} -> {NewPath}", e.OldFullPath, e.FullPath);
+        _logger.LogDebug("Pattern file renamed: {OldPath} -> {NewPath}", oldFullPath, newFullPath);
 
         if (newIsPattern)
         {
             // Remove-then-reload travels as one work item, so no other event can land between the
             // two halves of the rename.
-            _watchQueue.Enqueue(PatternWatchAction.Reload, e.FullPath, oldIsPattern ? e.OldFullPath : null);
+            _watchQueue.Enqueue(PatternWatchAction.Reload, newFullPath, oldIsPattern ? oldFullPath : null);
         }
         else if (oldIsPattern)
         {
             // Renamed out of the pattern set (e.g. .json -> .bak): it is simply gone.
-            _watchQueue.Enqueue(PatternWatchAction.Remove, e.OldFullPath);
+            _watchQueue.Enqueue(PatternWatchAction.Remove, oldFullPath!);
         }
     }
 
-    private void OnWatcherError(object sender, ErrorEventArgs e)
+    private void OnWatcherError(Exception error)
     {
         // The OS buffer overflowed, so individual events were lost. Re-reading the directory is the
         // only honest recovery.
-        _logger.LogWarning(e.GetException(), "Pattern file watcher error; scheduling a full reload");
+        _logger.LogWarning(error, "Pattern file watcher error; scheduling a full reload");
         _watchQueue.Enqueue(PatternWatchAction.ReloadAll, _patternsPath);
     }
 
@@ -475,7 +494,7 @@ public class PatternFileService : IPatternCatalog, IDisposable
                     RemovePatternFile(work.RemovedPath);
                 }
 
-                if (!File.Exists(work.FullPath))
+                if (!_storage.FileExists(work.FullPath))
                 {
                     // Created and deleted again before the debounce elapsed.
                     RemovePatternFile(work.FullPath);
@@ -609,11 +628,7 @@ public class PatternFileService : IPatternCatalog, IDisposable
 
         try
         {
-            _fileWatcher.EnableRaisingEvents = false;
-            _fileWatcher.Changed -= OnFileChanged;
-            _fileWatcher.Created -= OnFileChanged;
-            _fileWatcher.Deleted -= OnFileDeleted;
-            _fileWatcher.Renamed -= OnFileRenamed;
+            _fileWatcher.Changed -= OnWatchedFileEvent;
             _fileWatcher.Error -= OnWatcherError;
         }
         catch (ObjectDisposedException)

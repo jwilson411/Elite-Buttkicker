@@ -3,9 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using NAudio.Wave;
-using NAudio.CoreAudioApi;
-using NAudio.Wasapi;
+using Microsoft.Extensions.Logging.Abstractions;
 using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
 using EDButtkicker.Models;
@@ -481,43 +479,25 @@ class Program
         {
             if (debugMode)
                 Console.WriteLine("[DEBUG] Enumerating audio devices...");
-            
-            // Use MMDevice enumerator for better device detection
-            var deviceEnumerator = new MMDeviceEnumerator();
-            var devices_collection = deviceEnumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-            
-            if (debugMode)
-                Console.WriteLine($"[DEBUG] Found {devices_collection.Count} WASAPI render devices");
-            
-            var defaultDevice = deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-            if (debugMode)
-                Console.WriteLine($"[DEBUG] System default device: '{defaultDevice.FriendlyName}' (ID: {defaultDevice.ID})");
-            
-            for (int i = 0; i < devices_collection.Count; i++)
+
+            // The same catalog the running app resolves from, so the setup console and the audio
+            // engine can never disagree about which endpoints exist.
+            var catalog = new WasapiAudioDeviceCatalog(NullLogger<WasapiAudioDeviceCatalog>.Instance);
+
+            // The catalog leads with the synthetic "system default" entry; this console list is the
+            // real endpoints only, and the default is offered separately by the caller.
+            foreach (var device in catalog.GetDevices()
+                         .Where(d => d.DeviceId != WasapiAudioDeviceCatalog.SystemDefaultDeviceId))
             {
-                var device = devices_collection[i];
-                var isDefault = device.ID == defaultDevice.ID;
-                
                 if (debugMode)
-                    Console.WriteLine($"[DEBUG] Device {i}: '{device.FriendlyName}' - State: {device.State}, Default: {isDefault}");
-                
-                devices.Add(new AudioDevice
-                {
-                    // The endpoint id is the identity; the index is only where it sits today.
-                    EndpointId = device.ID,
-                    DeviceId = i,
-                    Name = device.FriendlyName,
-                    Driver = "WASAPI",
-                    Channels = 2, // Default assumption
-                    IsDefault = isDefault,
-                    IsAvailable = device.State == DeviceState.Active
-                });
+                    Console.WriteLine($"[DEBUG] Device {device.DeviceId}: '{device.Name}' - Active: {device.IsAvailable}, Default: {device.IsDefault}");
+
+                devices.Add(device);
             }
-            
-            // Debug logging already handled by MMDevice enumeration above
+
             if (debugMode)
             {
-                Console.WriteLine($"[DEBUG] Device enumeration completed using WASAPI/MMDevice API");
+                Console.WriteLine($"[DEBUG] Device enumeration completed using the WASAPI device catalog");
             }
         }
         catch (Exception ex)
@@ -529,24 +509,22 @@ class Program
             }
             else
             {
-                Console.WriteLine($"Warning: Failed to enumerate audio devices using MMDevice: {ex.Message}");
+                Console.WriteLine($"Warning: Failed to enumerate audio devices: {ex.Message}");
             }
-            
-            // Skip fallback enumeration for now to avoid issues with published version
-            
-            // Final fallback - add a default device entry if no devices were found
-            if (devices.Count == 0)
+        }
+
+        // Final fallback - a default device entry if nothing could be enumerated.
+        if (devices.Count == 0)
+        {
+            devices.Add(new AudioDevice
             {
-                devices.Add(new AudioDevice
-                {
-                    DeviceId = -1,
-                    Name = "Default Audio Device",
-                    Driver = "Default",
-                    Channels = 2,
-                    IsDefault = true,
-                    IsAvailable = true
-                });
-            }
+                DeviceId = WasapiAudioDeviceCatalog.SystemDefaultDeviceId,
+                Name = WasapiAudioDeviceCatalog.SystemDefaultDeviceName,
+                Driver = "Default",
+                Channels = 2,
+                IsDefault = true,
+                IsAvailable = true
+            });
         }
 
         if (debugMode)

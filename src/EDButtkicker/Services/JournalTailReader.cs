@@ -29,6 +29,7 @@ public class JournalTailReader
     private readonly ILogger _logger;
     private readonly int _maxReadAttempts;
     private readonly TimeSpan _retryDelay;
+    private readonly IJournalStorage _storage;
 
     private string? _currentFile;
     private long _cursor;
@@ -38,13 +39,17 @@ public class JournalTailReader
         bool monitorLatestOnly,
         ILogger? logger = null,
         int maxReadAttempts = 5,
-        TimeSpan? retryDelay = null)
+        TimeSpan? retryDelay = null,
+        IJournalStorage? storage = null)
     {
         _directory = directory ?? throw new ArgumentNullException(nameof(directory));
         _monitorLatestOnly = monitorLatestOnly;
         _logger = logger ?? NullLogger.Instance;
         _maxReadAttempts = Math.Max(1, maxReadAttempts);
         _retryDelay = retryDelay ?? TimeSpan.FromMilliseconds(100);
+        // All journal IO goes through the seam, so rotation and partial writes can be driven by a
+        // test without waiting on a real writer.
+        _storage = storage ?? FileSystemJournalStorage.Instance;
     }
 
     /// <summary>Journal file the cursor currently belongs to, or null before the first attach.</summary>
@@ -104,21 +109,17 @@ public class JournalTailReader
         }
     }
 
-    /// <summary>Opens a journal file for shared reading. Overridable so tests can inject IO faults.</summary>
-    protected virtual FileStream OpenRead(string path) =>
-        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, ScanChunkSize, useAsync: true);
-
     public string? FindLatestJournalFile()
     {
         try
         {
-            if (!Directory.Exists(_directory))
+            if (!_storage.DirectoryExists(_directory))
                 return null;
 
             // Elite journal names embed their timestamp (Journal.2026-08-27T114250.01.log), so an
             // ordinal name sort is both newest-first and deterministic - unlike creation timestamps,
             // which are unreliable on some filesystems and shift when a file is appended to.
-            return Directory.GetFiles(_directory, JournalSearchPattern)
+            return _storage.ListFiles(_directory, JournalSearchPattern)
                 .OrderByDescending(Path.GetFileName, StringComparer.Ordinal)
                 .FirstOrDefault();
         }
@@ -137,7 +138,7 @@ public class JournalTailReader
 
             try
             {
-                using var stream = OpenRead(path);
+                using var stream = _storage.OpenRead(path);
 
                 var length = stream.Length;
                 var cursor = Interlocked.Read(ref _cursor);
@@ -237,7 +238,7 @@ public class JournalTailReader
 
             try
             {
-                using var stream = OpenRead(path);
+                using var stream = _storage.OpenRead(path);
 
                 var length = stream.Length;
                 var buffer = new byte[ScanChunkSize];
