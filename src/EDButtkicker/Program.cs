@@ -167,7 +167,7 @@ class Program
                 // Add hosted services
                 services.AddHostedService<JournalMonitorService>();
                 services.AddHostedService<WebConfigurationService>();
-				services.AddHostedService<StatusMonitorService>();
+                services.AddHostedService<StatusMonitorService>();
             })
             .ConfigureWebHostDefaults(webBuilder =>
             {
