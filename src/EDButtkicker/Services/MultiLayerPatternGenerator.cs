@@ -140,8 +140,10 @@ public class MultiLayerPatternGenerator : ISampleProvider
             }
         }
 
-        // Apply overall intensity scaling and prevent clipping
-        float maxIntensity = _pattern.MaxIntensity / 100.0f;
+        // Apply overall intensity scaling and prevent clipping. A pattern persisted without a
+        // ceiling carries MaxIntensity = 0, which means "unset", not "mute" - clipping such a
+        // pattern at 0 would silence the layer entirely, so fall back to full scale.
+        float maxIntensity = _pattern.MaxIntensity > 0 ? _pattern.MaxIntensity / 100.0f : 1.0f;
         for (int i = 0; i < samplesToRead; i++)
         {
             buffer[offset + i] = Math.Max(-maxIntensity, Math.Min(maxIntensity, buffer[offset + i]));

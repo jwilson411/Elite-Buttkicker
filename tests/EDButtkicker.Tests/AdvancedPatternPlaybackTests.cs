@@ -157,6 +157,41 @@ public class AdvancedPatternPlaybackTests
         Assert.Contains(samples, s => s != 0f);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-25)]
+    public void MultiLayer_MaxIntensityAtOrBelowZeroIsUnsetRatherThanMute(int maxIntensity)
+    {
+        // A saved pattern can carry MaxIntensity = 0 - the field simply was not set. Clipping at 0
+        // silenced the whole layer, so the user got a pattern that generated nothing at all.
+        var unset = BuildMultiLayerPattern();
+        unset.MaxIntensity = maxIntensity;
+
+        var samples = ReadAll(HapticSampleFactory.CreateMultiLayerPattern(unset, SampleRate));
+
+        Assert.NotEmpty(samples);
+        Assert.Contains(samples, s => s != 0f);
+        Assert.All(samples, s => Assert.InRange(s, -1.0f, 1.0f));
+
+        // Unset behaves as no ceiling - the same signal a full-scale ceiling produces.
+        var fullScale = ReadAll(HapticSampleFactory.CreateMultiLayerPattern(BuildMultiLayerPattern(), SampleRate));
+        Assert.Equal(fullScale.Count, samples.Count);
+        Assert.False(samples.Where((s, i) => Math.Abs(s - fullScale[i]) > 1e-6f).Any(),
+            "MaxIntensity = 0 changed the generated signal instead of being treated as unset.");
+    }
+
+    [Fact]
+    public void MultiLayer_MaxIntensityStillClipsWhenItIsSet()
+    {
+        var capped = BuildMultiLayerPattern();
+        capped.MaxIntensity = 20;
+
+        var samples = ReadAll(HapticSampleFactory.CreateMultiLayerPattern(capped, SampleRate));
+
+        Assert.NotEmpty(samples);
+        Assert.All(samples, s => Assert.InRange(s, -0.2f, 0.2f));
+    }
+
     private static HapticPattern BuildMultiLayerPattern() => new()
     {
         Name = "Layered Test",

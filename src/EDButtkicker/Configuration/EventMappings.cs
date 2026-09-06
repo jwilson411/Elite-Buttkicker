@@ -752,6 +752,179 @@ public class EventMappingsConfig
 					Enabled = false
 				},
 
+				// --- Status.json Flags2 (on foot, environment, glide) ---
+				// Short cues copied from the existing warning pulses; these exist so the Flags2
+				// edges the status monitor detects are not silent by default.
+				["OnFoot"] = new EventMapping
+				{
+					EventType = "OnFoot",
+					Pattern = new HapticPattern
+					{
+						Name = "Boots On The Ground",
+						Pattern = PatternType.SharpPulse,
+						Frequency = 40,
+						Duration = 150,
+						Intensity = 40,
+						FadeIn = 0,
+						FadeOut = 80,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["LowOxygen"] = new EventMapping
+				{
+					EventType = "LowOxygen",
+					Pattern = new HapticPattern
+					{
+						Name = "Low Oxygen Warning",
+						Pattern = PatternType.Oscillating,
+						Frequency = 45,
+						Duration = 2000,
+						Intensity = 70,
+						FadeIn = 100,
+						FadeOut = 400,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["LowHealth"] = new EventMapping
+				{
+					EventType = "LowHealth",
+					Pattern = new HapticPattern
+					{
+						Name = "Low Health Warning",
+						Pattern = PatternType.Oscillating,
+						Frequency = 50,
+						Duration = 2000,
+						Intensity = 75,
+						FadeIn = 100,
+						FadeOut = 400,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["Cold"] = new EventMapping
+				{
+					EventType = "Cold",
+					Pattern = new HapticPattern
+					{
+						Name = "Cold Environment",
+						Pattern = PatternType.SharpPulse,
+						Frequency = 35,
+						Duration = 200,
+						Intensity = 35,
+						FadeIn = 0,
+						FadeOut = 100,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["VeryCold"] = new EventMapping
+				{
+					EventType = "VeryCold",
+					Pattern = new HapticPattern
+					{
+						Name = "Extreme Cold Warning",
+						Pattern = PatternType.Oscillating,
+						Frequency = 35,
+						Duration = 1500,
+						Intensity = 70,
+						FadeIn = 50,
+						FadeOut = 300,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["Hot"] = new EventMapping
+				{
+					EventType = "Hot",
+					Pattern = new HapticPattern
+					{
+						Name = "Hot Environment",
+						Pattern = PatternType.SharpPulse,
+						Frequency = 55,
+						Duration = 200,
+						Intensity = 35,
+						FadeIn = 0,
+						FadeOut = 100,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["VeryHot"] = new EventMapping
+				{
+					EventType = "VeryHot",
+					Pattern = new HapticPattern
+					{
+						Name = "Extreme Heat Warning",
+						Pattern = PatternType.Oscillating,
+						Frequency = 60,
+						Duration = 1500,
+						Intensity = 80,
+						FadeIn = 50,
+						FadeOut = 300,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["GlideModeOn"] = new EventMapping
+				{
+					EventType = "GlideModeOn",
+					Pattern = new HapticPattern
+					{
+						Name = "Glide Engaged",
+						Pattern = PatternType.SharpPulse,
+						Frequency = 42,
+						Duration = 250,
+						Intensity = 45,
+						FadeIn = 0,
+						FadeOut = 120,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["GlideModeOff"] = new EventMapping
+				{
+					EventType = "GlideModeOff",
+					Pattern = new HapticPattern
+					{
+						Name = "Glide Ended",
+						Pattern = PatternType.SharpPulse,
+						Frequency = 38,
+						Duration = 150,
+						Intensity = 35,
+						FadeIn = 0,
+						FadeOut = 80,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
+				["FsdJumpInProgress"] = new EventMapping
+				{
+					EventType = "FsdJumpInProgress",
+					Pattern = new HapticPattern
+					{
+						Name = "Hyperspace Transit",
+						Pattern = PatternType.SharpPulse,
+						Frequency = 38,
+						Duration = 200,
+						Intensity = 50,
+						FadeIn = 0,
+						FadeOut = 100,
+						MaxIntensity = 100
+					},
+					Enabled = true
+				},
+
 				// --- Colonisation ---
 				["DockingGranted"] = new EventMapping
 				{
