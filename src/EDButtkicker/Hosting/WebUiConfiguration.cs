@@ -311,6 +311,53 @@ public static class WebUiConfiguration
                     await controller!.GetUserFilesHttpContext(context, author);
                     return;
                 }
+                // Pattern Selection API - the conflicts page. Lowercase, as wwwroot/js/pattern-conflicts.js spells it.
+                else if (path == "/api/patternselection/conflicts" && method == "GET")
+                {
+                    var controller = context.RequestServices.GetService<PatternSelectionController>();
+                    await controller!.GetConflictsHttpContext(context);
+                    return;
+                }
+                else if (path == "/api/patternselection/stats" && method == "GET")
+                {
+                    var controller = context.RequestServices.GetService<PatternSelectionController>();
+                    await controller!.GetStatsHttpContext(context);
+                    return;
+                }
+                else if (path.StartsWith("/api/patternselection/available/") && method == "GET")
+                {
+                    var segments = path["/api/patternselection/available/".Length..].Split('/');
+                    if (segments.Length != 2 || segments.Any(string.IsNullOrEmpty))
+                    {
+                        await ApiError.WriteAsync(context, 400, "Ship type and event name are required");
+                        return;
+                    }
+
+                    var controller = context.RequestServices.GetService<PatternSelectionController>();
+                    await controller!.GetAvailablePatternsHttpContext(
+                        context,
+                        Uri.UnescapeDataString(segments[0]),
+                        Uri.UnescapeDataString(segments[1]));
+                    return;
+                }
+                else if (path == "/api/patternselection/select" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<PatternSelectionController>();
+                    await controller!.SelectPatternHttpContext(context);
+                    return;
+                }
+                else if (path == "/api/patternselection/auto-resolve" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<PatternSelectionController>();
+                    await controller!.AutoResolveConflictsHttpContext(context);
+                    return;
+                }
+                else if (path == "/api/patternselection/refresh-sources" && method == "POST")
+                {
+                    var controller = context.RequestServices.GetService<PatternSelectionController>();
+                    await controller!.RefreshSourcesHttpContext(context);
+                    return;
+                }
                 // First-run setup API
                 else if (path == "/api/setup/status" && method == "GET")
                 {

@@ -16,13 +16,17 @@ public class PatternSelectionService
 
     public event Action<PatternSelectionChangedEventArgs>? SelectionChanged;
 
-    public PatternSelectionService(ILogger<PatternSelectionService> logger)
+    /// <param name="settingsDirectory">
+    /// Where selections are persisted. Defaults to the user's AppData; the tests point it at a
+    /// temporary directory so exercising these routes cannot rewrite a real user's selections.
+    /// </param>
+    public PatternSelectionService(ILogger<PatternSelectionService> logger, string? settingsDirectory = null)
     {
         _logger = logger;
-        
+
         // Store selections in user's AppData
         var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var settingsDir = Path.Combine(appDataPath, "EDButtkicker");
+        var settingsDir = settingsDirectory ?? Path.Combine(appDataPath, "EDButtkicker");
         Directory.CreateDirectory(settingsDir);
         
         _selectionsPath = Path.Combine(settingsDir, "pattern-selections.json");
