@@ -56,6 +56,10 @@ class Program
             var patternFileService = host.Services.GetRequiredService<PatternFileService>();
             await patternFileService.LoadAllPatternsAsync();
 
+            // Event mappings edited through the API are saved beside the other per-user state;
+            // reading them here is what makes those edits survive a restart.
+            host.Services.GetRequiredService<EventMappingService>().LoadSavedEventMappings();
+
             // Start services and web UI
             logger.LogInformation("Starting services and web interface...");
             var setupState = await host.Services.GetRequiredService<SetupStateService>().LoadAsync();

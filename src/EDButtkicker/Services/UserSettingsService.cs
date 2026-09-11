@@ -36,6 +36,7 @@ public class UserSettingsService
         var settingsDir = settingsDirectory;
         Directory.CreateDirectory(settingsDir);
 
+        SettingsDirectory = settingsDir;
         _userSettingsPath = Path.Combine(settingsDir, "user-settings.json");
         _userSettingsBackupPath = Path.Combine(settingsDir, "user-settings.backup.json");
         _gameContextPath = Path.Combine(settingsDir, "game-context.json");
@@ -49,6 +50,12 @@ public class UserSettingsService
         
         _logger.LogDebug("UserSettingsService initialized with path: {SettingsPath}", _userSettingsPath);
     }
+
+    /// <summary>
+    /// The directory this instance keeps per-user state in. Other services that persist per-user
+    /// state read it from here, so redirecting settings in a test redirects all of it.
+    /// </summary>
+    public string SettingsDirectory { get; }
 
     public async Task<UserPreferences> LoadUserPreferencesAsync()
     {

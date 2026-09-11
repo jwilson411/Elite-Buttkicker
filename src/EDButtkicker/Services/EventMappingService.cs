@@ -6,6 +6,42 @@ using EDButtkicker.Models;
 
 namespace EDButtkicker.Services;
 
+/// <summary>What happened to a single mapping edit, and why when it did not happen.</summary>
+public enum EventMappingChangeStatus
+{
+    /// <summary>The live mappings hold the edit and it reached the file.</summary>
+    Applied,
+
+    /// <summary>Nothing is mapped to that event, so there was nothing to change.</summary>
+    NotFound,
+
+    /// <summary>Something is already mapped to that event.</summary>
+    Conflict,
+
+    /// <summary>The edit could not be written, so it was rolled back out of the live mappings.</summary>
+    NotPersisted
+}
+
+/// <summary>
+/// The outcome of one mapping edit. <see cref="Error"/> is a sentence safe to hand to a caller -
+/// it never carries a path or exception text.
+/// </summary>
+public readonly record struct EventMappingChange(EventMappingChangeStatus Status, string? Error)
+{
+    public bool IsApplied => Status == EventMappingChangeStatus.Applied;
+
+    public static EventMappingChange Applied() => new(EventMappingChangeStatus.Applied, null);
+
+    public static EventMappingChange NotFound(string error) =>
+        new(EventMappingChangeStatus.NotFound, error);
+
+    public static EventMappingChange Conflict(string error) =>
+        new(EventMappingChangeStatus.Conflict, error);
+
+    public static EventMappingChange NotPersisted(string error) =>
+        new(EventMappingChangeStatus.NotPersisted, error);
+}
+
 public class EventMappingService : IJournalEventAudioSink
 {
     private readonly ILogger<EventMappingService> _logger;
@@ -16,11 +52,18 @@ public class EventMappingService : IJournalEventAudioSink
     private readonly EventRateLimiter _rateLimiter;
     private readonly ConcurrentDictionary<string, int> _eventCounts = new();
 
+    /// <summary>
+    /// Serializes the read-modify-write of a mapping edit. Requests arrive on thread pool threads,
+    /// so two concurrent edits must not each start from the same mappings and lose one another.
+    /// </summary>
+    private readonly object _editLock = new();
+
     public EventMappingService(
         ILogger<EventMappingService> logger,
         AudioEngineService audioEngine,
         PatternSequencer patternSequencer,
         ContextualIntelligenceService contextualIntelligence,
+        UserSettingsService userSettings,
         TimeProvider timeProvider)
     {
         _logger = logger;
@@ -28,6 +71,7 @@ public class EventMappingService : IJournalEventAudioSink
         _patternSequencer = patternSequencer;
         _contextualIntelligence = contextualIntelligence;
         _rateLimiter = new EventRateLimiter(timeProvider);
+        MappingsFilePath = Path.Combine(userSettings.SettingsDirectory, "event-mappings.json");
         _eventMappings = EventMappingsConfig.GetDefault();
 
         // No audio device work here: the engine opens itself on first playback so that building
@@ -140,6 +184,29 @@ public class EventMappingService : IJournalEventAudioSink
         }
     }
 
+    /// <summary>
+    /// Where an edit made through the API is written, and where <see cref="LoadSavedEventMappings"/>
+    /// reads from. It sits beside the other per-user state, so a test that redirects the settings
+    /// directory redirects this too.
+    /// </summary>
+    public string MappingsFilePath { get; }
+
+    /// <summary>
+    /// Loads the edits saved by previous runs, if there are any. Called once at startup: an event
+    /// the user deleted stays deleted, and one they added is there again. A saved file is the whole
+    /// mapping set, so it does replace the built-in catalogue rather than merging into it.
+    /// </summary>
+    public void LoadSavedEventMappings()
+    {
+        if (!File.Exists(MappingsFilePath))
+        {
+            _logger.LogDebug("No saved event mappings at {Path}; using the built-in catalogue", MappingsFilePath);
+            return;
+        }
+
+        LoadEventMappings(MappingsFilePath);
+    }
+
     public void LoadEventMappings(string configPath)
     {
         try
@@ -171,6 +238,15 @@ public class EventMappingService : IJournalEventAudioSink
 
     public void SaveEventMappings(string configPath)
     {
+        TryWriteEventMappings(configPath);
+    }
+
+    /// <summary>
+    /// Writes the live mappings, returning the reason when the write did not happen. The reason is
+    /// the caller-safe sentence; the exception and the path go to the log.
+    /// </summary>
+    private string? TryWriteEventMappings(string configPath)
+    {
         try
         {
             var json = JsonSerializer.Serialize(_eventMappings, new JsonSerializerOptions
@@ -179,12 +255,20 @@ public class EventMappingService : IJournalEventAudioSink
                 PropertyNameCaseInsensitive = true
             });
 
+            var directory = Path.GetDirectoryName(configPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
             File.WriteAllText(configPath, json);
             _logger.LogInformation("Saved event mappings to {Path}", configPath);
+            return null;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving event mappings to {Path}", configPath);
+            return "The event mappings could not be written to disk";
         }
     }
 
@@ -237,5 +321,100 @@ public class EventMappingService : IJournalEventAudioSink
         _eventMappings = newMappings;
         _patternSequencer.LoadPatterns(_eventMappings);
         _logger.LogInformation("Event mappings updated with {Count} patterns", newMappings.EventMappings.Count);
+    }
+
+    /// <summary>The mapping stored for an event, or null when nothing is mapped to it.</summary>
+    public EventMapping? GetEventMapping(string eventType) =>
+        _eventMappings.EventMappings.TryGetValue(eventType, out var mapping) ? mapping : null;
+
+    /// <summary>Every stored mapping, as the API and the web UI list them.</summary>
+    public IReadOnlyDictionary<string, EventMapping> GetEventMappings() => _eventMappings.EventMappings;
+
+    /// <summary>
+    /// Maps a pattern to an event that has none. Existing events are the update path, so this
+    /// refuses rather than overwriting one.
+    /// </summary>
+    public EventMappingChange AddEventMapping(EventMapping mapping)
+    {
+        lock (_editLock)
+        {
+            if (_eventMappings.EventMappings.ContainsKey(mapping.EventType))
+            {
+                return EventMappingChange.Conflict(
+                    $"A pattern is already mapped to event '{mapping.EventType}'");
+            }
+
+            var edited = CopyMappings();
+            edited[mapping.EventType] = mapping;
+
+            return ApplyAndPersist(edited);
+        }
+    }
+
+    /// <summary>
+    /// Replaces the pattern mapped to an existing event. <paramref name="enabled"/> left null keeps
+    /// whatever the mapping already had.
+    /// </summary>
+    public EventMappingChange UpdateEventMapping(string eventType, HapticPattern pattern, bool? enabled = null)
+    {
+        lock (_editLock)
+        {
+            if (!_eventMappings.EventMappings.TryGetValue(eventType, out var existing))
+            {
+                return EventMappingChange.NotFound($"No pattern is mapped to event '{eventType}'");
+            }
+
+            var edited = CopyMappings();
+            edited[eventType] = new EventMapping
+            {
+                EventType = eventType,
+                Pattern = pattern,
+                Enabled = enabled ?? existing.Enabled
+            };
+
+            return ApplyAndPersist(edited);
+        }
+    }
+
+    /// <summary>Unmaps an event. Removing what was never there is a failure, not a no-op success.</summary>
+    public EventMappingChange RemoveEventMapping(string eventType)
+    {
+        lock (_editLock)
+        {
+            if (!_eventMappings.EventMappings.ContainsKey(eventType))
+            {
+                return EventMappingChange.NotFound($"No pattern is mapped to event '{eventType}'");
+            }
+
+            var edited = CopyMappings();
+            edited.Remove(eventType);
+
+            return ApplyAndPersist(edited);
+        }
+    }
+
+    /// <summary>
+    /// Copy on write: playback reads the mappings on its own threads, so an edit builds a new
+    /// dictionary rather than mutating the one being read.
+    /// </summary>
+    private Dictionary<string, EventMapping> CopyMappings() => new(_eventMappings.EventMappings);
+
+    /// <summary>
+    /// Publishes the edited mappings and writes them out. A failed write puts the previous mappings
+    /// back, so a caller is never told about an edit that neither the process nor the file kept.
+    /// </summary>
+    private EventMappingChange ApplyAndPersist(Dictionary<string, EventMapping> edited)
+    {
+        var previous = _eventMappings;
+        UpdateEventMappings(new EventMappingsConfig { EventMappings = edited });
+
+        var error = TryWriteEventMappings(MappingsFilePath);
+        if (error != null)
+        {
+            UpdateEventMappings(previous);
+            return EventMappingChange.NotPersisted(error);
+        }
+
+        return EventMappingChange.Applied();
     }
 }
