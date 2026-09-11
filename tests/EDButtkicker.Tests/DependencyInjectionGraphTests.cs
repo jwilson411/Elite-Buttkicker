@@ -303,11 +303,13 @@ public sealed class WebUiTestServerFixture : IDisposable
                 // The one composition root, exactly as Program registers it.
                 services.AddEliteButtkicker(settings);
 
-                // The only redirections, both for the same reason: state these routes persist goes
+                // The only redirections, all for the same reason: state these routes persist goes
                 // to a temp directory, so probing them cannot mark a developer's own first run as
-                // done or rewrite their pattern selections.
+                // done, rewrite their pattern selections, or edit their event mappings.
                 services.Replace(ServiceDescriptor.Singleton(
                     new SetupStateService(NullLogger<SetupStateService>.Instance, _setupStateDir.Path)));
+                services.Replace(ServiceDescriptor.Singleton(
+                    new UserSettingsService(NullLogger<UserSettingsService>.Instance, _setupStateDir.Path)));
                 services.Replace(ServiceDescriptor.Singleton(
                     new PatternSelectionService(
                         NullLogger<PatternSelectionService>.Instance, _patternSelectionDir.Path)));

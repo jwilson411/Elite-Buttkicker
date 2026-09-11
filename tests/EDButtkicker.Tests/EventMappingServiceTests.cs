@@ -32,7 +32,8 @@ public class EventMappingServiceTests : IDisposable
         var sequencer = new PatternSequencer(NullLogger<PatternSequencer>.Instance, _audio, _contextualIntelligence);
 
         _service = new EventMappingService(
-            NullLogger<EventMappingService>.Instance, _audio, sequencer, _contextualIntelligence, _clock);
+            NullLogger<EventMappingService>.Instance, _audio, sequencer, _contextualIntelligence,
+            userSettings, _clock);
     }
 
     [Fact]

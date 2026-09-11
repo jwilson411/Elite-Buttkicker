@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
-using EDButtkicker.Configuration;
+using System.Text.Json.Serialization;
 using EDButtkicker.Hosting;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
@@ -17,6 +17,17 @@ namespace EDButtkicker.Controllers;
 [Route("api/patterns")]
 public class PatternApiController : ControllerBase
 {
+    /// <summary>
+    /// How a pattern arrives from the page and leaves again: camelCase names read case
+    /// insensitively, enums by name, and the shared request depth cap.
+    /// </summary>
+    private static readonly JsonSerializerOptions PatternJson = new()
+    {
+        MaxDepth = RequestLimits.MaxJsonDepth,
+        PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter(allowIntegerValues: true) }
+    };
+
     private readonly ILogger<PatternApiController> _logger;
     private readonly EventMappingService _eventMapping;
     private readonly AudioEngineService _audioEngine;
@@ -41,50 +52,10 @@ public class PatternApiController : ControllerBase
 
         try
         {
-            var eventMappings = EventMappingsConfig.GetDefault();
-            var patterns = new Dictionary<string, object>();
-
-            foreach (var mapping in eventMappings.EventMappings)
-            {
-                patterns[mapping.Key] = new
-                {
-                    EventType = mapping.Value.EventType,
-                    Enabled = mapping.Value.Enabled,
-                    Pattern = new
-                    {
-                        Name = mapping.Value.Pattern.Name,
-                        PatternType = mapping.Value.Pattern.Pattern.ToString(),
-                        Frequency = mapping.Value.Pattern.Frequency,
-                        Duration = mapping.Value.Pattern.Duration,
-                        Intensity = mapping.Value.Pattern.Intensity,
-                        FadeIn = mapping.Value.Pattern.FadeIn,
-                        FadeOut = mapping.Value.Pattern.FadeOut,
-                        IntensityCurve = mapping.Value.Pattern.IntensityCurve.ToString(),
-                        EnableVoiceAnnouncement = mapping.Value.Pattern.EnableVoiceAnnouncement,
-                        VoiceMessage = mapping.Value.Pattern.VoiceMessage,
-                        EnableAudioCue = mapping.Value.Pattern.EnableAudioCue,
-                        AudioCueFile = mapping.Value.Pattern.AudioCueFile,
-                        IntensityFromDamage = mapping.Value.Pattern.IntensityFromDamage,
-                        MaxIntensity = mapping.Value.Pattern.MaxIntensity,
-                        MinIntensity = mapping.Value.Pattern.MinIntensity,
-                        ChainedPatterns = mapping.Value.Pattern.ChainedPatterns,
-                        Conditions = mapping.Value.Pattern.Conditions,
-                        Layers = mapping.Value.Pattern.Layers?.Select(l => new
-                        {
-                            Waveform = l.Waveform.ToString(),
-                            Frequency = l.Frequency,
-                            Amplitude = l.Amplitude,
-                            Curve = l.Curve.ToString(),
-                            PhaseOffset = l.PhaseOffset
-                        }),
-                        CustomCurvePoints = mapping.Value.Pattern.CustomCurvePoints?.Select(p => new
-                        {
-                            Time = p.Time,
-                            Intensity = p.Intensity
-                        })
-                    }
-                };
-            }
+            // The live mappings, not the built-in catalogue: a pattern created, updated or deleted
+            // through this controller has to be what the page lists afterwards.
+            var patterns = _eventMapping.GetEventMappings()
+                .ToDictionary(entry => entry.Key, entry => DescribeMapping(entry.Value));
 
             var response = new
             {
@@ -116,6 +87,11 @@ public class PatternApiController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Maps a pattern to an event that has none, and writes the mappings out. An event that is
+    /// already mapped answers 409: PUT is the path for an existing one, so a create never silently
+    /// replaces a pattern the caller did not know was there.
+    /// </summary>
     [HttpPost]
     public async Task CreatePattern()
     {
@@ -129,41 +105,86 @@ public class PatternApiController : ControllerBase
                 return;
             }
 
-            if (!BoundedRequestReader.TryDeserialize<Dictionary<string, object>>(json, out var patternData) ||
-                patternData == null)
+            if (!BoundedRequestReader.TryParseDocument(json, out var body) ||
+                body.ValueKind != JsonValueKind.Object)
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Invalid JSON format" }));
+                await WriteJsonAsync(context, StatusCodes.Status400BadRequest, new { error = "Invalid JSON format" });
                 return;
             }
 
-            if (!patternData.ContainsKey("eventType") || !patternData.ContainsKey("pattern"))
+            if (!body.TryGetProperty("eventType", out var eventTypeElement) ||
+                !body.TryGetProperty("pattern", out var patternElement))
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Missing required fields: eventType, pattern" }));
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Missing required fields: eventType, pattern" });
                 return;
             }
 
-            var eventType = patternData["eventType"].ToString();
-            var patternJson = patternData["pattern"].ToString();
-            
-            if (string.IsNullOrEmpty(eventType) || string.IsNullOrEmpty(patternJson))
+            var eventType = eventTypeElement.ValueKind == JsonValueKind.String
+                ? eventTypeElement.GetString()
+                : null;
+
+            if (string.IsNullOrWhiteSpace(eventType))
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "EventType and pattern cannot be empty" }));
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "EventType and pattern cannot be empty" });
                 return;
             }
 
-            // For now, return success - actual pattern creation would require extending EventMappingsConfig
-            _logger.LogInformation("Pattern creation requested for event: {EventType}", eventType);
+            if (eventType.Length > RequestLimits.MaxStringLength)
+            {
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = $"EventType must not exceed {RequestLimits.MaxStringLength} characters" });
+                return;
+            }
 
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
+            if (!TryReadPattern(patternElement, out var pattern, out var patternErrors))
+            {
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Invalid pattern definition", errors = patternErrors });
+                return;
+            }
+
+            var change = _eventMapping.AddEventMapping(new EventMapping
+            {
+                EventType = eventType,
+                Pattern = pattern!,
+                Enabled = ReadEnabled(body) ?? true
+            });
+
+            if (!change.IsApplied)
+            {
+                await WriteChangeFailureAsync(context, change);
+                return;
+            }
+
+            // Read back what was stored instead of echoing the request: the response describes the
+            // mapping the service actually kept.
+            var stored = _eventMapping.GetEventMapping(eventType);
+            if (stored == null)
+            {
+                _logger.LogError("Pattern for {EventType} was created but could not be read back", eventType);
+                await ApiError.WriteAsync(context, 500, "The pattern was not stored");
+                return;
+            }
+
+            _logger.LogInformation("Created the pattern mapping for event: {EventType}", eventType);
+
+            await WriteJsonAsync(context, StatusCodes.Status201Created, new
+            {
+                success = true,
                 message = $"Pattern for {eventType} created successfully",
-                eventType = eventType
-            }));
+                eventType,
+                mapping = DescribeMapping(stored)
+            });
         }
         catch (Exception ex)
         {
@@ -172,6 +193,13 @@ public class PatternApiController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Replaces the pattern mapped to an existing event, and writes the mappings out. An event with
+    /// no mapping answers 404: update has a target or it has nothing to do.
+    /// The body is either the pattern itself or the same { eventType, pattern } envelope POST takes
+    /// - a "pattern" that is an object marks the envelope, since on a bare pattern that field is the
+    /// pattern type name.
+    /// </summary>
     [HttpPut("{eventType}")]
     public async Task UpdatePattern(string eventType)
     {
@@ -179,10 +207,12 @@ public class PatternApiController : ControllerBase
 
         try
         {
-            if (string.IsNullOrEmpty(eventType))
+            if (string.IsNullOrWhiteSpace(eventType))
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Event type is required" }));
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Event type is required" });
                 return;
             }
 
@@ -192,15 +222,66 @@ public class PatternApiController : ControllerBase
                 return;
             }
 
-            _logger.LogInformation("Pattern update requested for event: {EventType}", eventType);
+            if (!BoundedRequestReader.TryParseDocument(json, out var body) ||
+                body.ValueKind != JsonValueKind.Object)
+            {
+                await WriteJsonAsync(context, StatusCodes.Status400BadRequest, new { error = "Invalid JSON format" });
+                return;
+            }
 
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
+            var patternElement = body;
+
+            if (body.TryGetProperty("pattern", out var envelope) && envelope.ValueKind == JsonValueKind.Object)
+            {
+                patternElement = envelope;
+
+                // An envelope naming a different event would edit something other than the event in
+                // the route. Refuse it rather than guessing which of the two the caller meant.
+                if (body.TryGetProperty("eventType", out var bodyEventType) &&
+                    bodyEventType.ValueKind == JsonValueKind.String &&
+                    !string.Equals(bodyEventType.GetString(), eventType, StringComparison.Ordinal))
+                {
+                    await WriteJsonAsync(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        new { error = "The eventType in the body must match the one in the URL" });
+                    return;
+                }
+            }
+
+            if (!TryReadPattern(patternElement, out var pattern, out var patternErrors))
+            {
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Invalid pattern definition", errors = patternErrors });
+                return;
+            }
+
+            var change = _eventMapping.UpdateEventMapping(eventType, pattern!, ReadEnabled(body));
+            if (!change.IsApplied)
+            {
+                await WriteChangeFailureAsync(context, change);
+                return;
+            }
+
+            var stored = _eventMapping.GetEventMapping(eventType);
+            if (stored == null)
+            {
+                _logger.LogError("Pattern for {EventType} was updated but could not be read back", eventType);
+                await ApiError.WriteAsync(context, 500, "The pattern was not stored");
+                return;
+            }
+
+            _logger.LogInformation("Updated the pattern mapping for event: {EventType}", eventType);
+
+            await WriteJsonAsync(context, StatusCodes.Status200OK, new
+            {
+                success = true,
                 message = $"Pattern for {eventType} updated successfully",
-                eventType = eventType
-            }));
+                eventType,
+                mapping = DescribeMapping(stored)
+            });
         }
         catch (Exception ex)
         {
@@ -209,6 +290,10 @@ public class PatternApiController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Unmaps an event and writes the mappings out. An event with no mapping answers 404 - deleting
+    /// nothing is not a success.
+    /// </summary>
     [HttpDelete("{eventType}")]
     public async Task DeletePattern(string eventType)
     {
@@ -216,22 +301,39 @@ public class PatternApiController : ControllerBase
 
         try
         {
-            if (string.IsNullOrEmpty(eventType))
+            if (string.IsNullOrWhiteSpace(eventType))
             {
-                context.Response.StatusCode = 400;
-                await context.Response.WriteAsync(JsonSerializer.Serialize(new { error = "Event type is required" }));
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Event type is required" });
                 return;
             }
 
-            _logger.LogInformation("Pattern deletion requested for event: {EventType}", eventType);
+            var change = _eventMapping.RemoveEventMapping(eventType);
+            if (!change.IsApplied)
+            {
+                await WriteChangeFailureAsync(context, change);
+                return;
+            }
 
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-            { 
-                success = true, 
+            // Read back: the event has to be gone from the live mappings before the response says so.
+            if (_eventMapping.GetEventMapping(eventType) != null)
+            {
+                _logger.LogError("Pattern for {EventType} was deleted but is still mapped", eventType);
+                await ApiError.WriteAsync(context, 500, "The pattern was not removed");
+                return;
+            }
+
+            _logger.LogInformation("Deleted the pattern mapping for event: {EventType}", eventType);
+
+            await WriteJsonAsync(context, StatusCodes.Status200OK, new
+            {
+                success = true,
                 message = $"Pattern for {eventType} deleted successfully",
-                eventType = eventType
-            }));
+                eventType,
+                remainingPatterns = _eventMapping.GetEventMappings().Count
+            });
         }
         catch (Exception ex)
         {
@@ -295,16 +397,16 @@ public class PatternApiController : ControllerBase
                 }
             }
 
-            // If no custom pattern, use the default for this event type
+            // If no custom pattern, play the one currently mapped to this event type
             if (patternToTest == null)
             {
-                var eventMappings = EventMappingsConfig.GetDefault();
-                if (!eventMappings.EventMappings.TryGetValue(eventType, out var eventMapping))
+                var eventMapping = _eventMapping.GetEventMapping(eventType);
+                if (eventMapping == null)
                 {
                     context.Response.StatusCode = 404;
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(new 
-                    { 
-                        error = $"Pattern not found for event type: {eventType}" 
+                    await context.Response.WriteAsync(JsonSerializer.Serialize(new
+                    {
+                        error = $"Pattern not found for event type: {eventType}"
                     }));
                     return;
                 }
@@ -313,12 +415,6 @@ public class PatternApiController : ControllerBase
 
             // Test the pattern
             await _audioEngine.PlayHapticPattern(patternToTest, testEvent);
-            
-            // Test voice feedback if enabled
-            if (patternToTest.EnableVoiceAnnouncement)
-            {
-                // Voice testing would go here when service supports it
-            }
 
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(JsonSerializer.Serialize(new 
@@ -417,6 +513,122 @@ public class PatternApiController : ControllerBase
         }
     }
     
+    /// <summary>
+    /// One mapping in the shape every response here uses, so the list, a create, an update and a
+    /// read back all describe a pattern the same way.
+    /// </summary>
+    private static object DescribeMapping(EventMapping mapping) => new
+    {
+        EventType = mapping.EventType,
+        Enabled = mapping.Enabled,
+        Pattern = new
+        {
+            Name = mapping.Pattern.Name,
+            PatternType = mapping.Pattern.Pattern.ToString(),
+            Frequency = mapping.Pattern.Frequency,
+            Duration = mapping.Pattern.Duration,
+            Intensity = mapping.Pattern.Intensity,
+            FadeIn = mapping.Pattern.FadeIn,
+            FadeOut = mapping.Pattern.FadeOut,
+            IntensityCurve = mapping.Pattern.IntensityCurve.ToString(),
+            EnableVoiceAnnouncement = mapping.Pattern.EnableVoiceAnnouncement,
+            VoiceMessage = mapping.Pattern.VoiceMessage,
+            EnableAudioCue = mapping.Pattern.EnableAudioCue,
+            AudioCueFile = mapping.Pattern.AudioCueFile,
+            IntensityFromDamage = mapping.Pattern.IntensityFromDamage,
+            MaxIntensity = mapping.Pattern.MaxIntensity,
+            MinIntensity = mapping.Pattern.MinIntensity,
+            ChainedPatterns = mapping.Pattern.ChainedPatterns,
+            Conditions = mapping.Pattern.Conditions,
+            Layers = mapping.Pattern.Layers?.Select(l => new
+            {
+                Waveform = l.Waveform.ToString(),
+                Frequency = l.Frequency,
+                Amplitude = l.Amplitude,
+                Curve = l.Curve.ToString(),
+                PhaseOffset = l.PhaseOffset
+            }),
+            CustomCurvePoints = mapping.Pattern.CustomCurvePoints?.Select(p => new
+            {
+                Time = p.Time,
+                Intensity = p.Intensity
+            })
+        }
+    };
+
+    /// <summary>
+    /// Deserializes a pattern from request JSON and holds it to the same content limits as an
+    /// imported one. False means <paramref name="errors"/> says what is wrong with it, and nothing
+    /// has been stored.
+    /// </summary>
+    private static bool TryReadPattern(
+        JsonElement element,
+        out HapticPattern? pattern,
+        out IReadOnlyList<string> errors)
+    {
+        pattern = null;
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            errors = new[] { "A pattern must be a JSON object" };
+            return false;
+        }
+
+        try
+        {
+            pattern = element.Deserialize<HapticPattern>(PatternJson);
+        }
+        catch (JsonException)
+        {
+            errors = new[] { "The pattern could not be read" };
+            return false;
+        }
+
+        if (pattern == null)
+        {
+            errors = new[] { "The pattern could not be read" };
+            return false;
+        }
+
+        var limitErrors = PatternLimitsGuard.Validate(pattern);
+        if (limitErrors.Count > 0)
+        {
+            pattern = null;
+            errors = limitErrors;
+            return false;
+        }
+
+        errors = Array.Empty<string>();
+        return true;
+    }
+
+    /// <summary>The optional enabled flag on a request body; null when the caller did not send one.</summary>
+    private static bool? ReadEnabled(JsonElement body) =>
+        body.TryGetProperty("enabled", out var enabled) &&
+        enabled.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? enabled.GetBoolean()
+            : null;
+
+    /// <summary>The one place a refused mapping edit becomes a status code.</summary>
+    private static Task WriteChangeFailureAsync(HttpContext context, EventMappingChange change) =>
+        ApiError.WriteAsync(
+            context,
+            change.Status switch
+            {
+                EventMappingChangeStatus.Conflict => StatusCodes.Status409Conflict,
+                EventMappingChangeStatus.NotFound => StatusCodes.Status404NotFound,
+                _ => StatusCodes.Status500InternalServerError
+            },
+            change.Error ?? "The pattern could not be changed");
+
+    private static Task WriteJsonAsync(HttpContext context, int statusCode, object payload)
+    {
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+
+        return context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+    }
+
     private HapticPattern CreateCustomTestPattern(string eventType, Dictionary<string, object> parameters)
     {
         var pattern = new HapticPattern
