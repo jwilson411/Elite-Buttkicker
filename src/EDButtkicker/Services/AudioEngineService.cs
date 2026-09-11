@@ -33,10 +33,10 @@ public class AudioEngineService : IDisposable
     private string? _activeDeviceName;
     private string? _lastPlaybackError;
     private DateTime? _lastPlaybackAtUtc;
-    // The actual mixer input for each effect, not a recast of it: removing an input and ramping it
-    // down both need the object the mixer is really reading from.
-    private readonly Dictionary<string, ReleaseEnvelopeSampleProvider> _activeEffects = new();
-    private readonly Dictionary<string, CancellationTokenSource> _activeCancellations = new();
+    // One registry, not two parallel maps: the mixer input, its cancellation and its scheduled
+    // cleanup belong to the same effect, so they are added and removed as a single entry and cannot
+    // drift apart.
+    private readonly Dictionary<string, ActiveEffect> _activeEffects = new();
 
     /// <summary>
     /// The catalog and the output factory are optional so the tests that only need playback
@@ -200,21 +200,30 @@ public class AudioEngineService : IDisposable
             return Task.FromResult(RecordPlaybackFailure(reason));
         }
 
+        // Read once, under the lock: a concurrent Reinitialize replaces this field, and re-reading
+        // it below would turn that race into a NullReferenceException out of a call that is
+        // documented never to throw.
+        IWavePlayer? output;
+        lock (_lock)
+        {
+            output = _waveOut;
+        }
+
         // Check if wave output is still valid
-        if (_waveOut == null)
+        if (output == null)
         {
             _logger.LogError("❌ Wave output is null, cannot play pattern: {PatternName}", pattern.Name);
             return Task.FromResult(RecordPlaybackFailure("The audio output was closed, so nothing could be played."));
         }
 
-        var playbackState = _waveOut.PlaybackState;
+        var playbackState = output.PlaybackState;
         if (playbackState != PlaybackState.Playing)
         {
             _logger.LogWarning("⚠ Wave output not in playing state ({PlaybackState}), attempting to restart for pattern: {PatternName}",
                 playbackState, pattern.Name);
             try
             {
-                _waveOut.Play();
+                output.Play();
                 _logger.LogDebug("✓ Wave output restarted successfully");
             }
             catch (Exception ex)
@@ -257,37 +266,44 @@ public class AudioEngineService : IDisposable
             // The envelope only attenuates, so the safety limiter inside the factory still holds.
             var mixerInput = new ReleaseEnvelopeSampleProvider(sampleProvider, HapticEnvelope.ReleaseMilliseconds);
 
-            // Published under the same lock as the mixer input below, so a concurrent stop that
-            // sees the effect always sees its cancellation too and cannot leave the scheduled
-            // cleanup running against an input it has already removed.
-            var cancellationSource = new CancellationTokenSource();
+            // The cancellation is part of the registry entry, so a concurrent stop that sees the
+            // effect always sees its cancellation too and cannot leave the scheduled cleanup
+            // running against an input it has already removed.
+            var effect = new ActiveEffect(mixerInput, new CancellationTokenSource());
+
+            // Taken before the effect is published: once another thread can stop it, the source can
+            // be disposed, and reading Token from a disposed source throws.
+            var cleanupToken = effect.Cancellation.Token;
 
             lock (_lock)
             {
-                _activeEffects[effectId] = mixerInput;
-                _activeCancellations[effectId] = cancellationSource;
-
                 try
                 {
                     _mixer?.AddMixerInput(mixerInput);
-                    _logger.LogDebug("✓ Added sample provider to mixer successfully. Active effects: {Count}", _activeEffects.Count);
                 }
                 catch (Exception ex)
                 {
+                    // Nothing was registered yet, so the failed effect leaves no entry behind - the
+                    // registry never names an input the mixer is not reading.
                     _logger.LogError(ex, "❌ Failed to add sample provider to mixer");
+                    effect.Discard();
                     throw;
                 }
+
+                _activeEffects[effectId] = effect;
+                _logger.LogDebug("✓ Added sample provider to mixer successfully. Active effects: {Count}", _activeEffects.Count);
             }
 
             var cleanupDelay = pattern.Duration + pattern.FadeOut + 100;
             _logger.LogDebug("Scheduling cleanup for effect {EffectId} in {CleanupDelay}ms", effectId, cleanupDelay);
 
-            // Schedule cleanup after pattern duration
-            _ = Task.Run(async () =>
+            // Schedule cleanup after pattern duration. The handle is kept on the entry rather than
+            // discarded, so the scheduled work for an effect is observable from the registry.
+            var cleanupTask = Task.Run(async () =>
             {
                 try
                 {
-                    await Task.Delay(cleanupDelay, cancellationSource.Token);
+                    await Task.Delay(cleanupDelay, cleanupToken);
                     CleanupEffect(effectId);
                 }
                 catch (OperationCanceledException)
@@ -299,7 +315,14 @@ public class AudioEngineService : IDisposable
                     _logger.LogError(ex, "Error during scheduled cleanup for effect {EffectId}", effectId);
                 }
             });
-            
+
+            lock (_lock)
+            {
+                // The effect may already have been stopped and removed by now; recording the handle
+                // on an entry nobody holds is harmless, and the live entry gets it either way.
+                effect.Cleanup = cleanupTask;
+            }
+
             _logger.LogDebug("✓ Successfully initiated playback for pattern '{PatternName}' with effect ID: {EffectId}", pattern.Name, effectId);
         }
         catch (Exception ex)
@@ -351,30 +374,31 @@ public class AudioEngineService : IDisposable
         return Math.Min(scaledIntensity, _settings.Audio.MaxIntensity);
     }
 
+    /// <summary>
+    /// Tears one effect down. Taking the entry out of the registry is the only way in, so cleaning
+    /// the same id up twice - a scheduled cleanup arriving after a manual stop already removed the
+    /// effect - is a no-op rather than a second cancel and dispose of the same token source.
+    /// </summary>
     private void CleanupEffect(string effectId)
     {
         lock (_lock)
         {
-            if (_activeEffects.TryGetValue(effectId, out var mixerInput))
+            if (!_activeEffects.Remove(effectId, out var effect))
             {
-                try
-                {
-                    _mixer?.RemoveMixerInput(mixerInput);
-                    _activeEffects.Remove(effectId);
-                    _logger.LogDebug("Cleaned up audio effect: {EffectId}", effectId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error cleaning up audio effect: {EffectId}", effectId);
-                }
+                return;
             }
 
-            if (_activeCancellations.TryGetValue(effectId, out var cancellation))
+            try
             {
-                cancellation.Cancel();
-                cancellation.Dispose();
-                _activeCancellations.Remove(effectId);
+                _mixer?.RemoveMixerInput(effect.MixerInput);
+                _logger.LogDebug("Cleaned up audio effect: {EffectId}", effectId);
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error cleaning up audio effect: {EffectId}", effectId);
+            }
+
+            effect.Discard();
         }
     }
 
@@ -415,14 +439,10 @@ public class AudioEngineService : IDisposable
             var stopped = _activeEffects.Count;
             _logger.LogInformation("Stopping all active audio effects ({Count})", stopped);
 
-            foreach (var cancellation in _activeCancellations.Values)
-            {
-                cancellation.Cancel();
-            }
-
             foreach (var effect in _activeEffects.Values)
             {
-                effect.BeginRelease();
+                effect.CancelCleanup();
+                effect.MixerInput.BeginRelease();
             }
 
             return stopped;
@@ -431,7 +451,9 @@ public class AudioEngineService : IDisposable
 
     /// <summary>
     /// Drops everything the mixer is reading and forgets the bookkeeping. Called once the release
-    /// ramp has had its interval, so the inputs being removed are already silent.
+    /// ramp has had its interval, so the inputs being removed are already silent. Emptying an
+    /// already empty registry is a no-op, so this is safe to call from the stop, reinitialize and
+    /// dispose paths in any order.
     /// </summary>
     private void RemoveAllReleasedEffects()
     {
@@ -439,17 +461,11 @@ public class AudioEngineService : IDisposable
         {
             foreach (var effect in _activeEffects.Values)
             {
-                _mixer?.RemoveMixerInput(effect);
+                _mixer?.RemoveMixerInput(effect.MixerInput);
+                effect.Discard();
             }
 
             _activeEffects.Clear();
-
-            foreach (var cancellation in _activeCancellations.Values)
-            {
-                cancellation.Dispose();
-            }
-
-            _activeCancellations.Clear();
 
             // Clear mixer
             _mixer?.RemoveAllMixerInputs();
@@ -486,14 +502,9 @@ public class AudioEngineService : IDisposable
             _initializationFailed = false;
             _lastInitializationError = null;
             
-            // Clear active cancellations
-            foreach (var cancellation in _activeCancellations.Values)
-            {
-                cancellation.Cancel();
-                cancellation.Dispose();
-            }
-            _activeCancellations.Clear();
-            _activeEffects.Clear();
+            // Anything the stop above raced with - an effect started while it was ramping out - is
+            // cancelled and forgotten here, against the mixer that is about to be replaced.
+            RemoveAllReleasedEffects();
 
             // Initialize with new settings
             Initialize();
@@ -707,20 +718,80 @@ public class AudioEngineService : IDisposable
         _logger.LogDebug("=== End Detailed Audio Error Analysis ===");
     }
 
+    /// <summary>
+    /// One playing effect: the input the mixer is really reading from, the cancellation that stops
+    /// its scheduled cleanup, and the handle to that scheduled cleanup. Held as a single registry
+    /// entry so the three cannot get out of step with each other. All of its state is read and
+    /// written under <see cref="_lock"/>.
+    /// </summary>
+    private sealed class ActiveEffect
+    {
+        private bool _disposed;
+
+        public ActiveEffect(ReleaseEnvelopeSampleProvider mixerInput, CancellationTokenSource cancellation)
+        {
+            MixerInput = mixerInput;
+            Cancellation = cancellation;
+        }
+
+        /// <summary>
+        /// The actual mixer input, not a recast of it: removing an input and ramping it down both
+        /// need the object the mixer is really reading from.
+        /// </summary>
+        public ReleaseEnvelopeSampleProvider MixerInput { get; }
+
+        public CancellationTokenSource Cancellation { get; }
+
+        /// <summary>
+        /// The scheduled cleanup for this effect, assigned as soon as it has been started. Completed
+        /// until then, so a caller that wants to observe the cleanup never waits on null.
+        /// </summary>
+        public Task Cleanup { get; set; } = Task.CompletedTask;
+
+        /// <summary>
+        /// Stops the scheduled cleanup. Tolerates an already-disposed source so the stop paths can
+        /// run in any order without a torn-down effect throwing at them.
+        /// </summary>
+        public void CancelCleanup()
+        {
+            if (_disposed) return;
+
+            try
+            {
+                Cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already torn down by another path; there is nothing left to cancel.
+            }
+        }
+
+        /// <summary>
+        /// Cancels and releases the cancellation source exactly once, however many times it is
+        /// called. Only the caller that removed this entry from the registry gets here.
+        /// </summary>
+        public void Discard()
+        {
+            if (_disposed) return;
+
+            CancelCleanup();
+            _disposed = true;
+            Cancellation.Dispose();
+        }
+    }
+
     public void Dispose()
     {
         _logger.LogInformation("Disposing Audio Engine");
         
         StopAllEffects();
-        
+
         _waveOut?.Stop();
         _waveOut?.Dispose();
-        
-        foreach (var cancellation in _activeCancellations.Values)
-        {
-            cancellation.Dispose();
-        }
-        _activeCancellations.Clear();
+
+        // StopAllEffects has normally emptied the registry already; this catches anything that
+        // started while it was running and is a no-op otherwise.
+        RemoveAllReleasedEffects();
     }
 }
 
