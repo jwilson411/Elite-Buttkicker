@@ -1,0 +1,40 @@
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      nuget-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "priority:p2"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "priority:p2"
+
+  - package-ecosystem: "npm"
+    directory: "/tests/EDButtkicker.Tests/js"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-test-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    labels:
+      - "type:chore"
+      - "priority:p2"

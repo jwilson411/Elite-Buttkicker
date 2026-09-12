@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in Elite-Buttkicker isn't working as expected
+labels: ["type:story", "priority:p2"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out as much of this as you can — it speeds up
+        triage a lot for a single-maintainer project.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: App version (release ZIP filename, e.g. Elite-Buttkicker-v1.1.0-win-x64.zip) or commit SHA if built from source
+      placeholder: v1.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System / Architecture
+      options:
+        - Windows x64
+        - Windows ARM64
+        - Windows x86
+        - Other / building from source on Linux or macOS
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include the exact journal event name if this is about a specific in-game event.
+      placeholder: |
+        ## Why
+        <what's broken, and why it matters>
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / journal snippet
+      description: Redact anything personally identifying (Cmdr name, etc.) before pasting journal content.
+      render: shell

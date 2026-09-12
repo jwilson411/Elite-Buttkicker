@@ -1,0 +1,30 @@
+name: Chore
+description: Maintenance, tooling, dependency, or hygiene work with no user-facing behavior change
+labels: ["type:chore", "priority:p2"]
+body:
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What's out of date, missing, or risky, and why it matters. Cite specific files if relevant.
+      placeholder: |
+        ## Why
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      placeholder: |
+        ## Acceptance
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope
+      placeholder: |
+        ## Out
+        - ...

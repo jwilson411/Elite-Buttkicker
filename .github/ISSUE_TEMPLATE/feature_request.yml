@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a new event mapping, pattern, or capability
+labels: ["type:story", "priority:p2"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for a scoped, buildable piece of work (a story). For a bigger multi-part idea
+        that would need several issues, describe it here anyway — it can be split into an epic
+        during triage.
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What's missing or painful today, and why it matters. Cite specific files/behavior if you know the codebase.
+      placeholder: |
+        ## Why
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: Checklist of concrete, testable outcomes.
+      placeholder: |
+        ## Acceptance
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope
+      placeholder: |
+        ## Out
+        - ...
+  - type: input
+    id: persona
+    attributes:
+      label: Persona
+      description: Who benefits from this (e.g. "Windows Elite Dangerous player", "public contributor")
+    validations:
+      required: false
