@@ -513,7 +513,10 @@
                             </div>
                             <div class="info-item">
                                 <span class="label">Web Interface:</span>
-                                <span class="value">localhost:8080</span>
+                                <!-- Filled in at runtime from window.location: the page is served by
+                                     the very server it describes, so the address the user typed is
+                                     the only correct answer. A literal here has drifted before. -->
+                                <span class="value" id="webInterfaceAddress"></span>
                             </div>
                             <div class="info-item">
                                 <span class="label">API Status:</span>

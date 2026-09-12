@@ -1,5 +1,10 @@
 # Ship-Specific Haptic Patterns Implementation
 
+> **Historical design note - not current behaviour.** This file records how a feature was
+> implemented when it was written. Ports, file locations, console output and setup steps
+> described here have since changed. For how the application behaves today, see the repository
+> [README](../../README.md) and the code itself; this note is kept only for design history.
+
 ## Overview
 Implemented a comprehensive ship-specific pattern system that automatically switches haptic sequences based on the current ship being flown, addressing the issue where sounds work for one ship but are too long/short for others.
 

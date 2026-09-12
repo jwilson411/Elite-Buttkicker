@@ -7,7 +7,7 @@ A C# application that monitors Elite Dangerous journal files and generates bass 
 ## Features
 
 - **Real-time Journal Monitoring**: Watches Elite Dangerous journal files for game events
-- **Audio Device Selection**: Interactive console UI for choosing output audio device
+- **Audio Device Selection**: Choose the output audio device in the local web interface
 - **Configurable Patterns**: JSON-based event mapping with customizable haptic patterns
 - **Multiple Event Support**: FSDJump, Docking, Hull Damage, Targeting, and Explosions
 - **Bass-Optimized Audio**: 20-80Hz sine waves optimized for buttkicker hardware
@@ -41,9 +41,17 @@ The value must match the first value in the downloaded `.sha256` file. Windows m
    dotnet run --project src/EDButtkicker
    ```
 
-3. **Follow the setup prompts**:
+3. **Finish setup in the web interface**:
+
+   The application does not ask anything in the console. It starts straight away with the system
+   default audio device and an auto-detected journal folder, serves its interface on
+   <http://localhost:47811> (loopback only) and opens that address in your browser. If the browser
+   does not open, or you started the app over a remote session, open the address yourself on the
+   same machine.
+
+   In that interface:
    - Select your audio output device (buttkicker/subwoofer)
-   - Confirm Elite Dangerous journal path
+   - Confirm the Elite Dangerous journal path
    - Start Elite Dangerous and play!
 
 ## Configuration

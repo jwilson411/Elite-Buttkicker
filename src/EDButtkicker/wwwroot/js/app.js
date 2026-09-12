@@ -27,8 +27,19 @@ class ButtkickerApp {
         });
 
         // System status check
+        this.showWebInterfaceAddress();
         this.updateSystemStatus();
         setInterval(() => this.updateSystemStatus(), 10000); // Every 10 seconds
+    }
+
+    // The address shown under System Information is read off the live location rather than written
+    // into the markup: this page is served by the server it is describing, so whatever host and port
+    // the browser reached is the answer, whichever port the build listens on.
+    showWebInterfaceAddress() {
+        const address = document.getElementById('webInterfaceAddress');
+        if (!address) return;
+
+        address.textContent = window.location.host;
     }
 
     // Enter and Space are the button's own activation and already reach the click handler, so only
