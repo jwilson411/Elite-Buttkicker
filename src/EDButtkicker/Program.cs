@@ -26,13 +26,22 @@ class Program
         // Check for debug flag
         bool debugMode = args.Contains("--debug") || args.Contains("-d");
         bool helpMode = args.Contains("--help") || args.Contains("-h");
-        
+        bool versionMode = args.Contains("--version") || args.Contains("-v");
+
         if (helpMode)
         {
             ShowHelp();
             return;
         }
-        
+
+        // Answered before anything is built: CONTRIBUTING.md sends bug reporters here, and they
+        // should get a version back whether or not audio, the journal folder or the port are usable.
+        if (versionMode)
+        {
+            ShowVersion();
+            return;
+        }
+
         Console.WriteLine("Elite Dangerous Buttkicker Extension");
         Console.WriteLine("====================================");
         if (debugMode)
@@ -103,6 +112,7 @@ class Program
         Console.WriteLine("Options:");
         Console.WriteLine("  -d, --debug     Enable debug mode with detailed logging");
         Console.WriteLine("  -h, --help      Show this help message");
+        Console.WriteLine("  -v, --version   Print the build version and exit");
         Console.WriteLine();
         Console.WriteLine("Debug Mode:");
         Console.WriteLine("  When enabled, shows detailed information about:");
@@ -113,6 +123,15 @@ class Program
         Console.WriteLine();
         Console.WriteLine("Example: EDButtkicker --debug");
         Console.WriteLine();
+    }
+
+    /// <summary>
+    /// One line, machine-readable enough to paste into a bug report, from the assembly metadata
+    /// the release build stamps - see <see cref="BuildVersion"/>.
+    /// </summary>
+    static void ShowVersion()
+    {
+        Console.WriteLine($"EDButtkicker {BuildVersion.Current}");
     }
 
     static IHostBuilder CreateHostBuilder(string[] args, bool debugMode = false) =>
