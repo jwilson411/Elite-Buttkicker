@@ -14,6 +14,13 @@ namespace EDButtkicker;
 
 class Program
 {
+    /// <summary>
+    /// The address the console tells the user to open, built from the port the host actually binds
+    /// in <see cref="CreateHostBuilder"/>. One constant, so the printed address cannot drift from
+    /// the listener the way three hand-written port literals once did.
+    /// </summary>
+    private static readonly string WebUiAddress = $"http://localhost:{WebUiConfiguration.Port}";
+
     static async Task Main(string[] args)
     {
         // Check for debug flag
@@ -278,7 +285,7 @@ class Program
 
         Console.WriteLine("✓ Elite Dangerous Buttkicker Extension is running!");
         Console.WriteLine();
-        Console.WriteLine($"🌍 Web Interface: http://localhost:{WebUiConfiguration.Port}");
+        Console.WriteLine($"🌍 Web Interface: {WebUiAddress}");
         Console.WriteLine($"🎵 Audio: {(string.IsNullOrWhiteSpace(settings.Audio.AudioDeviceName) ? "System default device" : settings.Audio.AudioDeviceName)}");
         // Say what the journal folder actually is, and whether it is there - the old text claimed
         // auto-detection had worked no matter what.
@@ -309,7 +316,7 @@ class Program
         Console.WriteLine("│  • Interdicted/Interdiction (Interdiction events)");
         Console.WriteLine("└─");
         Console.WriteLine();
-        Console.WriteLine("🔧 Open http://localhost:47811 to configure audio device and test patterns");
+        Console.WriteLine($"🔧 Open {WebUiAddress} to configure audio device and test patterns");
         Console.WriteLine("⏹️  Press Ctrl+C to stop");
         Console.WriteLine();
     }
@@ -327,7 +334,7 @@ class Program
                 Console.WriteLine("🎵 Audio Configuration:");
                 Console.WriteLine("----------------------");
                 Console.WriteLine("✓ Using system default audio device");
-                Console.WriteLine("  (Can be changed via web interface at http://localhost:47811)");
+                Console.WriteLine($"  (Can be changed via web interface at {WebUiAddress})");
                 Console.WriteLine();
                 
                 // Still show device enumeration in debug mode

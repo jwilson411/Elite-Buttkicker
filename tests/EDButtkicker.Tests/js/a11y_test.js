@@ -33,7 +33,9 @@ virtualConsole.on('jsdomError', (error) => {
 });
 
 const html = fs.readFileSync(path.join(wwwroot, 'index.html'), 'utf8');
-const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'http://localhost:8080/', virtualConsole });
+// The address the page is loaded from is also the address it reports under System Information, so
+// this URL is what the "Web Interface" line below must end up showing.
+const dom = new JSDOM(html, { runScripts: 'dangerously', url: 'http://localhost:47811/', virtualConsole });
 const { window } = dom;
 const { document } = window;
 
@@ -202,6 +204,15 @@ equal(toasts[0].getAttribute('role'), 'status', 'a normal toast is a status');
 check(toasts[0].textContent.includes('Saved the thing'), 'the toast shows its message');
 equal(toasts[1].getAttribute('role'), 'alert', 'an error toast is an alert');
 check(toasts[1].textContent.includes('Could not reach the service'), 'the error toast shows its message');
+
+// ----- System information -----
+
+// The page used to state a port in its markup, and the literal drifted to one the application never
+// listened on. It is served by the server it describes, so the live location is the only answer.
+const webInterfaceAddress = document.getElementById('webInterfaceAddress');
+check(!!webInterfaceAddress, 'the System Information panel has a web interface address');
+equal(webInterfaceAddress.textContent, window.location.host,
+    'the web interface address is read from the live location, not baked into the markup');
 
 if (failures > 0) {
     console.error(`${failures} accessibility assertion(s) failed`);
