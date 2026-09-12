@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace EDButtkicker.Models;
 
 public enum PatternType
@@ -44,6 +46,16 @@ public class PatternLayer
     public int Duration { get; set; } = 0; // milliseconds (0 = use pattern duration)
     public int FadeIn { get; set; } = 0; // milliseconds
     public int FadeOut { get; set; } = 0; // milliseconds
+
+    // Pattern packs written against the first draft of patterns/schema.json name these two fields
+    // "intensity" and "delay", and every file under patterns/ still does. They are accepted on read
+    // and never written back, so an old pack keeps its meaning instead of silently collapsing to
+    // amplitude 1.0 at offset 0, while "amplitude"/"startTime" stay the canonical names.
+    [JsonPropertyName("intensity")]
+    public float LegacyIntensity { set => Amplitude = value; }
+
+    [JsonPropertyName("delay")]
+    public int LegacyDelay { set => StartTime = value; }
 
     public PatternLayer Clone() => new()
     {
