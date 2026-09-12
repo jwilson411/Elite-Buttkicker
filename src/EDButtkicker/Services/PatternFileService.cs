@@ -105,67 +105,79 @@ public class PatternFileService : IPatternCatalog, IDisposable
                 .ToList();
 
             var loadedCount = 0;
+            var retainedCount = 0;
             var errorCount = 0;
 
+            // The catalog in use is only replaced once the whole directory has been read, and a file
+            // that fails to load keeps the copy that was already indexed. A single bad edit must not
+            // take the other packs - or the previous version of that pack - out of playback.
+            Dictionary<string, PatternFile> previousFiles;
             lock (_lock)
             {
-                _loadedFiles.Clear();
-                _shipPatterns.Clear();
+                previousFiles = new Dictionary<string, PatternFile>(_loadedFiles);
             }
+
+            var reloadedFiles = new Dictionary<string, PatternFile>();
 
             foreach (var filePath in jsonFiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                var relativePath = Path.GetRelativePath(_patternsPath, filePath);
+                PatternFile? patternFile = null;
+
                 try
                 {
-                    var patternFile = await LoadPatternFileAsync(filePath, cancellationToken);
-                    if (patternFile != null)
-                    {
-                        lock (_lock)
-                        {
-                            var relativePath = Path.GetRelativePath(_patternsPath, filePath);
-                            _loadedFiles[relativePath] = patternFile;
-                            
-                            // Index patterns by ship type
-                            foreach (var ship in patternFile.Ships)
-                            {
-                                if (!_shipPatterns.ContainsKey(ship.Key))
-                                {
-                                    _shipPatterns[ship.Key] = new List<ShipPatternDefinition>();
-                                }
-                                
-                                _shipPatterns[ship.Key].Add(new ShipPatternDefinition
-                                {
-                                    ShipType = ship.Key,
-                                    DisplayName = ship.Value.DisplayName ?? ship.Key,
-                                    Class = ship.Value.Class ?? "medium",
-                                    Role = ship.Value.Role ?? "multipurpose",
-                                    Events = ship.Value.Events ?? new Dictionary<string, HapticPattern>(),
-                                    SourceFile = relativePath,
-                                    PackName = patternFile.Metadata.Name,
-                                    Author = patternFile.Metadata.Author,
-                                    Version = patternFile.Metadata.Version,
-                                    Tags = patternFile.Metadata.Tags ?? new List<string>()
-                                });
-                            }
-                        }
-                        loadedCount++;
-                    }
+                    patternFile = await LoadPatternFileAsync(filePath, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error loading pattern file: {FilePath}", filePath);
+                }
+
+                if (patternFile != null)
+                {
+                    reloadedFiles[relativePath] = patternFile;
+                    loadedCount++;
+                }
+                else if (previousFiles.TryGetValue(relativePath, out var lastKnownGood))
+                {
+                    _logger.LogWarning(
+                        "Keeping the last known-good version of pattern file {FilePath}; the version on disk was rejected",
+                        filePath);
+                    reloadedFiles[relativePath] = lastKnownGood;
+                    retainedCount++;
+                }
+                else
+                {
                     errorCount++;
                 }
             }
 
-            var totalShips = _shipPatterns.Values.Sum(list => list.Count);
-            var totalPatterns = _shipPatterns.Values.SelectMany(list => list).Sum(ship => ship.Events.Count);
-            
-            _logger.LogInformation("Loaded {LoadedFiles} pattern files with {Ships} ship definitions and {Patterns} total patterns. {Errors} errors.",
-                loadedCount, totalShips, totalPatterns, errorCount);
-                
+            int totalShips;
+            int totalPatterns;
+
+            lock (_lock)
+            {
+                _loadedFiles = reloadedFiles;
+                _shipPatterns = new Dictionary<string, List<ShipPatternDefinition>>();
+
+                foreach (var file in reloadedFiles)
+                {
+                    IndexPatternFile(file.Key, file.Value);
+                }
+
+                totalShips = _shipPatterns.Values.Sum(list => list.Count);
+                totalPatterns = _shipPatterns.Values.SelectMany(list => list).Sum(ship => ship.Events.Count);
+            }
+
+            _logger.LogInformation("Loaded {LoadedFiles} pattern files with {Ships} ship definitions and {Patterns} total patterns. {Retained} retained from the last known-good catalog, {Errors} errors.",
+                loadedCount, totalShips, totalPatterns, retainedCount, errorCount);
+
             NotifyPatternFilesChanged(PatternFileChangeType.Reload, null);
         }
         catch (OperationCanceledException)
@@ -185,16 +197,22 @@ public class PatternFileService : IPatternCatalog, IDisposable
         {
             var json = await _storage.ReadAllTextAsync(filePath, cancellationToken);
             var patternFile = JsonSerializer.Deserialize<PatternFile>(json, _jsonOptions);
-            
-            if (patternFile?.Metadata == null)
+
+            if (patternFile == null)
             {
-                _logger.LogWarning("Pattern file missing metadata: {FilePath}", filePath);
+                _logger.LogWarning("Pattern file contains no pattern pack: {FilePath}", filePath);
                 return null;
             }
 
-            if (patternFile.Ships == null || !patternFile.Ships.Any())
+            // Nothing reaches the catalog - and so nothing reaches playback - until it satisfies the
+            // schema the engine actually implements. A rejected file is named field by field, so its
+            // author can see what to edit rather than being told it is "invalid".
+            var errors = PatternSchemaValidator.Validate(patternFile);
+            if (errors.Count > 0)
             {
-                _logger.LogWarning("Pattern file contains no ships: {FilePath}", filePath);
+                _logger.LogWarning(
+                    "Rejected pattern file {FilePath}: {ErrorCount} schema violation(s): {Errors}",
+                    filePath, errors.Count, string.Join("; ", errors));
                 return null;
             }
 
@@ -511,43 +529,28 @@ public class PatternFileService : IPatternCatalog, IDisposable
         try
         {
             var relativePath = Path.GetRelativePath(_patternsPath, fullPath);
-            
-            // Remove old version
-            RemovePatternFile(fullPath);
-            
-            // Load new version
+
+            // Read and validate before anything is taken out of the catalog: if the new version is
+            // rejected, the version already indexed keeps playing instead of the ship losing its
+            // patterns until the file is fixed.
             var patternFile = await LoadPatternFileAsync(fullPath, cancellationToken);
-            if (patternFile != null)
+            if (patternFile == null)
             {
-                lock (_lock)
-                {
-                    _loadedFiles[relativePath] = patternFile;
-                    
-                    foreach (var ship in patternFile.Ships)
-                    {
-                        if (!_shipPatterns.ContainsKey(ship.Key))
-                        {
-                            _shipPatterns[ship.Key] = new List<ShipPatternDefinition>();
-                        }
-                        
-                        _shipPatterns[ship.Key].Add(new ShipPatternDefinition
-                        {
-                            ShipType = ship.Key,
-                            DisplayName = ship.Value.DisplayName ?? ship.Key,
-                            Class = ship.Value.Class ?? "medium",
-                            Role = ship.Value.Role ?? "multipurpose", 
-                            Events = ship.Value.Events ?? new Dictionary<string, HapticPattern>(),
-                            SourceFile = relativePath,
-                            PackName = patternFile.Metadata.Name,
-                            Author = patternFile.Metadata.Author,
-                            Version = patternFile.Metadata.Version,
-                            Tags = patternFile.Metadata.Tags ?? new List<string>()
-                        });
-                    }
-                }
-                
-                NotifyPatternFilesChanged(PatternFileChangeType.Updated, relativePath);
+                _logger.LogWarning(
+                    "Pattern file {FilePath} was rejected; the previously loaded version stays in the catalog",
+                    fullPath);
+                return;
             }
+
+            RemovePatternFile(fullPath);
+
+            lock (_lock)
+            {
+                _loadedFiles[relativePath] = patternFile;
+                IndexPatternFile(relativePath, patternFile);
+            }
+
+            NotifyPatternFilesChanged(PatternFileChangeType.Updated, relativePath);
         }
         catch (OperationCanceledException)
         {
@@ -556,6 +559,36 @@ public class PatternFileService : IPatternCatalog, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reloading pattern file: {FilePath}", fullPath);
+        }
+    }
+
+    /// <summary>
+    /// Indexes one already-validated file's ships. Callers hold <see cref="_lock"/>; the file itself
+    /// is registered in <see cref="_loadedFiles"/> by the caller, which knows whether it is building
+    /// a fresh catalog or updating the live one.
+    /// </summary>
+    private void IndexPatternFile(string relativePath, PatternFile patternFile)
+    {
+        foreach (var ship in patternFile.Ships)
+        {
+            if (!_shipPatterns.ContainsKey(ship.Key))
+            {
+                _shipPatterns[ship.Key] = new List<ShipPatternDefinition>();
+            }
+
+            _shipPatterns[ship.Key].Add(new ShipPatternDefinition
+            {
+                ShipType = ship.Key,
+                DisplayName = ship.Value.DisplayName ?? ship.Key,
+                Class = ship.Value.Class ?? "medium",
+                Role = ship.Value.Role ?? "multipurpose",
+                Events = ship.Value.Events ?? new Dictionary<string, HapticPattern>(),
+                SourceFile = relativePath,
+                PackName = patternFile.Metadata.Name,
+                Author = patternFile.Metadata.Author,
+                Version = patternFile.Metadata.Version,
+                Tags = patternFile.Metadata.Tags ?? new List<string>()
+            });
         }
     }
 
@@ -664,6 +697,12 @@ public class PatternFileService : IPatternCatalog, IDisposable
 // Supporting classes
 public class PatternFile
 {
+    /// <summary>
+    /// Which revision of <c>patterns/schema.json</c> the file was written against. Optional: a file
+    /// that does not say is read as v1, which is every pack written before the field existed.
+    /// </summary>
+    public string? SchemaVersion { get; set; }
+
     public PatternFileMetadata Metadata { get; set; } = new();
     public Dictionary<string, ShipPatternData> Ships { get; set; } = new();
 }

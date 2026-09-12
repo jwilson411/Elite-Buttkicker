@@ -1,32 +1,46 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Elite Dangerous Buttkicker Pattern File",
+  "$id": "https://github.com/jwilson411/Elite-Buttkicker/patterns/schema-v1.json",
+  "title": "Elite Dangerous Buttkicker Pattern File (schema v1)",
+  "description": "The one canonical description of a pattern pack. It describes the shape the runtime actually deserializes (EDButtkicker.Services.PatternFile / EDButtkicker.Models.HapticPattern) and the bounds the runtime actually enforces (EDButtkicker.Services.PatternSchemaValidator). A file that this schema accepts is a file the engine will index and play; anything it rejects is refused at load time with a field-by-field diagnostic. Keep the two in step - if a rule changes here, change it in PatternSchemaValidator, and the other way round.",
   "type": "object",
   "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^1(\\.\\d+)*$",
+      "description": "Revision of this schema the file targets. Optional: a file that omits it is read as v1."
+    },
     "metadata": {
       "type": "object",
       "properties": {
         "name": {
           "type": "string",
-          "description": "Name of the pattern pack"
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Name of the pattern pack (required: the pack is identified by it)"
         },
         "version": {
           "type": "string",
           "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "maxLength": 4096,
           "description": "Version in semantic format (e.g., 1.0.0)"
         },
         "author": {
           "type": "string",
+          "maxLength": 4096,
           "description": "Pattern creator/author"
         },
         "description": {
           "type": "string",
+          "maxLength": 4096,
           "description": "Description of the pattern pack"
         },
         "tags": {
           "type": "array",
+          "maxItems": 64,
           "items": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 4096
           },
           "description": "Tags for categorization (e.g., combat, exploration, cinematic)"
         },
@@ -44,12 +58,14 @@
     },
     "ships": {
       "type": "object",
+      "minProperties": 1,
+      "maxProperties": 128,
       "patternProperties": {
         "^[a-zA-Z0-9_]+$": {
           "$ref": "#/definitions/shipPatterns"
         }
       },
-      "description": "Ship patterns keyed by ship type (e.g., anaconda, sidewinder)"
+      "description": "Ship patterns keyed by ship type (e.g., anaconda, sidewinder). At least one ship is required."
     }
   },
   "required": ["metadata", "ships"],
@@ -59,6 +75,7 @@
       "properties": {
         "displayName": {
           "type": "string",
+          "maxLength": 4096,
           "description": "Human-readable ship name"
         },
         "class": {
@@ -67,18 +84,19 @@
           "description": "Ship size classification"
         },
         "role": {
-          "type": "string", 
+          "type": "string",
           "enum": ["combat", "exploration", "transport", "multipurpose"],
           "description": "Primary ship role"
         },
         "events": {
           "type": "object",
+          "maxProperties": 128,
           "patternProperties": {
             "^[a-zA-Z0-9_]+$": {
               "$ref": "#/definitions/hapticPattern"
             }
           },
-          "description": "Event patterns keyed by event name (e.g., FSDJump, Docked)"
+          "description": "Event patterns keyed by event name (e.g., FSDJump, Docked). May be empty - a ship with no events is a placeholder, not an error."
         }
       },
       "required": ["events"]
@@ -88,44 +106,45 @@
       "properties": {
         "name": {
           "type": "string",
+          "maxLength": 4096,
           "description": "Pattern name"
         },
         "pattern": {
           "type": "string",
-          "enum": ["Pulse", "SustainedRumble", "BuildupRumble", "SharpPulse", "Impact", "Fade", "Oscillating", "Sequence", "MultiLayer"],
-          "description": "Base pattern type"
+          "enum": ["SharpPulse", "BuildupRumble", "SustainedRumble", "Oscillating", "Impact", "Fade", "MultiLayer", "Sequence"],
+          "description": "Base pattern type (EDButtkicker.Models.PatternType). An unknown value is refused while the file is being parsed."
         },
         "frequency": {
           "type": "integer",
           "minimum": 10,
           "maximum": 100,
-          "description": "Base frequency in Hz"
+          "description": "Base frequency in Hz. Below 10Hz the transducer moves nothing a body feels; above 100Hz it is audible buzz."
         },
         "intensity": {
-          "type": "integer", 
-          "minimum": 0,
+          "type": "integer",
+          "minimum": 1,
           "maximum": 100,
-          "description": "Base intensity percentage"
+          "description": "Base intensity percentage. 0 is silence, which is never what an event pattern means."
         },
         "duration": {
           "type": "integer",
           "minimum": 50,
-          "maximum": 30000,
-          "description": "Pattern duration in milliseconds"
+          "maximum": 10000,
+          "description": "Pattern duration in milliseconds (RequestLimits.MaxPatternDurationMs caps the top end)"
         },
         "fadeIn": {
           "type": "integer",
           "minimum": 0,
           "maximum": 5000,
           "default": 0,
-          "description": "Fade in duration in milliseconds"
+          "description": "Fade in duration in milliseconds. fadeIn + fadeOut must not exceed duration, or the envelope has no sustain section left."
         },
         "fadeOut": {
           "type": "integer",
-          "minimum": 0, 
+          "minimum": 0,
           "maximum": 5000,
           "default": 0,
-          "description": "Fade out duration in milliseconds"
+          "description": "Fade out duration in milliseconds. fadeIn + fadeOut must not exceed duration."
         },
         "intensityFromDamage": {
           "type": "boolean",
@@ -137,10 +156,10 @@
           "minimum": 0,
           "maximum": 100,
           "default": 10,
-          "description": "Minimum intensity for damage scaling"
+          "description": "Minimum intensity for damage scaling; must not exceed maxIntensity"
         },
         "maxIntensity": {
-          "type": "integer", 
+          "type": "integer",
           "minimum": 0,
           "maximum": 100,
           "default": 100,
@@ -150,50 +169,45 @@
           "type": "string",
           "enum": ["Linear", "Exponential", "Logarithmic", "Sine", "Bounce", "Custom"],
           "default": "Linear",
-          "description": "Intensity curve type"
+          "description": "Intensity curve type (EDButtkicker.Models.IntensityCurve). Custom requires at least two customCurvePoints."
+        },
+        "waveform": {
+          "type": "string",
+          "enum": ["Sine", "Square", "Triangle", "Sawtooth", "Noise"],
+          "default": "Sine",
+          "description": "Waveform for the base pattern (EDButtkicker.Models.WaveformType)"
         },
         "customCurvePoints": {
           "type": "array",
+          "maxItems": 256,
           "items": {
-            "type": "object",
-            "properties": {
-              "time": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "description": "Time point (0-1)"
-              },
-              "intensity": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1,
-                "description": "Intensity at time point (0-1)"
-              }
-            },
-            "required": ["time", "intensity"]
+            "$ref": "#/definitions/curvePoint"
           },
-          "description": "Custom curve points for Custom intensity curve"
+          "description": "Custom curve points for the Custom intensity curve, ordered by ascending time"
         },
         "layers": {
           "type": "array",
+          "maxItems": 8,
           "items": {
             "$ref": "#/definitions/patternLayer"
           },
-          "description": "Layers for MultiLayer patterns"
+          "description": "Layers for MultiLayer and Sequence patterns"
         },
         "conditions": {
-          "type": "array", 
-          "items": {
-            "$ref": "#/definitions/patternCondition"
-          },
-          "description": "Conditions for conditional pattern execution"
+          "type": "object",
+          "maxProperties": 64,
+          "additionalProperties": true,
+          "description": "Conditional logic, as a property-name -> expected-value map (runtime: Dictionary<string, object>), e.g. { \"health_below\": 0.5 }. Not an array of comparison objects."
         },
         "chainedPatterns": {
           "type": "array",
+          "maxItems": 32,
           "items": {
-            "$ref": "#/definitions/hapticPattern"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
           },
-          "description": "Patterns to chain after this one"
+          "description": "Names of patterns to play after this one (runtime: List<string>). Patterns are chained by reference, not embedded."
         },
         "enableVoiceAnnouncement": {
           "type": "boolean",
@@ -202,62 +216,114 @@
         },
         "voiceMessage": {
           "type": "string",
+          "maxLength": 4096,
           "description": "Custom voice message"
+        },
+        "enableAudioCue": {
+          "type": "boolean",
+          "default": false,
+          "description": "Play an audio cue alongside the pattern"
+        },
+        "audioCueFile": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Path to the audio cue file"
         }
       },
       "required": ["name", "pattern", "frequency", "intensity", "duration"]
     },
     "patternLayer": {
-      "type": "object", 
+      "type": "object",
       "properties": {
+        "waveform": {
+          "type": "string",
+          "enum": ["Sine", "Square", "Triangle", "Sawtooth", "Noise"],
+          "default": "Sine",
+          "description": "Waveform type"
+        },
         "frequency": {
           "type": "integer",
           "minimum": 10,
           "maximum": 100,
           "description": "Layer frequency in Hz"
         },
+        "amplitude": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1,
+          "description": "Layer amplitude, 0-1. Canonical name; `intensity` is accepted as a legacy alias."
+        },
         "intensity": {
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "Layer intensity (0-1)"
+          "description": "Deprecated alias for `amplitude`, kept so packs written against the first draft of this schema keep working."
+        },
+        "startTime": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Milliseconds from the pattern start before this layer begins. Must be inside the pattern duration, or the layer is never heard. Canonical name; `delay` is accepted as a legacy alias."
         },
         "delay": {
           "type": "integer",
           "minimum": 0,
-          "description": "Layer start delay in milliseconds"
+          "description": "Deprecated alias for `startTime`."
         },
         "duration": {
-          "type": "integer", 
-          "minimum": 50,
-          "description": "Layer duration in milliseconds"
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Layer duration in milliseconds; 0 means run to the end of the pattern"
         },
-        "waveform": {
+        "fadeIn": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000,
+          "default": 0,
+          "description": "Layer fade in, milliseconds. fadeIn + fadeOut must fit inside the layer's span."
+        },
+        "fadeOut": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000,
+          "default": 0,
+          "description": "Layer fade out, milliseconds"
+        },
+        "curve": {
           "type": "string",
-          "enum": ["Sine", "Square", "Sawtooth", "Triangle", "Noise"],
-          "default": "Sine",
-          "description": "Waveform type"
+          "enum": ["Linear", "Exponential", "Logarithmic", "Sine", "Bounce", "Custom"],
+          "default": "Linear",
+          "description": "Intensity curve applied to this layer"
+        },
+        "phaseOffset": {
+          "type": "integer",
+          "minimum": -360,
+          "maximum": 360,
+          "default": 0,
+          "description": "Phase offset in degrees"
         }
       },
-      "required": ["frequency", "intensity", "duration"]
+      "required": ["frequency"]
     },
-    "patternCondition": {
+    "curvePoint": {
       "type": "object",
       "properties": {
-        "property": {
-          "type": "string",
-          "description": "Journal event property to check"
+        "time": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Time point as a fraction of the duration (0-1)"
         },
-        "operator": {
-          "type": "string",
-          "enum": ["equals", "not_equals", "greater_than", "less_than", "contains", "exists"],
-          "description": "Comparison operator"
-        },
-        "value": {
-          "description": "Value to compare against (string, number, or boolean)"
+        "intensity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Intensity at that time point, as a fraction of the pattern intensity (0-1)"
         }
       },
-      "required": ["property", "operator"]
+      "required": ["time", "intensity"]
     }
   }
 }

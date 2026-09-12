@@ -6,6 +6,17 @@ This directory contains JSON files that define haptic patterns for specific ship
 
 Each JSON file can contain patterns for one or more ships. Files are named `{ShipType}_{PatternSetName}.json` or `{CustomName}.json`.
 
+## Validation
+
+`schema.json` is the canonical description of a pattern pack: it documents the exact shape the
+runtime deserializes and the bounds the runtime enforces, and it is the same rule set
+`PatternSchemaValidator` applies before a file is indexed or played.
+
+A file that breaks a rule is refused with a diagnostic naming the field and the value
+(`ship 'anaconda' event 'HullDamage': frequency is 500Hz, outside the supported 10-100Hz range`),
+and the previously loaded version of that file - and every other pack - stays in the catalog. Fix
+the file and save it again; the watcher picks it up.
+
 ## Example Structure
 
 ```
