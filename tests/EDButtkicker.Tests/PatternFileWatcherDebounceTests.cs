@@ -126,7 +126,8 @@ public class PatternFileWatcherDebounceTests
         // The handler never saw the half-written document.
         var content = recorder.Snapshot().Single().Content;
         Assert.Equal(ValidPatternJson, content);
-        Assert.NotNull(JsonSerializer.Deserialize<JsonElement>(content!));
+        // Parseable as a whole JSON object, so no truncated prefix slipped through.
+        Assert.Equal(JsonValueKind.Object, JsonSerializer.Deserialize<JsonElement>(content!).ValueKind);
 
         await StopAsync(cts, consumer);
     }
