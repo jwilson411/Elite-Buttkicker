@@ -1,0 +1,84 @@
+# EditorConfig for Elite-Buttkicker - https://editorconfig.org
+# Paired with Directory.Build.props, which turns every warning below into a build error.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Web assets under src/EDButtkicker/wwwroot. There is no JS/CSS linter in this repo and adding a
+# Node toolchain for it is out of scope for #35; these rules are the cheap part that every editor
+# already enforces.
+[*.{js,css,html,json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{csproj,props,targets,sln}]
+indent_size = 2
+
+[*.cs]
+indent_size = 4
+
+#### Correctness: these must never regress ####
+
+# Nullable reference types. <Nullable>enable</Nullable> already makes these warnings; listing them
+# is what documents that they are load-bearing rather than incidental.
+dotnet_diagnostic.CS8600.severity = warning   # converting null literal to non-nullable
+dotnet_diagnostic.CS8601.severity = warning   # possible null reference assignment
+dotnet_diagnostic.CS8602.severity = warning   # dereference of a possibly null reference
+dotnet_diagnostic.CS8603.severity = warning   # possible null reference return
+dotnet_diagnostic.CS8604.severity = warning   # possible null reference argument
+dotnet_diagnostic.CS8618.severity = warning   # non-nullable field uninitialized
+dotnet_diagnostic.CS8620.severity = warning   # nullability mismatch in type argument
+
+# async/await hygiene. A Task-returning method with no await is nearly always a bug at the call
+# site, and an un-awaited Task silently swallows its exceptions.
+dotnet_diagnostic.CS1998.severity = warning   # async method lacks await
+dotnet_diagnostic.CS4014.severity = warning   # call not awaited
+
+# Obsolete APIs - the deprecation note is the migration instruction.
+dotnet_diagnostic.CS0618.severity = warning
+
+#### Code style ####
+# Style rules are suggestions, not build errors: with TreatWarningsAsErrors on, promoting a
+# formatting preference to a warning means a misplaced `var` blocks a release build. Correctness
+# above is what gates the build.
+
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_prefer_braces = true:suggestion
+csharp_style_var_for_built_in_types = false:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_var_elsewhere = false:silent
+csharp_style_expression_bodied_methods = false:silent
+csharp_new_line_before_open_brace = all
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:silent
+dotnet_style_prefer_conditional_expression_over_return = true:silent
+
+# Private fields are _camelCase, which is what the existing code already does.
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel_case
+dotnet_naming_rule.private_fields_underscore.severity = suggestion
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+[tests/**/*.cs]
+# Test projects share the same warning bar. xUnit's own analyzers stay on: xUnit2002 (asserting
+# non-null on a value type) caught a no-op assertion in this repo.
+dotnet_diagnostic.xUnit2002.severity = warning

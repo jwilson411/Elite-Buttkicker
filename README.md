@@ -226,6 +226,24 @@ pause
 - Use `PublishTrimmed=true` to reduce size
 - Consider framework-dependent builds if .NET runtime is acceptable
 
+### Build warnings are errors
+
+Every project in this repository (`Directory.Build.props`) compiles with `TreatWarningsAsErrors`. A
+compiler or analyzer warning fails the local build the same way it fails CI's dedicated
+`build-warnings` job — the goal is a build nobody has to keep quiet about.
+
+If you hit a warning you believe is a false positive (not just inconvenient), request a documented
+exception instead of silencing it ad hoc:
+
+1. Confirm the warning is a genuine false positive for your specific case, not just noisy.
+2. Add the analyzer ID to `<WarningsNotAsErrors>` in `Directory.Build.props`, on its own entry.
+3. Add a one-line comment next to the entry explaining why (link the GitHub issue/PR if there's
+   more context).
+4. Prefer `WarningsNotAsErrors` (keeps the diagnostic visible in build output) over `NoWarn`
+   (hides it entirely). Only use `NoWarn` when the diagnostic is verified to be always wrong for
+   this codebase.
+5. Call out the exception in your PR description so a reviewer can sanity-check it.
+
 **Antivirus warnings**:
 - Self-built executables may trigger false positives
 - Add build folder to antivirus exclusions during development

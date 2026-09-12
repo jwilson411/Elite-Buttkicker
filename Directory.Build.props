@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    Clean-build baseline (issue #35). Every project in the repository - app and tests - compiles
+    with zero warnings, and a warning fails the build locally exactly as it does in CI. Keeping the
+    property unconditional (rather than gating it on $(ContinuousIntegrationBuild)) is deliberate:
+    a warning that only appears on the CI runner is a warning nobody sees until their PR is red.
+
+    Need an exception? See "Build warnings are errors" in README.md. The short version: add the
+    specific analyzer ID to WarningsNotAsErrors below, scoped and commented with the reason.
+  -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+
+    <!-- Analyzers ship with the SDK; run the current ruleset and let .editorconfig set severities. -->
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!--
+      Documented exceptions live here, one per line with an ID and a justification. Empty today.
+      WarningsNotAsErrors keeps the diagnostic visible as a warning; NoWarn hides it entirely and
+      should only ever be used for a verified false positive.
+    -->
+    <WarningsNotAsErrors></WarningsNotAsErrors>
+  </PropertyGroup>
+
+</Project>

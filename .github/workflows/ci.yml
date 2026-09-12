@@ -47,6 +47,29 @@ jobs:
             throw "Dependency vulnerability audit failed"
           }
 
+  build-warnings:
+    name: Clean build baseline (zero warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore EDButtkicker.sln
+
+      # TreatWarningsAsErrors is already set in Directory.Build.props, so this matches a local
+      # build exactly; -warnaserror is repeated on the command line so the enforcement is visible
+      # here and survives someone editing the props file. --no-incremental is what makes the run
+      # meaningful: an incremental build skips compilation and reports zero warnings for free.
+      # To request an exception, see "Build warnings are errors" in README.md.
+      - name: Build with warnings as errors
+        run: dotnet build EDButtkicker.sln --configuration Release --no-restore --no-incremental -warnaserror
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest

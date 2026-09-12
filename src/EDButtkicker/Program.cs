@@ -134,7 +134,7 @@ class Program
                         
                         // Parse JSON and convert to key-value pairs for in-memory configuration
                         var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonContent);
-                        var configDict = new Dictionary<string, string>();
+                        var configDict = new Dictionary<string, string?>();
                         FlattenJson(jsonDoc.RootElement, configDict, "");
                         
                         config.AddInMemoryCollection(configDict);
@@ -196,7 +196,10 @@ class Program
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
-                logging.AddConsole(options =>
+                // AddConsole defaults to the "simple" formatter, so these are the same two knobs
+                // the deprecated ConsoleLoggerOptions members used to forward to.
+                logging.AddConsole();
+                logging.AddSimpleConsole(options =>
                 {
                     options.IncludeScopes = debugMode;
                     options.TimestampFormat = debugMode ? "yyyy-MM-dd HH:mm:ss.fff " : null;
@@ -238,7 +241,7 @@ class Program
             else
             {
                 // No saved settings, use auto-configuration
-                await AutoConfigureDefaults(settings, logger, debugMode);
+                AutoConfigureDefaults(settings, logger, debugMode);
                 
                 if (debugMode)
                 {
@@ -253,11 +256,11 @@ class Program
         catch (Exception ex)
         {
             logger.LogError(ex, "Error loading user settings, falling back to defaults");
-            await AutoConfigureDefaults(settings, logger, debugMode);
+            AutoConfigureDefaults(settings, logger, debugMode);
         }
     }
 
-    static async Task AutoConfigureDefaults(AppSettings settings, ILogger logger, bool debugMode = false)
+    static void AutoConfigureDefaults(AppSettings settings, ILogger logger, bool debugMode = false)
     {
         if (debugMode)
         {
@@ -266,7 +269,7 @@ class Program
         }
 
         // Auto-configure audio device to default
-        await AutoConfigureAudioDevice(settings, logger, debugMode);
+        AutoConfigureAudioDevice(settings, logger, debugMode);
 
         // Auto-configure journal path
         AutoConfigureJournalPath(settings, logger, debugMode);
@@ -321,7 +324,7 @@ class Program
         Console.WriteLine();
     }
 
-    static async Task AutoConfigureAudioDevice(AppSettings settings, ILogger logger, bool debugMode = false)
+    static void AutoConfigureAudioDevice(AppSettings settings, ILogger logger, bool debugMode = false)
     {
         try
         {
@@ -598,7 +601,7 @@ class Program
         }
     }
 
-    private static void FlattenJson(System.Text.Json.JsonElement element, Dictionary<string, string> result, string prefix)
+    private static void FlattenJson(System.Text.Json.JsonElement element, Dictionary<string, string?> result, string prefix)
     {
         switch (element.ValueKind)
         {

@@ -164,7 +164,7 @@ public class ConfigurationApiController : ControllerBase
             var json = JsonSerializer.Serialize(exportData, new JsonSerializerOptions { WriteIndented = true });
             
             context.Response.ContentType = "application/json";
-            context.Response.Headers.Add("Content-Disposition", $"attachment; filename=\"ed-buttkicker-config-{DateTime.Now:yyyyMMdd-HHmmss}.json\"");
+            context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"ed-buttkicker-config-{DateTime.Now:yyyyMMdd-HHmmss}.json\"";
             
             await context.Response.WriteAsync(json);
             

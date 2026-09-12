@@ -102,7 +102,7 @@ public class UserSettingsController : ControllerBase
     }
 
     [HttpPost("reset")]
-    public async Task<ActionResult> ResetUserSettings()
+    public ActionResult ResetUserSettings()
     {
         try
         {

@@ -377,7 +377,7 @@ public class ShipPatternService : IShipPatternProvider
             MinIntensity = Math.Max(5, (int)(basePattern.MinIntensity * recommendations.RecommendedIntensityMultiplier)),
             MaxIntensity = Math.Max(20, Math.Min(100, (int)(basePattern.MaxIntensity * recommendations.RecommendedIntensityMultiplier))),
             IntensityCurve = basePattern.IntensityCurve,
-            CustomCurvePoints = basePattern.CustomCurvePoints?.ToList()
+            CustomCurvePoints = basePattern.CustomCurvePoints?.ToList() ?? new List<CurvePoint>()
         };
 
         return modifiedPattern;
