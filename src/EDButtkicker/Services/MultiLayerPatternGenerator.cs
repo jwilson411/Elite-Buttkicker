@@ -13,17 +13,43 @@ public class MultiLayerPatternGenerator : ISampleProvider
 
     public WaveFormat WaveFormat { get; }
 
+    /// <summary>
+    /// Samples each layer's mixing buffer is sized to up front. This covers every buffer size the app
+    /// can actually be driven with: the largest configurable audio buffer
+    /// (<see cref="SettingsPersistenceService.MaxBufferSize"/>) and the ~9600 samples a 200ms
+    /// shared-mode WASAPI output asks for at 48kHz. 64 KB of float per layer, allocated once.
+    /// </summary>
+    private const int LayerBufferSamples = 16384;
+
     private class LayerGenerator
     {
         public AdvancedWaveformGenerator Generator { get; set; }
         public PatternLayer Layer { get; set; }
-        public float[] Buffer { get; set; }
+
+        /// <summary>
+        /// Per-layer mixing scratch, preallocated so the real-time audio callback allocates nothing
+        /// once playback is running.
+        /// </summary>
+        public float[] Buffer { get; private set; }
 
         public LayerGenerator(AdvancedWaveformGenerator generator, PatternLayer layer)
         {
             Generator = generator;
             Layer = layer;
-            Buffer = new float[1024]; // Buffer for mixing
+            Buffer = new float[LayerBufferSamples];
+        }
+
+        /// <summary>
+        /// Grows the mixing buffer if the host ever asks for more than the preallocated size. The
+        /// grown buffer is kept, so every later callback reuses it - a one-time cost on a new
+        /// maximum, not a per-callback (steady-state) allocation.
+        /// </summary>
+        public void EnsureCapacity(int samples)
+        {
+            if (Buffer.Length < samples)
+            {
+                Buffer = new float[samples];
+            }
         }
     }
 
@@ -91,11 +117,8 @@ public class MultiLayerPatternGenerator : ISampleProvider
             if (currentTimeMs >= layerEndTime || endTimeMs <= layerStartTime)
                 continue;
 
-            // Ensure buffer is large enough
-            if (layerGen.Buffer.Length < samplesToRead)
-            {
-                layerGen.Buffer = new float[samplesToRead];
-            }
+            // Normally a no-op: the buffer is preallocated to LayerBufferSamples.
+            layerGen.EnsureCapacity(samplesToRead);
 
             // Generate samples for this layer
             layerGen.Generator.Read(layerGen.Buffer, 0, samplesToRead);
@@ -135,8 +158,16 @@ public class MultiLayerPatternGenerator : ISampleProvider
                     _pattern.CustomCurvePoints
                 );
 
-                // Mix the layer into the main buffer
-                buffer[offset + i] += layerGen.Buffer[i] * intensityMultiplier * layer.Amplitude * fadeMultiplier;
+                // Mix the layer into the main buffer.
+                //
+                // Gain order, each stage applied exactly once:
+                //   AdvancedWaveformGenerator emits at layer.Amplitude (it owns that stage, and
+                //   clamps it to 0..1) -> intensityMultiplier (layer curve x pattern.Intensity)
+                //   -> fadeMultiplier (layer FadeIn/FadeOut) -> pattern MaxIntensity clip below.
+                //
+                // layer.Amplitude must NOT be multiplied in again here. It used to be, which squared
+                // the fraction - an intended 0.5 layer rendered at 0.25.
+                buffer[offset + i] += layerGen.Buffer[i] * intensityMultiplier * fadeMultiplier;
             }
         }
 
