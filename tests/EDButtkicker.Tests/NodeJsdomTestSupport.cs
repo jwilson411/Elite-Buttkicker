@@ -73,6 +73,11 @@ internal static class NodeJsdomTestSupport
         throw new InvalidOperationException();
     }
 
+    /// <summary>
+    /// Probes jsdom's entry point rather than its directory: a half-finished or pruned install can
+    /// leave <c>node_modules/jsdom</c> behind without <c>lib/api.js</c>, and skipping the install in
+    /// that state fails every node test with a bare MODULE_NOT_FOUND.
+    /// </summary>
     private static bool JsdomIsPresent(string scriptDirectory) =>
-        Directory.Exists(Path.Combine(scriptDirectory, "node_modules", "jsdom"));
+        File.Exists(Path.Combine(scriptDirectory, "node_modules", "jsdom", "lib", "api.js"));
 }
