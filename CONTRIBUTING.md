@@ -84,6 +84,41 @@ Use the issue templates under **New Issue** on GitHub. Please include:
 - Relevant journal event names/log snippets if the issue is about a specific in-game event
   (redact anything personally identifying from journal files before sharing).
 
+### Attaching a diagnostics bundle
+
+If a maintainer asks for more detail on a hardware, audio, or startup issue, run:
+
+```
+EDButtkicker --diagnostics-bundle
+```
+
+This builds a single JSON file describing the app version, runtime, sanitized configuration,
+enumerated audio endpoints, audio backend state, journal watcher state (event names and counts
+only), health indicators, and recent errors. It prints the **entire** file to the console first and
+asks `Write this file? Type 'yes' to confirm, anything else to cancel:` — nothing is written until
+you confirm. Read the preview before saying yes.
+
+By design, the bundle never contains: raw journal file contents, commander-identifying values
+(name, credits, ship IDs, visited systems/stations), full filesystem paths (redacted to
+placeholders), your OS account or machine name, or the value of any configuration key the app
+doesn't recognize (only the key name is listed, so a future secret in your settings file doesn't
+leak). Nothing is uploaded automatically — attach the resulting `.json` file to your GitHub issue
+yourself.
+
+To write it somewhere specific instead of the default (your settings folder):
+
+```
+EDButtkicker --diagnostics-bundle --diagnostics-bundle-out=/path/to/file-or-folder.json
+```
+
+**For maintainers triaging a report:** the `configuration` section shows the audio device name/IDs,
+sample rate, and journal path (redacted) actually in effect; `audioBackend` shows whether NAudio
+initialized and its last error; `journalWatcher` shows the watcher's state machine and a count of
+event types seen (useful for confirming the journal is being read at all without needing the raw
+file); `health` mirrors the app's own health check components; `recentErrors` is the tail of logged
+exceptions. The `excludedByDesign` array at the end of the bundle is the same list shown in the
+preview — it documents what was deliberately left out, not a bug.
+
 ## Security issues
 
 Do not open a public issue for a security vulnerability. See `SECURITY.md` for how to report it

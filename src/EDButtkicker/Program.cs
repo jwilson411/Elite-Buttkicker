@@ -21,12 +21,20 @@ class Program
     /// </summary>
     private static readonly string WebUiAddress = $"http://localhost:{WebUiConfiguration.Port}";
 
+    /// <summary>Asks for a privacy-safe support bundle instead of starting the application.</summary>
+    private const string DiagnosticsBundleFlag = "--diagnostics-bundle";
+
+    /// <summary>Optional destination for that bundle: <c>--diagnostics-bundle-out=&lt;path&gt;</c>.</summary>
+    private const string DiagnosticsBundleOutFlag = "--diagnostics-bundle-out";
+
     static async Task Main(string[] args)
     {
         // Check for debug flag
         bool debugMode = args.Contains("--debug") || args.Contains("-d");
         bool helpMode = args.Contains("--help") || args.Contains("-h");
         bool versionMode = args.Contains("--version") || args.Contains("-v");
+        bool diagnosticsBundleMode = args.Any(
+            arg => string.Equals(arg, DiagnosticsBundleFlag, StringComparison.OrdinalIgnoreCase));
 
         if (helpMode)
         {
@@ -39,6 +47,14 @@ class Program
         if (versionMode)
         {
             ShowVersion();
+            return;
+        }
+
+        // Also answered without starting anything: a reporter asking for a support bundle wants the
+        // state of a machine that is not working, not a second running instance of the app.
+        if (diagnosticsBundleMode)
+        {
+            await RunDiagnosticsBundleAsync(args, debugMode);
             return;
         }
 
@@ -113,6 +129,11 @@ class Program
         Console.WriteLine("  -d, --debug     Enable debug mode with detailed logging");
         Console.WriteLine("  -h, --help      Show this help message");
         Console.WriteLine("  -v, --version   Print the build version and exit");
+        Console.WriteLine("  --diagnostics-bundle");
+        Console.WriteLine("                  Build a privacy-safe support bundle to attach to a GitHub");
+        Console.WriteLine("                  issue. Shows the whole file first and asks before writing.");
+        Console.WriteLine("  --diagnostics-bundle-out=<path>");
+        Console.WriteLine("                  Where to write that bundle (default: your settings folder).");
         Console.WriteLine();
         Console.WriteLine("Debug Mode:");
         Console.WriteLine("  When enabled, shows detailed information about:");
@@ -132,6 +153,65 @@ class Program
     static void ShowVersion()
     {
         Console.WriteLine($"EDButtkicker {BuildVersion.Current}");
+    }
+
+    /// <summary>
+    /// Builds the service graph, reads the user's saved settings into it so the bundle describes the
+    /// configuration that is actually in use, then hands over to
+    /// <see cref="DiagnosticsBundleService.PreviewAndSaveAsync"/> - which prints the whole bundle and
+    /// writes nothing until the user confirms. No hosted service runs: the journal watcher, the
+    /// status poller and the web server are never started, and no audio device is opened.
+    /// </summary>
+    static async Task RunDiagnosticsBundleAsync(string[] args, bool debugMode)
+    {
+        using var host = CreateHostBuilder(args, debugMode).Build();
+
+        var logger = host.Services.GetRequiredService<ILogger<Program>>();
+        var appSettings = host.Services.GetRequiredService<AppSettings>();
+        var userSettingsService = host.Services.GetRequiredService<UserSettingsService>();
+
+        try
+        {
+            await LoadAndApplyUserSettings(appSettings, userSettingsService, logger, debugMode);
+
+            var diagnostics = host.Services.GetRequiredService<DiagnosticsBundleService>();
+            var result = await diagnostics.PreviewAndSaveAsync(
+                FindDiagnosticsBundleOutPath(args),
+                Console.Out,
+                Console.In);
+
+            logger.LogInformation("Diagnostics bundle requested; saved: {Saved}", result.Saved);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not build the diagnostics bundle");
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The destination passed as <c>--diagnostics-bundle-out=&lt;path&gt;</c> or
+    /// <c>--diagnostics-bundle-out &lt;path&gt;</c>, or null to use the default location.
+    /// </summary>
+    static string? FindDiagnosticsBundleOutPath(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+
+            if (arg.StartsWith($"{DiagnosticsBundleOutFlag}=", StringComparison.OrdinalIgnoreCase))
+            {
+                return arg[(DiagnosticsBundleOutFlag.Length + 1)..];
+            }
+
+            if (string.Equals(arg, DiagnosticsBundleOutFlag, StringComparison.OrdinalIgnoreCase)
+                && i + 1 < args.Length)
+            {
+                return args[i + 1];
+            }
+        }
+
+        return null;
     }
 
     static IHostBuilder CreateHostBuilder(string[] args, bool debugMode = false) =>
@@ -224,7 +304,12 @@ class Program
                     options.TimestampFormat = debugMode ? "yyyy-MM-dd HH:mm:ss.fff " : null;
                 });
                 logging.AddDebug();
-                
+
+                // Registered after ClearProviders (which removes every ILoggerProvider registration)
+                // so the support bundle can report the errors this session logged without asking the
+                // user to find, read and hand over a log file.
+                logging.Services.AddSingleton<ILoggerProvider, RecentErrorLogProvider>();
+
                 if (debugMode)
                 {
                     // Override log levels for debug mode

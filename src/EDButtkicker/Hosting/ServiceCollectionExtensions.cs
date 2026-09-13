@@ -66,6 +66,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SetupStateService>();
         services.AddSingleton<SystemHealthService>();
 
+        // The support bundle and the errors it reports. The error ring is filled from the logging
+        // pipeline (Program wires the provider, after it clears the default ones), so a bundle shows
+        // the same failures the console did instead of a second list of things that can go wrong.
+        services.AddSingleton<RecentErrorLog>();
+        services.AddSingleton<DiagnosticsRedactor>();
+        services.AddSingleton<DiagnosticsBundleService>();
+
         // Journal event pipeline: one ordered path for history, ship state,
         // pattern selection and audio, shared by live monitoring and replay.
         services.AddSingleton<IJournalEventStore, JournalEventStore>();
