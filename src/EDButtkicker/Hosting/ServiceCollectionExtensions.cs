@@ -62,6 +62,21 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJournalStorage, FileSystemJournalStorage>();
         services.AddSingleton<IPatternStorage, FileSystemPatternStorage>();
 
+        // Spoken feedback runs on System.Speech, which exists on Windows and nowhere else. It is
+        // registered there and only there, so everything downstream takes IVoiceFeedback? and gets
+        // null off Windows - no second implementation, and no platform check in the pipeline.
+        if (OperatingSystem.IsWindows())
+        {
+            RegisterVoiceServices(services);
+        }
+
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        static void RegisterVoiceServices(IServiceCollection s)
+        {
+            s.AddSingleton<VoiceFeedbackService>();
+            s.AddSingleton<IVoiceFeedback>(sp => (IVoiceFeedback)sp.GetRequiredService(typeof(VoiceFeedbackService)));
+        }
+
         services.AddSingleton<JournalPathDiscovery>();
         services.AddSingleton<SetupStateService>();
         services.AddSingleton<SystemHealthService>();

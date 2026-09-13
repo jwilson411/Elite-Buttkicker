@@ -48,6 +48,13 @@ public class EventMappingService : IJournalEventAudioSink
     private readonly AudioEngineService _audioEngine;
     private readonly PatternSequencer _patternSequencer;
     private readonly ContextualIntelligenceService _contextualIntelligence;
+
+    /// <summary>
+    /// Null wherever no speech engine exists - the service is only registered on Windows - so the
+    /// pipeline asks for an announcement without ever asking what platform it is on.
+    /// </summary>
+    private readonly IVoiceFeedback? _voiceFeedback;
+
     private EventMappingsConfig _eventMappings;
     private readonly EventRateLimiter _rateLimiter;
     private readonly ConcurrentDictionary<string, int> _eventCounts = new();
@@ -64,12 +71,14 @@ public class EventMappingService : IJournalEventAudioSink
         PatternSequencer patternSequencer,
         ContextualIntelligenceService contextualIntelligence,
         UserSettingsService userSettings,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IVoiceFeedback? voiceFeedback = null)
     {
         _logger = logger;
         _audioEngine = audioEngine;
         _patternSequencer = patternSequencer;
         _contextualIntelligence = contextualIntelligence;
+        _voiceFeedback = voiceFeedback;
         _rateLimiter = new EventRateLimiter(timeProvider);
         MappingsFilePath = Path.Combine(userSettings.SettingsDirectory, "event-mappings.json");
         _eventMappings = EventMappingsConfig.GetDefault();
@@ -151,7 +160,7 @@ public class EventMappingService : IJournalEventAudioSink
                 tasks.Add(_audioEngine.PlayHapticPattern(pattern, journalEvent));
             }
 
-            // Voice feedback has been removed for better user experience
+            AnnounceEvent(eventType, pattern, journalEvent);
 
             // Execute all feedback simultaneously
             await Task.WhenAll(tasks);
@@ -163,6 +172,46 @@ public class EventMappingService : IJournalEventAudioSink
         {
             _logger.LogError(ex, "Error processing journal event: {EventType}", journalEvent.Event);
         }
+    }
+
+    /// <summary>
+    /// Speaks one line for this event, if there is a voice engine and something to say. Contextual
+    /// intelligence gets first refusal - it knows the situation the event arrived in, and returns
+    /// null both when it has nothing to add and when contextual voice is switched off - and the
+    /// pattern's own message is the fallback.
+    ///
+    /// Deliberately not awaited and deliberately not one of the feedback tasks: a spoken line runs
+    /// for seconds, while the haptic hit it accompanies is measured in milliseconds. Joining them
+    /// would hold the event pipeline open for the whole announcement and delay the next event
+    /// behind it.
+    /// </summary>
+    private void AnnounceEvent(string eventType, HapticPattern pattern, JournalEvent journalEvent)
+    {
+        var voice = _voiceFeedback;
+        if (voice is not { IsRunning: true }) return;
+
+        var message = _contextualIntelligence.GetContextualVoiceMessage(eventType, journalEvent);
+
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            if (!pattern.EnableVoiceAnnouncement || string.IsNullOrWhiteSpace(pattern.VoiceMessage))
+                return;
+
+            message = pattern.VoiceMessage;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await voice.AnnounceAsync(message, journalEvent);
+            }
+            catch (Exception ex)
+            {
+                // Nothing awaits this task, so an escaped exception would otherwise be unobserved.
+                _logger.LogError(ex, "Error announcing voice feedback for {EventType}", eventType);
+            }
+        });
     }
 
     private HapticPattern CreatePatternForEvent(HapticPattern basePattern, JournalEvent journalEvent)
