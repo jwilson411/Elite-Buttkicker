@@ -22,12 +22,6 @@ namespace EDButtkicker.Services;
 /// </summary>
 public static class PatternSchemaValidator
 {
-    /// <summary>The pattern schema this build understands; see <c>patterns/schema.json</c> ($id v1).</summary>
-    public const string SchemaVersion = "1.0";
-
-    /// <summary>Major version of <see cref="SchemaVersion"/>: a file may only declare this one.</summary>
-    private const int SupportedSchemaMajor = 1;
-
     // The transducer is a shaker, not a speaker: below 10Hz it moves nothing a body can feel and
     // above 100Hz it is audible buzz rather than rumble.
     public const int MinFrequencyHz = 10;
@@ -170,18 +164,27 @@ public static class PatternSchemaValidator
 
     private static void ValidateSchemaVersion(List<string> errors, string? declared)
     {
-        // Absent means "the version this build shipped with" - every pack written before the field
-        // existed is still a v1 pack.
-        if (string.IsNullOrWhiteSpace(declared))
+        // The compatibility rule itself lives in PatternSchemaVersion, so the loader's gate and this
+        // one can never disagree about which packs this build reads. An older-but-supported version
+        // passes here: the loader migrates a pack to the current representation before validating it,
+        // and a pack handed straight to the validator is judged on the shape it actually has.
+        switch (PatternSchemaVersion.Classify(declared, out _))
         {
-            return;
-        }
+            case PatternSchemaCompatibility.Current:
+            case PatternSchemaCompatibility.Migratable:
+                return;
 
-        var major = declared.Split('.')[0];
+            case PatternSchemaCompatibility.TooNew:
+                errors.Add($"schemaVersion: '{declared}' is newer than this build reads; the highest supported pattern pack schema is v{PatternSchemaVersion.Current}");
+                return;
 
-        if (!int.TryParse(major, out var majorVersion) || majorVersion != SupportedSchemaMajor)
-        {
-            errors.Add($"schemaVersion: '{declared}' is not supported by this build, which reads pattern schema v{SchemaVersion}");
+            case PatternSchemaCompatibility.TooOld:
+                errors.Add($"schemaVersion: '{declared}' is older than the oldest pattern pack schema this build can migrate; this build reads v{PatternSchemaVersion.OldestSupported} through v{PatternSchemaVersion.Current}");
+                return;
+
+            default:
+                errors.Add($"schemaVersion: '{declared}' is not a version number; this build reads pattern pack schema v{PatternSchemaVersion.OldestSupported} through v{PatternSchemaVersion.Current}, written as 'major' or 'major.minor'");
+                return;
         }
     }
 

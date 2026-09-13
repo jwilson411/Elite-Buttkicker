@@ -247,20 +247,29 @@ public class PatternSchemaValidationTests
     public void AFutureSchemaVersion_IsRejectedRatherThanGuessedAt()
     {
         var pack = Pack();
-        pack.SchemaVersion = "2.0";
+        pack.SchemaVersion = "3.0";
 
         var errors = PatternSchemaValidator.Validate(pack);
 
-        Assert.Contains(errors, e => e.Contains("schemaVersion") && e.Contains("'2.0'"));
+        Assert.Contains(errors, e => e.Contains("schemaVersion") && e.Contains("'3.0'"));
     }
 
+    /// <summary>
+    /// The validator judges a pack on the shape it has. The current schema is obviously fine; so is
+    /// an older-but-supported one, because the loader migrates a pack before validating it and a
+    /// pack handed straight here is structurally the same file either way.
+    /// </summary>
     [Fact]
-    public void TheCurrentSchemaVersionOrNone_IsAccepted()
+    public void TheCurrentSchemaVersionOrAnOlderSupportedOneOrNone_IsAccepted()
     {
-        var declared = Pack();
-        declared.SchemaVersion = "1.0";
+        var current = Pack();
+        current.SchemaVersion = PatternSchemaVersion.Current.ToString();
 
-        Assert.Empty(PatternSchemaValidator.Validate(declared));
+        var migratable = Pack();
+        migratable.SchemaVersion = "1.0";
+
+        Assert.Empty(PatternSchemaValidator.Validate(current));
+        Assert.Empty(PatternSchemaValidator.Validate(migratable));
         Assert.Empty(PatternSchemaValidator.Validate(Pack()));
     }
 

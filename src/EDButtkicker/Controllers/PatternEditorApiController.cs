@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using EDButtkicker.Configuration;
 using EDButtkicker.Hosting;
 using EDButtkicker.Services;
 using EDButtkicker.Models;
@@ -146,6 +147,7 @@ public class PatternEditorController : ControllerBase
             
             var newPattern = new PatternFileDefinition
             {
+                SchemaVersion = PatternSchemaVersion.Current.ToString(),
                 Metadata = new PatternFileMetadata
                 {
                     Name = request.PackName,
@@ -154,7 +156,8 @@ public class PatternEditorController : ControllerBase
                     Description = request.Description ?? $"Custom patterns by {request.Author}",
                     Tags = request.Tags ?? new List<string> { "custom", "user-created" },
                     Created = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                    Compatibility = "1.0.0"
+                    // The build that wrote the pack, not a constant that stopped being true.
+                    Compatibility = BuildVersion.Current
                 },
                 Ships = new Dictionary<string, ShipPatternDefinition>()
             };
@@ -244,7 +247,10 @@ public class PatternEditorController : ControllerBase
                 Directory.CreateDirectory(directory);
             }
 
-            // Update metadata
+            // Update metadata. The editor's in-memory pack is always the current representation -
+            // whatever schema the file it came from declared, it was migrated on the way in - so the
+            // file it writes back declares the current schema rather than inheriting a stale one.
+            request.PatternFile.SchemaVersion = PatternSchemaVersion.Current.ToString();
             request.PatternFile.Metadata.LastModified = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
             
             // Save to file
@@ -649,6 +655,12 @@ public class UserPatternFile
 
 public class PatternFileDefinition
 {
+    /// <summary>
+    /// The revision of <c>patterns/schema.json</c> this pack is written against; see
+    /// <see cref="PatternSchemaVersion"/> for what the value means and which ones load.
+    /// </summary>
+    public string? SchemaVersion { get; set; }
+
     public PatternFileMetadata Metadata { get; set; } = new();
     public Dictionary<string, ShipPatternDefinition> Ships { get; set; } = new();
 }
