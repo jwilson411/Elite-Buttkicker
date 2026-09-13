@@ -8,7 +8,7 @@ using System.Runtime.Versioning;
 namespace EDButtkicker.Services;
 
 [SupportedOSPlatform("windows")]
-public class VoiceFeedbackService : IDisposable
+public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 {
     private readonly ILogger<VoiceFeedbackService> _logger;
     private readonly AppSettings _settings;
@@ -24,6 +24,12 @@ public class VoiceFeedbackService : IDisposable
         _synthesizer = new SpeechSynthesizer();
         InitializeEventMessages();
     }
+
+    /// <summary>
+    /// True once <see cref="Initialize"/> has started a synthesizer. Until then every announcement
+    /// is dropped, so the health dashboard reports this rather than assuming speech works.
+    /// </summary>
+    public bool IsRunning => _isInitialized;
 
     public void Initialize()
     {
@@ -161,6 +167,13 @@ public class VoiceFeedbackService : IDisposable
             await Task.WhenAll(tasks);
         }
     }
+
+    /// <summary>
+    /// The one entry point the event pipeline uses. Templating happens here so a caller only has to
+    /// pick which message to speak, not know how a message is written.
+    /// </summary>
+    public Task AnnounceAsync(string message, JournalEvent? journalEvent = null) =>
+        AnnounceCustomMessage(ProcessMessageTemplate(message, journalEvent));
 
     private async Task AnnounceCustomMessage(string message)
     {

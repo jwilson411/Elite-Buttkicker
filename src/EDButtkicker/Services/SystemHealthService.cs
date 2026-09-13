@@ -50,6 +50,7 @@ public class SystemHealthService
     private readonly IPatternCatalog _patternCatalog;
     private readonly EventMappingService _eventMappings;
     private readonly TimeProvider _timeProvider;
+    private readonly IVoiceFeedback? _voiceFeedback;
 
     public SystemHealthService(
         ILogger<SystemHealthService> logger,
@@ -60,7 +61,8 @@ public class SystemHealthService
         IJournalEventStore eventStore,
         IPatternCatalog patternCatalog,
         EventMappingService eventMappings,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IVoiceFeedback? voiceFeedback = null)
     {
         _logger = logger;
         _settings = settings;
@@ -71,6 +73,7 @@ public class SystemHealthService
         _patternCatalog = patternCatalog;
         _eventMappings = eventMappings;
         _timeProvider = timeProvider;
+        _voiceFeedback = voiceFeedback;
     }
 
     public SystemHealthReport GetReport()
@@ -280,9 +283,31 @@ public class SystemHealthService
 
     private HealthIndicator GetVoiceIndicator()
     {
-        // VoiceFeedbackService is not part of the running service graph, so nothing is ever spoken.
-        // The dashboard used to show this as "online"; saying it is off is the truthful reading.
         var contextualVoice = _settings.ContextualIntelligence?.EnableContextualVoice == true;
+
+        // IVoiceFeedback is only registered on Windows. Off-platform, or before Initialize() has
+        // run, the service is absent or not yet started, so the indicator reports off.
+        if (_voiceFeedback is { IsRunning: true } && contextualVoice)
+        {
+            return new HealthIndicator(
+                "voice",
+                "Voice Feedback",
+                StatusOk,
+                "Voice feedback is running and contextual voice announcements are enabled.",
+                null,
+                Retry: null);
+        }
+
+        if (_voiceFeedback is { IsRunning: true })
+        {
+            return new HealthIndicator(
+                "voice",
+                "Voice Feedback",
+                StatusOff,
+                "Voice engine is running but contextual voice is disabled in settings.",
+                "Enable 'Contextual Voice Announcements' in the settings panel to hear announcements.",
+                Retry: null);
+        }
 
         return new HealthIndicator(
             "voice",
