@@ -15,6 +15,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repository's RTP-style taxonomy.
 - Dependabot configuration for grouped NuGet and GitHub Actions dependency updates.
 
+### Security
+
+- The web interface only ever serves the packaged `wwwroot` directory. Resolution now requires
+  concrete evidence of the web root (`index.html`, `css/`, `js/`) and fails startup with a clear
+  error if it finds none, instead of falling back to the application's own program directory - which
+  would have published the binaries and configuration next to the executable over HTTP.
+- Font Awesome 6.4.0 is vendored under `wwwroot/vendor/fontawesome` rather than loaded from
+  cdnjs.cloudflare.com without an integrity hash, and the Content-Security-Policy no longer
+  allowlists any third-party origin.
+
+### Changed
+
+- A request that names a file but matches nothing in `wwwroot` answers 404 rather than the
+  single-page dashboard. Deep links without a file name still load the page.
+
 ## [1.1.0] - 2026-09-05
 
 ### Added

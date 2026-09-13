@@ -36,6 +36,21 @@ public class ContentSecurityPolicyTests : IClassFixture<WebUiTestServerFixture>
         Assert.DoesNotContain("unsafe-inline", ScriptSrc(policy));
     }
 
+    /// <summary>
+    /// The policy used to allowlist cdnjs.cloudflare.com for the Font Awesome stylesheet and its
+    /// webfonts. Those are vendored under wwwroot now, so no directive names another origin: a
+    /// third-party host cannot supply anything this page loads.
+    /// </summary>
+    [Fact]
+    public async Task Policy_AllowsNoThirdPartyOrigin()
+    {
+        var response = await _fixture.Client.GetAsync("/");
+        var policy = string.Join(' ', response.Headers.GetValues("Content-Security-Policy"));
+
+        Assert.DoesNotContain("//", policy, StringComparison.Ordinal);
+        Assert.DoesNotContain("cdnjs", policy, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ScriptSrc(string policy)
     {
         var directive = policy
