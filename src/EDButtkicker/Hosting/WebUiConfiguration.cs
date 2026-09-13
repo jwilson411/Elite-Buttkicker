@@ -39,13 +39,14 @@ public static class WebUiConfiguration
         // browser refuses to run it. Script is 'self' only - no 'unsafe-inline', no 'unsafe-eval' -
         // which is why the pages carry no inline <script> and no onclick attributes. Style still
         // allows inline: the pages hide panels with style="display: none" and the fallback page
-        // carries a <style> block, and a stylesheet cannot execute. The two cdnjs allowances are
-        // the Font Awesome stylesheet and the webfonts it pulls in.
+        // carries a <style> block, and a stylesheet cannot execute. Font Awesome is vendored under
+        // wwwroot/vendor/fontawesome, so no third-party origin is named here at all: the stylesheet
+        // and the webfont it pulls in are both 'self'.
         const string contentSecurityPolicy =
             "default-src 'self'; " +
             "script-src 'self'; " +
-            "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
-            "font-src 'self' https://cdnjs.cloudflare.com; " +
+            "style-src 'self' 'unsafe-inline'; " +
+            "font-src 'self'; " +
             "img-src 'self' data:; " +
             "connect-src 'self'; " +
             "object-src 'none'; " +
@@ -168,10 +169,13 @@ public static class WebUiConfiguration
 
             // The single-page fallback: any path that is not an API route and not a file on disk
             // gets the dashboard, so a deep link into the UI still loads it. An unmatched /api path
-            // stays a 404 - answering it with HTML would tell a caller the endpoint exists.
+            // stays a 404 - answering it with HTML would tell a caller the endpoint exists. So does a
+            // path that names a file: static files above have already had their chance, so the file
+            // is not in wwwroot, and a probe for appsettings.json or a .dll next to the executable
+            // deserves "not here" rather than a 200 carrying a page.
             endpoints.MapFallback("{*path}", async context =>
             {
-                if (context.Request.Path.StartsWithSegments("/api"))
+                if (context.Request.Path.StartsWithSegments("/api") || NamesAFile(context.Request.Path))
                 {
                     context.Response.StatusCode = StatusCodes.Status404NotFound;
                     return;
@@ -186,30 +190,85 @@ public static class WebUiConfiguration
         });
     }
 
-    public static string ResolveWebRootPath(ILogger logger)
+    /// <summary>
+    /// A request for <c>/css/styles.css</c> asks for a file; a deep link like <c>/patterns</c> asks
+    /// for the page. The difference is an extension on the last segment.
+    /// </summary>
+    private static bool NamesAFile(PathString path)
     {
-        // Try multiple possible locations for wwwroot
-        var possiblePaths = new[]
+        var value = path.Value;
+
+        if (string.IsNullOrEmpty(value))
+        {
+            return false;
+        }
+
+        return value.IndexOf('.', value.LastIndexOf('/') + 1) >= 0;
+    }
+
+    /// <summary>
+    /// What a directory has to contain before it is allowed to be the static file root. A partial
+    /// deploy that left an empty <c>wwwroot</c> behind is not the packaged web root either.
+    /// </summary>
+    private static readonly string[] PackagedWebRootMarkers = { "index.html", "css", "js" };
+
+    /// <summary>
+    /// The one directory served to the browser. Candidates are the packaged location first, then the
+    /// source tree, for a developer running from a checkout - and each one has to prove it really is
+    /// the packaged wwwroot before it is accepted.
+    ///
+    /// Nothing here ever falls back to <see cref="AppContext.BaseDirectory"/> or the working
+    /// directory itself: those hold the application's own assemblies and appsettings.json, and
+    /// handing either to the static file middleware would publish them over HTTP. A build that
+    /// cannot find its web assets is a broken install, so it fails at startup and says why, rather
+    /// than serving something else.
+    /// </summary>
+    /// <param name="logger">Where the resolved path, or the failure, is reported.</param>
+    /// <param name="candidatePaths">
+    /// The directories to consider, in order; the packaged and source-tree locations when omitted.
+    /// Tests pass their own list so the rejection path can be exercised without moving real files.
+    /// </param>
+    /// <exception cref="DirectoryNotFoundException">No candidate is a packaged wwwroot.</exception>
+    public static string ResolveWebRootPath(ILogger logger, IEnumerable<string>? candidatePaths = null)
+    {
+        var possiblePaths = (candidatePaths ?? new[]
         {
             Path.Combine(AppContext.BaseDirectory, "wwwroot"),
             Path.Combine(Directory.GetCurrentDirectory(), "wwwroot"),
             Path.Combine(Directory.GetCurrentDirectory(), "src", "EDButtkicker", "wwwroot"),
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "src", "EDButtkicker", "wwwroot")
-        };
+        }).ToList();
 
         foreach (var path in possiblePaths)
         {
-            if (Directory.Exists(path))
+            if (IsPackagedWebRoot(path))
             {
-                logger.LogInformation("Found wwwroot at: {Path}", path);
-                return Path.GetFullPath(path);
+                var resolved = Path.GetFullPath(path);
+                logger.LogInformation("Found wwwroot at: {Path}", resolved);
+                return resolved;
             }
         }
 
-        // If no wwwroot found, use the base directory (will serve embedded content)
-        logger.LogWarning("wwwroot directory not found, using base directory: {Path}", AppContext.BaseDirectory);
-        return AppContext.BaseDirectory;
+        var message =
+            "The packaged web interface files could not be found. Expected a wwwroot directory "
+            + $"containing {string.Join(", ", PackagedWebRootMarkers)} in one of: "
+            + string.Join("; ", possiblePaths.Select(Path.GetFullPath))
+            + ". Reinstall the application or run it from its own directory - the web interface "
+            + "will not be served from the application's own program directory.";
+
+        logger.LogCritical("{Message}", message);
+        throw new DirectoryNotFoundException(message);
     }
+
+    /// <summary>
+    /// True only for a directory that carries the packaged web assets. Public so a test - and a
+    /// caller that wants to check before starting a host - asks the same question the pipeline does.
+    /// </summary>
+    public static bool IsPackagedWebRoot(string? path) =>
+        !string.IsNullOrWhiteSpace(path)
+        && File.Exists(Path.Combine(path, "index.html"))
+        && Directory.Exists(Path.Combine(path, "css"))
+        && Directory.Exists(Path.Combine(path, "js"));
 
     private static async Task<string> GetMainHtmlPage(string webRootPath)
     {
