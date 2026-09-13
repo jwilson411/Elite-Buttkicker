@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/jwilson411/Elite-Buttkicker/patterns/schema-v1.json",
-  "title": "Elite Dangerous Buttkicker Pattern File (schema v1)",
-  "description": "The one canonical description of a pattern pack. It describes the shape the runtime actually deserializes (EDButtkicker.Services.PatternFile / EDButtkicker.Models.HapticPattern) and the bounds the runtime actually enforces (EDButtkicker.Services.PatternSchemaValidator). A file that this schema accepts is a file the engine will index and play; anything it rejects is refused at load time with a field-by-field diagnostic. Keep the two in step - if a rule changes here, change it in PatternSchemaValidator, and the other way round.",
+  "$id": "https://github.com/jwilson411/Elite-Buttkicker/patterns/schema-v2.json",
+  "title": "Elite Dangerous Buttkicker Pattern File (schema v2)",
+  "description": "The one canonical description of a pattern pack. It describes the shape the runtime actually deserializes (EDButtkicker.Services.PatternFile / EDButtkicker.Models.HapticPattern) and the bounds the runtime actually enforces (EDButtkicker.Services.PatternSchemaValidator). A file that this schema accepts is a file the engine will index and play; anything it rejects is refused at load time with a field-by-field diagnostic. Keep the two in step - if a rule changes here, change it in PatternSchemaValidator, and the other way round. Schema versioning and the v1 -> v2 migration are documented in docs/pattern-pack-schema-versioning.md and implemented in EDButtkicker.Services.PatternSchemaVersion / PatternPackMigrator.",
   "type": "object",
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "pattern": "^1(\\.\\d+)*$",
-      "description": "Revision of this schema the file targets. Optional: a file that omits it is read as v1."
+      "pattern": "^[12](\\.\\d+)*$",
+      "description": "Revision of this schema the file targets, as 'major' or 'major.minor'. Optional: a file that omits it is read as v1, because the field was added after the first packs shipped. The major number is the migration boundary - this build reads v1 (migrated in memory on load, never rewritten on disk) and v2 (read as written), and refuses anything newer by name. The minor number marks additions within a major: a build reads every minor at or below its own, so v2.0 is the highest this build accepts. v1 differs from v2 only in the layer field names: see the 'intensity' and 'delay' properties of patternLayer."
     },
     "metadata": {
       "type": "object",
@@ -252,24 +252,24 @@
           "minimum": 0,
           "maximum": 1,
           "default": 1,
-          "description": "Layer amplitude, 0-1. Canonical name; `intensity` is accepted as a legacy alias."
+          "description": "Layer amplitude, 0-1. The v2 name for this field."
         },
         "intensity": {
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "Deprecated alias for `amplitude`, kept so packs written against the first draft of this schema keep working."
+          "description": "The v1 name for `amplitude`. A pack that declares schemaVersion 1 (or declares none) is migrated to `amplitude` in memory when it loads; the file on disk is never rewritten. Do not use in a pack that declares v2."
         },
         "startTime": {
           "type": "integer",
           "minimum": 0,
           "default": 0,
-          "description": "Milliseconds from the pattern start before this layer begins. Must be inside the pattern duration, or the layer is never heard. Canonical name; `delay` is accepted as a legacy alias."
+          "description": "Milliseconds from the pattern start before this layer begins. Must be inside the pattern duration, or the layer is never heard. The v2 name for this field."
         },
         "delay": {
           "type": "integer",
           "minimum": 0,
-          "description": "Deprecated alias for `startTime`."
+          "description": "The v1 name for `startTime`, migrated in memory exactly as `intensity` is. Do not use in a pack that declares v2."
         },
         "duration": {
           "type": "integer",

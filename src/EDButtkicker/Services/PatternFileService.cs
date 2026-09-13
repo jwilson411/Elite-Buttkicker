@@ -1,7 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 using System.IO;
 
@@ -196,13 +198,47 @@ public class PatternFileService : IPatternCatalog, IDisposable
         try
         {
             var json = await _storage.ReadAllTextAsync(filePath, cancellationToken);
-            var patternFile = JsonSerializer.Deserialize<PatternFile>(json, _jsonOptions);
+
+            // Read as a document first, so the pack's schema version can be negotiated before any of
+            // it is deserialized: a field an older schema spelled differently has to be moved while
+            // it is still JSON, and a pack from a newer schema must be refused whole rather than
+            // half-read into something the engine would play.
+            var document = JsonNode.Parse(
+                json, nodeOptions: null, new JsonDocumentOptions { AllowTrailingCommas = true });
+
+            if (document is not JsonObject pack)
+            {
+                _logger.LogWarning("Pattern file contains no pattern pack: {FilePath}", filePath);
+                return null;
+            }
+
+            var migration = PatternPackMigrator.Migrate(pack, filePath);
+
+            if (!migration.Succeeded)
+            {
+                // Already a complete sentence naming the file, what it asked for and what is
+                // available - the author has to be able to act on it without reading the source.
+                _logger.LogWarning("{Diagnostic}", migration.Error);
+                return null;
+            }
+
+            if (migration.WasMigrated)
+            {
+                _logger.LogInformation(
+                    "Migrated pattern file {FilePath} from pattern pack schema v{DeclaredVersion} to v{CurrentVersion} in memory ({Changes}); the file on disk is left exactly as its author wrote it",
+                    filePath, migration.DeclaredVersion, PatternSchemaVersion.Current, migration.MigrationSummary);
+            }
+
+            var patternFile = migration.Pack!.Deserialize<PatternFile>(_jsonOptions);
 
             if (patternFile == null)
             {
                 _logger.LogWarning("Pattern file contains no pattern pack: {FilePath}", filePath);
                 return null;
             }
+
+            // Whatever the file declared, what the catalog holds is the current representation.
+            patternFile.SchemaVersion = PatternSchemaVersion.Current.ToString();
 
             // Nothing reaches the catalog - and so nothing reaches playback - until it satisfies the
             // schema the engine actually implements. A rejected file is named field by field, so its
@@ -216,9 +252,9 @@ public class PatternFileService : IPatternCatalog, IDisposable
                 return null;
             }
 
-            _logger.LogDebug("Loaded pattern file '{Name}' v{Version} by {Author} with {ShipCount} ships",
+            _logger.LogDebug("Loaded pattern file '{Name}' v{Version} by {Author} with {ShipCount} ships (schema v{SchemaVersion})",
                 patternFile.Metadata.Name, patternFile.Metadata.Version, patternFile.Metadata.Author,
-                patternFile.Ships.Count);
+                patternFile.Ships.Count, patternFile.SchemaVersion);
 
             return patternFile;
         }
@@ -332,15 +368,20 @@ public class PatternFileService : IPatternCatalog, IDisposable
         {
             var exportData = new PatternFile
             {
+                // Stamped from the two things that actually decide whether the file loads elsewhere:
+                // the schema this build writes, and the build that wrote it. Hard-coding either was
+                // a promise the export could not keep once the schema moved.
+                SchemaVersion = PatternSchemaVersion.Current.ToString(),
                 Metadata = new PatternFileMetadata
                 {
                     Name = packName,
+                    // The pack's own version, not the schema's: a freshly exported pack is its 1.0.0.
                     Version = "1.0.0",
                     Author = "User Export",
                     Description = $"Exported pattern pack: {packName}",
                     Tags = new List<string> { "export", "custom" },
                     Created = DateTime.UtcNow,
-                    Compatibility = "1.0.0"
+                    Compatibility = BuildVersion.Current
                 },
                 Ships = new Dictionary<string, ShipPatternData>()
             };
