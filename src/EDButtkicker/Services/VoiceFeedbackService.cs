@@ -10,6 +10,14 @@ namespace EDButtkicker.Services;
 [SupportedOSPlatform("windows")]
 public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 {
+    /// <summary>The range System.Speech accepts for <see cref="SpeechSynthesizer.Volume"/>.</summary>
+    private const int MinVolume = 0;
+    private const int MaxVolume = 100;
+
+    /// <summary>The range System.Speech accepts for <see cref="SpeechSynthesizer.Rate"/>.</summary>
+    private const int MinRate = -10;
+    private const int MaxRate = 10;
+
     private readonly ILogger<VoiceFeedbackService> _logger;
     private readonly AppSettings _settings;
     private readonly IAudioDeviceCatalog? _deviceCatalog;
@@ -74,10 +82,11 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         {
             _logger.LogInformation("Initializing Voice Feedback Service");
 
-            // Configure synthesizer
-            _synthesizer.Volume = 80; // 0-100
-            _synthesizer.Rate = 0;    // -10 to 10 (normal speed)
-            
+            // Volume and rate are the user's, read from settings rather than fixed here, so the
+            // values the settings panel shows are the ones the voice actually speaks with.
+            ApplySettingsToSynthesizer();
+
+
             // Try to set a suitable voice
             var voices = _synthesizer.GetInstalledVoices();
             var preferredVoice = voices.FirstOrDefault(v => 
@@ -101,6 +110,44 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         {
             _logger.LogError(ex, "Failed to initialize voice feedback service");
         }
+    }
+
+    /// <summary>
+    /// Takes a volume or rate change live. The settings object is the record of the choice, so it is
+    /// updated here too and a synthesizer started later reads the same values.
+    /// </summary>
+    public bool ApplyVoiceSettings(int volume, int rate)
+    {
+        _settings.Voice.Volume = volume;
+        _settings.Voice.Rate = rate;
+
+        if (_synthesizer == null || !_isInitialized) return false;
+
+        try
+        {
+            ApplySettingsToSynthesizer();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // A voice that keeps its old loudness is worth a log line, not a failed settings save.
+            _logger.LogError(ex, "Could not apply voice volume {Volume} and rate {Rate}", volume, rate);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Values outside what System.Speech accepts would throw rather than be ignored, and a settings
+    /// file edited by hand is exactly where one comes from, so they are clamped on the way in.
+    /// </summary>
+    private void ApplySettingsToSynthesizer()
+    {
+        if (_synthesizer == null) return;
+
+        _synthesizer.Volume = Math.Clamp(_settings.Voice.Volume, MinVolume, MaxVolume);
+        _synthesizer.Rate = Math.Clamp(_settings.Voice.Rate, MinRate, MaxRate);
+
+        _logger.LogDebug("Voice volume {Volume}, rate {Rate}", _synthesizer.Volume, _synthesizer.Rate);
     }
 
     public async Task AnnounceEvent(string eventType, JournalEvent? journalEvent = null)

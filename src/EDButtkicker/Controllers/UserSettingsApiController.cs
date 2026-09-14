@@ -70,7 +70,10 @@ public class UserSettingsController : ControllerBase
                 ContextualIntelligenceEnabled = request.ContextualIntelligenceEnabled,
                 EnableAdaptiveIntensity = request.EnableAdaptiveIntensity,
                 EnablePredictivePatterns = request.EnablePredictivePatterns,
-                EnableContextualVoice = request.EnableContextualVoice
+                EnableContextualVoice = request.EnableContextualVoice,
+
+                VoiceVolume = request.VoiceVolume,
+                VoiceRate = request.VoiceRate
             });
 
             if (!result.Valid)
@@ -153,6 +156,11 @@ public class UserSettingsController : ControllerBase
                     JournalPath = _appSettings.EliteDangerous.JournalPath,
                     MonitorLatestOnly = _appSettings.EliteDangerous.MonitorLatestOnly
                 },
+                Voice = new CurrentVoiceSettings
+                {
+                    Volume = _appSettings.Voice.Volume,
+                    Rate = _appSettings.Voice.Rate
+                },
                 ContextualIntelligence = _appSettings.ContextualIntelligence != null ? new CurrentContextualIntelligenceSettings
                 {
                     Enabled = _appSettings.ContextualIntelligence.Enabled,
@@ -194,12 +202,17 @@ public class SaveUserSettingsRequest
     public bool? EnableAdaptiveIntensity { get; set; }
     public bool? EnablePredictivePatterns { get; set; }
     public bool? EnableContextualVoice { get; set; }
+
+    // Voice settings
+    public int? VoiceVolume { get; set; }
+    public int? VoiceRate { get; set; }
 }
 
 public class CurrentSettingsResponse
 {
     public CurrentAudioSettings Audio { get; set; } = new();
     public CurrentEliteDangerousSettings EliteDangerous { get; set; } = new();
+    public CurrentVoiceSettings Voice { get; set; } = new();
     public CurrentContextualIntelligenceSettings? ContextualIntelligence { get; set; }
     /// <summary>Whether a settings file has been written yet. Where it lives stays on the machine.</summary>
     public bool UserSettingsExist { get; set; }
@@ -220,6 +233,12 @@ public class CurrentEliteDangerousSettings
 {
     public string JournalPath { get; set; } = string.Empty;
     public bool MonitorLatestOnly { get; set; }
+}
+
+public class CurrentVoiceSettings
+{
+    public int Volume { get; set; }
+    public int Rate { get; set; }
 }
 
 public class CurrentContextualIntelligenceSettings

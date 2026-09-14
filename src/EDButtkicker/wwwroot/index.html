@@ -426,6 +426,16 @@
                                         <input type="checkbox" id="contextualVoice" checked>
                                         Contextual Voice Announcements
                                     </label>
+                                    <div class="form-group" id="voiceSettingsGroup">
+                                        <label for="voiceVolume">Voice Volume (%)</label>
+                                        <input type="range" id="voiceVolume" min="0" max="100" value="80" oninput="updateRangeDisplay(this)">
+                                        <span class="range-value">80</span>
+                                    </div>
+                                    <div class="form-group" id="voiceRateGroup">
+                                        <label for="voiceRate">Voice Rate (-10 to 10)</label>
+                                        <input type="range" id="voiceRate" min="-10" max="10" value="0" oninput="updateRangeDisplay(this)">
+                                        <span class="range-value">0</span>
+                                    </div>
                                     <label class="checkbox-label">
                                         <input type="checkbox" id="logAnalysis">
                                         Log Context Analysis

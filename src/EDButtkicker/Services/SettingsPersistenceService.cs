@@ -29,6 +29,9 @@ public sealed class SettingsUpdate
     public bool? EnablePredictivePatterns { get; set; }
     public bool? EnableContextualVoice { get; set; }
     public bool? LogContextAnalysis { get; set; }
+
+    public int? VoiceVolume { get; set; }
+    public int? VoiceRate { get; set; }
 }
 
 /// <summary>
@@ -177,6 +180,13 @@ public class SettingsPersistenceService
     public const int MinBufferSize = 64;
     public const int MaxBufferSize = 16384;
 
+    /// <summary>The range System.Speech accepts; anything outside it would be refused by the voice.</summary>
+    public const int MinVoiceVolume = 0;
+    public const int MaxVoiceVolume = 100;
+
+    public const int MinVoiceRate = -10;
+    public const int MaxVoiceRate = 10;
+
     private const string RestartAudioFormatDetail =
         "Saved. The audio output keeps the format it was opened with, so this takes effect the next time the application starts.";
 
@@ -189,6 +199,13 @@ public class SettingsPersistenceService
     private readonly AudioEngineService _audioEngine;
     private readonly JournalMonitorStatus _journalStatus;
 
+    /// <summary>
+    /// The speaking voice, when there is one. Spoken feedback only exists on Windows, so this is
+    /// null everywhere else - a voice setting is still validated and saved there, it simply has
+    /// nothing to take live.
+    /// </summary>
+    private readonly IVoiceFeedback? _voiceFeedback;
+
     // One writer at a time: two overlapping requests must not interleave a mutation with a write and
     // leave the file describing a configuration that never existed.
     private readonly SemaphoreSlim _mutex = new(1, 1);
@@ -198,13 +215,15 @@ public class SettingsPersistenceService
         AppSettings settings,
         UserSettingsService userSettings,
         AudioEngineService audioEngine,
-        JournalMonitorStatus journalStatus)
+        JournalMonitorStatus journalStatus,
+        IVoiceFeedback? voiceFeedback = null)
     {
         _logger = logger;
         _settings = settings;
         _userSettings = userSettings;
         _audioEngine = audioEngine;
         _journalStatus = journalStatus;
+        _voiceFeedback = voiceFeedback;
     }
 
     public string SettingsPath => _userSettings.GetUserSettingsPath();
@@ -340,6 +359,16 @@ public class SettingsPersistenceService
             errors.Add($"Prediction threshold must be between 0.1 and 1.0 (got {threshold}).");
         }
 
+        if (update.VoiceVolume is { } voiceVolume && (voiceVolume < MinVoiceVolume || voiceVolume > MaxVoiceVolume))
+        {
+            errors.Add($"Voice volume must be between {MinVoiceVolume} and {MaxVoiceVolume} (got {voiceVolume}).");
+        }
+
+        if (update.VoiceRate is { } voiceRate && (voiceRate < MinVoiceRate || voiceRate > MaxVoiceRate))
+        {
+            errors.Add($"Voice rate must be between {MinVoiceRate} and {MaxVoiceRate} (got {voiceRate}).");
+        }
+
         return errors;
     }
 
@@ -445,6 +474,55 @@ public class SettingsPersistenceService
         }
 
         changes.AddRange(ApplyContextualIntelligence(update));
+        changes.AddRange(ApplyVoice(update));
+
+        return changes;
+    }
+
+    /// <summary>
+    /// Volume and rate are one choice written as two numbers, and the synthesizer takes them
+    /// together - so an update that moves both hands them over in a single call rather than
+    /// speaking once at a half-applied setting. Each is still reported on its own, because each is
+    /// a setting the user set. Off Windows there is no voice to tell: the values are recorded and
+    /// reported as pending, which is the truth - they apply the next time something can speak them.
+    /// </summary>
+    private List<SettingsChange> ApplyVoice(SettingsUpdate update)
+    {
+        var changes = new List<SettingsChange>();
+
+        var volumeChanged = update.VoiceVolume is { } requestedVolume && requestedVolume != _settings.Voice.Volume;
+        var rateChanged = update.VoiceRate is { } requestedRate && requestedRate != _settings.Voice.Rate;
+
+        if (!volumeChanged && !rateChanged)
+        {
+            return changes;
+        }
+
+        var volume = update.VoiceVolume ?? _settings.Voice.Volume;
+        var rate = update.VoiceRate ?? _settings.Voice.Rate;
+
+        var applied = _voiceFeedback?.ApplyVoiceSettings(volume, rate) ?? false;
+
+        // The voice writes these itself when it takes them, but it only exists on Windows and only
+        // once it has a synthesizer - so the record of the choice is kept here either way.
+        _settings.Voice.Volume = volume;
+        _settings.Voice.Rate = rate;
+
+        const string pendingDetail = "Saved. Takes effect on the next announcement or after a restart.";
+
+        if (volumeChanged)
+        {
+            changes.Add(new SettingsChange(
+                "voice.volume", volume.ToString(), applied,
+                applied ? "In effect now: speech volume was updated." : pendingDetail));
+        }
+
+        if (rateChanged)
+        {
+            changes.Add(new SettingsChange(
+                "voice.rate", rate.ToString(), applied,
+                applied ? "In effect now: speech rate was updated." : pendingDetail));
+        }
 
         return changes;
     }
