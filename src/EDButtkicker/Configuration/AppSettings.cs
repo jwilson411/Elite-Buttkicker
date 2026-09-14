@@ -4,6 +4,7 @@ public class AppSettings
 {
 	public EliteDangerousSettings EliteDangerous { get; set; } = new();
 	public AudioSettings Audio { get; set; } = new();
+	public VoiceSettings Voice { get; set; } = new();
 	public ContextualIntelligenceConfiguration? ContextualIntelligence { get; set; } = new();
 }
 
@@ -26,6 +27,20 @@ public class AudioSettings
 	public string AudioDeviceEndpointId { get; set; } = string.Empty;
 	/// <summary>Enumeration ordinal of the chosen output (-1 = system default). Display only.</summary>
 	public int AudioDeviceId { get; set; } = -1;
+}
+
+/// <summary>
+/// How spoken feedback sounds. Plain configuration with no platform attribute: the settings exist
+/// and round trip everywhere, even where there is no speech engine to hand them to. The ranges are
+/// the ones System.Speech itself accepts, so a saved value is always one a synthesizer can take.
+/// </summary>
+public class VoiceSettings
+{
+	/// <summary>Speech loudness, 0-100.</summary>
+	public int Volume { get; set; } = 80;
+
+	/// <summary>Speech speed, -10 (slowest) to 10 (fastest); 0 is the normal rate.</summary>
+	public int Rate { get; set; } = 0;
 }
 
 public class ContextualIntelligenceConfiguration

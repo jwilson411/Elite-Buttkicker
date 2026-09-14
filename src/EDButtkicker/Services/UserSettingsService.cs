@@ -245,6 +245,20 @@ public class UserSettingsService
                 _logger.LogDebug("Applied monitor latest only: {MonitorLatestOnly}", preferences.MonitorLatestOnly.Value);
             }
 
+            // Apply voice preferences. The synthesizer reads these when it starts, so a value
+            // restored here is the one the voice speaks with from the first announcement on.
+            if (preferences.VoiceVolume.HasValue)
+            {
+                appSettings.Voice.Volume = preferences.VoiceVolume.Value;
+                _logger.LogDebug("Applied voice volume: {VoiceVolume}", preferences.VoiceVolume.Value);
+            }
+
+            if (preferences.VoiceRate.HasValue)
+            {
+                appSettings.Voice.Rate = preferences.VoiceRate.Value;
+                _logger.LogDebug("Applied voice rate: {VoiceRate}", preferences.VoiceRate.Value);
+            }
+
             // Apply contextual intelligence preferences
             if (appSettings.ContextualIntelligence != null && preferences.ContextualIntelligence != null)
             {
@@ -307,6 +321,8 @@ public class UserSettingsService
                 BufferSize = appSettings.Audio.BufferSize,
                 JournalPath = appSettings.EliteDangerous.JournalPath,
                 MonitorLatestOnly = appSettings.EliteDangerous.MonitorLatestOnly,
+                VoiceVolume = appSettings.Voice.Volume,
+                VoiceRate = appSettings.Voice.Rate,
                 ContextualIntelligence = appSettings.ContextualIntelligence != null ? new UserContextualIntelligencePreferences
                 {
                     Enabled = appSettings.ContextualIntelligence.Enabled,
@@ -407,6 +423,10 @@ public class UserPreferences
     // Elite Dangerous preferences
     public string? JournalPath { get; set; }
     public bool? MonitorLatestOnly { get; set; }
+
+    /// <summary>How loudly and how fast spoken feedback speaks; both are read when a voice starts.</summary>
+    public int? VoiceVolume { get; set; }
+    public int? VoiceRate { get; set; }
 
     // Contextual Intelligence preferences
     public UserContextualIntelligencePreferences? ContextualIntelligence { get; set; }

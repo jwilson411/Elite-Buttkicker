@@ -50,7 +50,12 @@ public class ContextualIntelligenceApiController : ControllerBase
 					adaptive_intensity = config.EnableAdaptiveIntensity,
 					predictive_patterns = config.EnablePredictivePatterns,
 					contextual_voice = config.EnableContextualVoice,
-					log_analysis = config.LogContextAnalysis
+					log_analysis = config.LogContextAnalysis,
+
+					// The voice's loudness and speed sit beside the switch that turns it on, so the
+					// page that draws that switch is given them here rather than from a second call.
+					voice_volume = _settings.Voice.Volume,
+					voice_rate = _settings.Voice.Rate
 				},
 				current_context = new
 				{
@@ -148,6 +153,15 @@ public class ContextualIntelligenceApiController : ControllerBase
 
 			if (configUpdate.ContainsKey("log_analysis") && bool.TryParse(configUpdate["log_analysis"].ToString(), out bool logAnalysis))
 				update.LogContextAnalysis = logAnalysis;
+
+			// Sliders again, so clamped rather than refused for the same reason as the rates above.
+			if (configUpdate.ContainsKey("voice_volume") && int.TryParse(configUpdate["voice_volume"].ToString(), out int voiceVolume))
+				update.VoiceVolume = Math.Clamp(
+					voiceVolume, SettingsPersistenceService.MinVoiceVolume, SettingsPersistenceService.MaxVoiceVolume);
+
+			if (configUpdate.ContainsKey("voice_rate") && int.TryParse(configUpdate["voice_rate"].ToString(), out int voiceRate))
+				update.VoiceRate = Math.Clamp(
+					voiceRate, SettingsPersistenceService.MinVoiceRate, SettingsPersistenceService.MaxVoiceRate);
 
 			// Same persistence path as every other settings change, so these choices are still in
 			// place after a restart instead of living only in this process.

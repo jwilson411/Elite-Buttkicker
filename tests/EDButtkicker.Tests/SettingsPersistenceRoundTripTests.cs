@@ -199,6 +199,36 @@ public class SettingsPersistenceRoundTripTests : IDisposable
     }
 
     [Fact]
+    public async Task VoiceVolumeAndRate_SurviveARestart()
+    {
+        var result = await _persistence.ApplyAsync(new SettingsUpdate
+        {
+            VoiceVolume = 60,
+            VoiceRate = 3
+        });
+
+        Assert.True(result.Valid);
+        Assert.True(result.Saved);
+
+        // Live in this session...
+        Assert.Equal(60, _settings.Voice.Volume);
+        Assert.Equal(3, _settings.Voice.Rate);
+
+        // ...and still there for the next one.
+        Assert.True(File.Exists(SettingsFile));
+        var reloaded = await AfterRestart().LoadUserPreferencesAsync();
+
+        Assert.Equal(60, reloaded.VoiceVolume);
+        Assert.Equal(3, reloaded.VoiceRate);
+
+        var restored = new AppSettings();
+        AfterRestart().ApplyUserPreferencesToAppSettings(reloaded, restored);
+
+        Assert.Equal(60, restored.Voice.Volume);
+        Assert.Equal(3, restored.Voice.Rate);
+    }
+
+    [Fact]
     public async Task NoChange_WritesNothingAndSaysSo()
     {
         var result = await _persistence.ApplyAsync(new SettingsUpdate

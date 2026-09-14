@@ -807,6 +807,21 @@ class ButtkickerApp {
             if (contextualVoice) contextualVoice.checked = data.configuration.contextual_voice;
             if (logAnalysis) logAnalysis.checked = data.configuration.log_analysis;
 
+            // A rate of 0 and a volume of 0 are both real saved choices, so only a missing value
+            // leaves the slider where the markup put it.
+            const voiceVolumeEl = document.getElementById('voiceVolume');
+            const voiceRateEl = document.getElementById('voiceRate');
+
+            if (voiceVolumeEl && data.configuration?.voice_volume != null) {
+                voiceVolumeEl.value = data.configuration.voice_volume;
+                updateRangeDisplay(voiceVolumeEl);
+            }
+
+            if (voiceRateEl && data.configuration?.voice_rate != null) {
+                voiceRateEl.value = data.configuration.voice_rate;
+                updateRangeDisplay(voiceRateEl);
+            }
+
             // Update context status
             this.updateContextStatus(data.current_context);
 
@@ -1334,6 +1349,8 @@ window.saveContextConfiguration = async () => {
         const predictivePatterns = document.getElementById('predictivePatterns').checked;
         const contextualVoice = document.getElementById('contextualVoice').checked;
         const logAnalysis = document.getElementById('logAnalysis').checked;
+        const voiceVolume = parseInt(document.getElementById('voiceVolume')?.value ?? '80');
+        const voiceRate = parseInt(document.getElementById('voiceRate')?.value ?? '0');
 
         const config = {
             enabled,
@@ -1342,7 +1359,9 @@ window.saveContextConfiguration = async () => {
             adaptive_intensity: adaptiveIntensity,
             predictive_patterns: predictivePatterns,
             contextual_voice: contextualVoice,
-            log_analysis: logAnalysis
+            log_analysis: logAnalysis,
+            voice_volume: voiceVolume,
+            voice_rate: voiceRate
         };
 
         const response = await fetch('/api/context/config', {
