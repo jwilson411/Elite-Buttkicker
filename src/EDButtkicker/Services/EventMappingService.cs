@@ -333,19 +333,6 @@ public class EventMappingService : IJournalEventAudioSink
         _logger.LogInformation("Event statistics reset");
     }
 
-    private bool ShouldAnnounceEvent(string eventType)
-    {
-        // Define which events should have voice announcements
-        var announcementEvents = new HashSet<string>
-        {
-            "FSDJump", "Docked", "Undocked", "ShieldDown", "ShieldsUp",
-            "UnderAttack", "HeatWarning", "HeatDamage", "Interdicted",
-            "JetConeBoost", "Touchdown", "Liftoff"
-        };
-
-        return announcementEvents.Contains(eventType);
-    }
-
     public HapticPattern? GetDefaultPatternForEvent(string eventType)
     {
         if (_eventMappings.EventMappings.TryGetValue(eventType, out var mapping))
