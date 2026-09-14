@@ -11,6 +11,8 @@ public class PatternSequencer
     private readonly ContextualIntelligenceService? _contextualIntelligence;
     private readonly Dictionary<string, HapticPattern> _availablePatterns = new();
 
+    private static readonly string[] CombatEvents = { "UnderAttack", "HullDamage", "ShieldDown", "FighterDestroyed" };
+
     public PatternSequencer(
         ILogger<PatternSequencer> logger, 
         AudioEngineService audioEngine,
@@ -226,11 +228,13 @@ public class PatternSequencer
         if (!bool.TryParse(expectedState.ToString(), out bool expectCombat))
             return true;
 
-        // This would need to track combat state across events
-        // For now, check if the event suggests combat
-        string[] combatEvents = { "UnderAttack", "HullDamage", "ShieldDown", "FighterDestroyed" };
-        bool inCombat = combatEvents.Contains(journalEvent.Event);
-        
+        bool inCombat = _contextualIntelligence != null
+            // The contextual service carries combat as persistent state, so the condition stays true
+            // between combat events instead of only on the tick one of them fires.
+            ? _contextualIntelligence.GetCurrentContext().CurrentState == GameState.InCombat
+            // No contextual service injected: fall back to guessing from the event that just fired.
+            : CombatEvents.Contains(journalEvent.Event);
+
         return expectCombat == inCombat;
     }
 }
