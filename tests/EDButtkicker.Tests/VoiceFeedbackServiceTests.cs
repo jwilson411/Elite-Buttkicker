@@ -1,4 +1,6 @@
+using System.Reflection;
 using EDButtkicker.Configuration;
+using EDButtkicker.Models;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using NAudio.Wave;
@@ -174,11 +176,327 @@ public class VoiceFeedbackServiceTests
         await Task.WhenAll(playbacks).WaitAsync(Patience);
     }
 
+    // ---- AnnounceAsync ---------------------------------------------------------------------
+
+    /// <summary>
+    /// The event pipeline announces on the same path whether or not speech is available, so a
+    /// service with no synthesizer has to swallow the announcement rather than fault the task it
+    /// handed back - a caller awaiting it is in the middle of dispatching a journal event.
+    /// </summary>
+    [Fact]
+    public async Task AnnounceAsync_WithoutASynthesizer_CompletesRatherThanThrowing()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+
+        await service.AnnounceAsync("Shields offline").WaitAsync(Patience);
+        await service.AnnounceAsync("{ship} hull at {health} percent", SampleEvent()).WaitAsync(Patience);
+    }
+
+    /// <summary>
+    /// The templating is the part of AnnounceAsync a caller can actually get wrong, and it is done
+    /// before the string ever reaches the synthesizer - so the message is captured at that seam,
+    /// which is the only way to assert on it on a machine with no speech platform.
+    /// </summary>
+    [Fact]
+    public void AnnounceAsync_FillsEveryPlaceholderFromTheJournalEvent()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+
+        var spoken = ProcessMessageTemplate(
+            service,
+            "{ship} hull at {health} percent, docked at {station} in {system}",
+            SampleEvent());
+
+        Assert.Equal("Cobra Mk III hull at 75 percent, docked at Coriolis Station in Sol", spoken);
+    }
+
+    /// <summary>
+    /// Most journal events carry only a field or two, so the fields that are missing fall back to
+    /// generic words: the voice says something a commander can parse, never a raw "{ship}".
+    /// </summary>
+    [Fact]
+    public void AnnounceAsync_WithFieldsMissing_SpeaksGenericWordsNotRawPlaceholders()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+
+        var spoken = ProcessMessageTemplate(
+            service,
+            "{ship} integrity {health} percent at {station} in {system}",
+            new JournalEvent { Event = "HullDamage", Health = 0.5 });
+
+        Assert.Equal("ship integrity 50 percent at station in system", spoken);
+        Assert.DoesNotContain('{', spoken);
+    }
+
+    /// <summary>
+    /// A health of 1.0 is a whole hull, not "100.0" - the percentage is spoken as an integer.
+    /// </summary>
+    [Fact]
+    public void AnnounceAsync_WithNoHealthReported_AssumesAFullHull()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+
+        var spoken = ProcessMessageTemplate(service, "hull {health}", new JournalEvent { Event = "Docked" });
+
+        Assert.Equal("hull 100", spoken);
+    }
+
+    /// <summary>With no event to read fields from there is nothing to substitute, so the message is
+    /// spoken exactly as the caller wrote it.</summary>
+    [Fact]
+    public void AnnounceAsync_WithoutAJournalEvent_SpeaksTheMessageUnchanged()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+
+        Assert.Equal("{ship} is fine", ProcessMessageTemplate(service, "{ship} is fine", null));
+    }
+
+    // ---- Rate limiting ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Hull damage arrives in bursts while a fight is going on, and a voice repeating it once per
+    /// hit is unusable - the second announcement inside the five-second window is dropped.
+    /// </summary>
+    [Fact]
+    public void ARepeatedEvent_IsDroppedWhileItsWindowIsOpen()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+        var lastAnnounced = LastAnnouncementTimes(service);
+
+        // Nothing announced yet, so the first one goes through.
+        Assert.False(ShouldRateLimit(service, "HullDamage"));
+
+        lastAnnounced["HullDamage"] = DateTime.UtcNow;
+
+        Assert.True(ShouldRateLimit(service, "HullDamage"));
+    }
+
+    /// <summary>
+    /// The window is a pause, not a mute: once it has elapsed the next hit is announced again.
+    /// Time is moved by backdating the recorded announcement rather than by sleeping.
+    /// </summary>
+    [Fact]
+    public void ARepeatedEvent_IsAnnouncedAgainOnceItsWindowHasElapsed()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+        var lastAnnounced = LastAnnouncementTimes(service);
+
+        lastAnnounced["HullDamage"] = DateTime.UtcNow - TimeSpan.FromSeconds(6);
+
+        Assert.False(ShouldRateLimit(service, "HullDamage"));
+    }
+
+    /// <summary>Each event type keeps its own window, so a quiet one is not silenced by a noisy
+    /// one that was just announced.</summary>
+    [Fact]
+    public void RateLimiting_IsTrackedPerEventType()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+        var lastAnnounced = LastAnnouncementTimes(service);
+
+        lastAnnounced["HullDamage"] = DateTime.UtcNow;
+
+        Assert.True(ShouldRateLimit(service, "HullDamage"));
+        Assert.False(ShouldRateLimit(service, "HeatWarning"));
+    }
+
+    /// <summary>
+    /// Only the events that can repeat are limited. A jump is a one-off the commander asked for, so
+    /// it is announced every time however recently the last one was.
+    /// </summary>
+    [Fact]
+    public void AnEventWithNoWindow_IsNeverRateLimited()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+        var lastAnnounced = LastAnnouncementTimes(service);
+
+        lastAnnounced["FSDJump"] = DateTime.UtcNow;
+
+        Assert.False(ShouldRateLimit(service, "FSDJump"));
+    }
+
+    // ---- ProcessPatternVoiceFeedback -------------------------------------------------------
+
+    /// <summary>
+    /// A pattern that only speaks must not open an audio device: the cue and the announcement are
+    /// independent switches, and turning one on should not sound the other.
+    /// </summary>
+    [Fact]
+    public async Task APatternThatOnlySpeaks_NeverOpensAnAudioOutput()
+    {
+        var factory = new FakeAudioOutputFactory();
+        using var service = CreateService(new AppSettings(), factory);
+
+        var pattern = new HapticPattern
+        {
+            EnableVoiceAnnouncement = true,
+            VoiceMessage = "Jump in progress",
+            EnableAudioCue = false
+        };
+
+        await service.ProcessPatternVoiceFeedback(pattern, SampleEvent()).WaitAsync(Patience);
+
+        Assert.Empty(factory.OpenedEndpoints);
+        Assert.Equal(0, factory.OpenDefaultCalls);
+    }
+
+    /// <summary>The cue plays on its own, without a voice announcement to carry it.</summary>
+    [Fact]
+    public async Task APatternThatOnlyPlaysACue_ReachesTheDevice()
+    {
+        using var cue = new TempCueFile();
+        var player = new FakeWavePlayer(stopWhenPlayed: true);
+        var factory = new FakeAudioOutputFactory(() => player);
+        using var service = CreateService(new AppSettings(), factory);
+
+        var pattern = new HapticPattern
+        {
+            EnableVoiceAnnouncement = false,
+            EnableAudioCue = true,
+            AudioCueFile = cue.FileName
+        };
+
+        await service.ProcessPatternVoiceFeedback(pattern, null).WaitAsync(Patience);
+
+        Assert.Equal(1, player.PlayCalls);
+        Assert.Equal(1, factory.OpenDefaultCalls);
+    }
+
+    /// <summary>
+    /// With both switches on the call waits for the cue as well as the announcement, so the pattern
+    /// knows when its feedback has finished sounding.
+    /// </summary>
+    [Fact]
+    public async Task APatternWithBothEnabled_WaitsForTheCueToFinish()
+    {
+        using var cue = new TempCueFile();
+        var player = new FakeWavePlayer();
+        var factory = new FakeAudioOutputFactory(() => player);
+        using var service = CreateService(new AppSettings(), factory);
+
+        var pattern = new HapticPattern
+        {
+            EnableVoiceAnnouncement = true,
+            VoiceMessage = "Hull at {health} percent",
+            EnableAudioCue = true,
+            AudioCueFile = cue.FileName
+        };
+
+        var feedback = service.ProcessPatternVoiceFeedback(pattern, SampleEvent());
+
+        Assert.Equal(1, player.PlayCalls);
+        Assert.False(feedback.IsCompleted, "the pattern should still be waiting on the cue");
+
+        player.RaisePlaybackStopped();
+        await feedback.WaitAsync(Patience);
+    }
+
+    /// <summary>
+    /// Both switches off is the common case - most patterns are haptics only - and it has to cost
+    /// nothing: no device opened, and no announcement attempted.
+    /// </summary>
+    [Fact]
+    public async Task APatternWithNeitherEnabled_DoesNothingAtAll()
+    {
+        var factory = new FakeAudioOutputFactory();
+        using var service = CreateService(new AppSettings(), factory);
+
+        var pattern = new HapticPattern
+        {
+            EnableVoiceAnnouncement = false,
+            VoiceMessage = "this should never be spoken",
+            EnableAudioCue = false,
+            AudioCueFile = "unused.wav"
+        };
+
+        await service.ProcessPatternVoiceFeedback(pattern, SampleEvent()).WaitAsync(Patience);
+
+        Assert.Empty(factory.OpenedEndpoints);
+        Assert.Equal(0, factory.OpenDefaultCalls);
+    }
+
+    /// <summary>
+    /// A switch turned on but left unfilled - saved from the pattern editor before a file or a
+    /// message was chosen - is treated as off rather than as an empty cue or an empty utterance.
+    /// </summary>
+    [Fact]
+    public async Task APatternWithEmptyMessageAndCue_TreatsBothSwitchesAsOff()
+    {
+        var factory = new FakeAudioOutputFactory();
+        using var service = CreateService(new AppSettings(), factory);
+
+        var pattern = new HapticPattern
+        {
+            EnableVoiceAnnouncement = true,
+            VoiceMessage = string.Empty,
+            EnableAudioCue = true,
+            AudioCueFile = string.Empty
+        };
+
+        await service.ProcessPatternVoiceFeedback(pattern, SampleEvent()).WaitAsync(Patience);
+
+        Assert.Empty(factory.OpenedEndpoints);
+        Assert.Equal(0, factory.OpenDefaultCalls);
+    }
+
+    /// <summary>A cue file that has gone missing must not fault the pattern that asked for it.</summary>
+    [Fact]
+    public async Task APatternWhoseCueFileIsGone_StillCompletes()
+    {
+        var factory = new FakeAudioOutputFactory();
+        using var service = CreateService(new AppSettings(), factory);
+
+        var pattern = new HapticPattern
+        {
+            EnableVoiceAnnouncement = true,
+            VoiceMessage = "Hull breach",
+            EnableAudioCue = true,
+            AudioCueFile = $"not-a-file-{Guid.NewGuid():N}.wav"
+        };
+
+        await service.ProcessPatternVoiceFeedback(pattern, SampleEvent()).WaitAsync(Patience);
+
+        Assert.Empty(factory.OpenedEndpoints);
+        Assert.Equal(0, factory.OpenDefaultCalls);
+    }
+
     private static VoiceFeedbackService CreateService(
         AppSettings settings,
         IAudioOutputFactory factory,
         IAudioDeviceCatalog? catalog = null) =>
         new(NullLogger<VoiceFeedbackService>.Instance, settings, catalog, factory);
+
+    private static JournalEvent SampleEvent() => new()
+    {
+        Event = "HullDamage",
+        Ship = "Cobra Mk III",
+        Health = 0.75,
+        StationName = "Coriolis Station",
+        StarSystem = "Sol"
+    };
+
+    // System.Speech is Windows-only, so the message can only be observed where it is written rather
+    // than where it is spoken, and the window itself is consulted before anything is announced.
+    // Both are internal to the service; reaching them by reflection is what lets these run on a
+    // machine with no speech platform.
+
+    private static string ProcessMessageTemplate(
+        VoiceFeedbackService service,
+        string template,
+        JournalEvent? journalEvent) =>
+        (string)typeof(VoiceFeedbackService)
+            .GetMethod("ProcessMessageTemplate", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(service, new object?[] { template, journalEvent })!;
+
+    private static bool ShouldRateLimit(VoiceFeedbackService service, string eventType) =>
+        (bool)typeof(VoiceFeedbackService)
+            .GetMethod("ShouldRateLimit", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(service, new object?[] { eventType })!;
+
+    private static Dictionary<string, DateTime> LastAnnouncementTimes(VoiceFeedbackService service) =>
+        (Dictionary<string, DateTime>)typeof(VoiceFeedbackService)
+            .GetField("_lastAnnouncementTimes", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .GetValue(service)!;
 
     /// <summary>A real, readable WAV file where the service looks for cues, deleted afterwards.</summary>
     private sealed class TempCueFile : IDisposable
