@@ -12,16 +12,47 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 {
     private readonly ILogger<VoiceFeedbackService> _logger;
     private readonly AppSettings _settings;
-    private readonly SpeechSynthesizer _synthesizer;
+    private readonly IAudioDeviceCatalog? _deviceCatalog;
+    private readonly IAudioOutputFactory? _outputFactory;
+    private readonly SpeechSynthesizer? _synthesizer;
     private readonly Dictionary<string, string> _eventMessages = new();
     private readonly Dictionary<string, DateTime> _lastAnnouncementTimes = new();
-    private bool _isInitialized = false;
 
-    public VoiceFeedbackService(ILogger<VoiceFeedbackService> logger, AppSettings settings)
+    /// <summary>Cancels any cue still playing when the service goes away.</summary>
+    private readonly CancellationTokenSource _disposeCts = new();
+
+    private bool _isInitialized = false;
+    private volatile bool _disposed;
+
+    /// <summary>
+    /// The catalog and the output factory are the same seams <see cref="AudioEngineService"/> uses,
+    /// so a cue plays out of the device the user selected rather than out of whatever Windows calls
+    /// the default. Both are optional: with neither one, cue playback falls back to the default
+    /// output, which is what the service did before it could route.
+    /// </summary>
+    public VoiceFeedbackService(
+        ILogger<VoiceFeedbackService> logger,
+        AppSettings settings,
+        IAudioDeviceCatalog? deviceCatalog = null,
+        IAudioOutputFactory? outputFactory = null)
     {
         _logger = logger;
         _settings = settings;
-        _synthesizer = new SpeechSynthesizer();
+        _deviceCatalog = deviceCatalog;
+        _outputFactory = outputFactory;
+
+        // System.Speech exists on Windows and nowhere else, and it can also fail on a Windows box
+        // with no speech platform installed. A service that cannot speak still plays audio cues, so
+        // the failure is recorded and IsRunning stays false rather than taking construction down.
+        try
+        {
+            _synthesizer = new SpeechSynthesizer();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Speech synthesis is unavailable; voice announcements are disabled");
+        }
+
         InitializeEventMessages();
     }
 
@@ -33,6 +64,12 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 
     public void Initialize()
     {
+        if (_synthesizer == null)
+        {
+            _logger.LogWarning("Voice Feedback Service has no synthesizer; announcements stay disabled");
+            return;
+        }
+
         try
         {
             _logger.LogInformation("Initializing Voice Feedback Service");
@@ -68,7 +105,7 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 
     public async Task AnnounceEvent(string eventType, JournalEvent? journalEvent = null)
     {
-        if (!_isInitialized) return;
+        if (!_isInitialized || _synthesizer == null) return;
 
         try
         {
@@ -105,43 +142,137 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         }
     }
 
+    /// <summary>
+    /// Plays one cue file through the configured output. Completion is the device's own
+    /// PlaybackStopped callback rather than a polling loop, so a cue costs no thread while it
+    /// sounds, and disposing the service stops whatever is still playing.
+    /// </summary>
     public async Task PlayAudioCue(string cueFile)
     {
-        if (string.IsNullOrEmpty(cueFile)) return;
+        if (string.IsNullOrEmpty(cueFile) || _disposed) return;
+
+        string cuePath = Path.Combine("audio_cues", cueFile);
+        if (!File.Exists(cuePath))
+        {
+            _logger.LogWarning("Audio cue file not found: {CueFile}", cuePath);
+            return;
+        }
+
+        AudioFileReader? audioFile = null;
+        IWavePlayer? player = null;
 
         try
         {
-            string cuePath = Path.Combine("audio_cues", cueFile);
-            if (!File.Exists(cuePath))
-            {
-                _logger.LogWarning("Audio cue file not found: {CueFile}", cuePath);
-                return;
-            }
+            var cancellation = _disposeCts.Token;
+            var completed = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            // Play audio cue using NAudio
-            await Task.Run(() =>
+            audioFile = new AudioFileReader(cuePath);
+            var output = OpenCueOutput();
+            player = output;
+            output.PlaybackStopped += (_, args) =>
+            {
+                if (args.Exception != null)
+                {
+                    completed.TrySetException(args.Exception);
+                }
+                else
+                {
+                    completed.TrySetResult(null);
+                }
+            };
+
+            // Stopping the device raises PlaybackStopped, but a device that never got as far as
+            // playing will not, so the task is completed here as well and the first result wins.
+            using var cancelRegistration = cancellation.Register(() =>
             {
                 try
                 {
-                    using var audioFile = new AudioFileReader(cuePath);
-                    using var outputDevice = new WaveOutEvent();
-                    outputDevice.Init(audioFile);
-                    outputDevice.Play();
-                    
-                    while (outputDevice.PlaybackState == PlaybackState.Playing)
-                    {
-                        Thread.Sleep(100);
-                    }
+                    output.Stop();
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error playing audio cue: {CueFile}", cueFile);
+                    _logger.LogDebug(ex, "Error stopping cancelled audio cue: {CueFile}", cueFile);
                 }
+
+                completed.TrySetCanceled(cancellation);
             });
+
+            output.Init(audioFile);
+            output.Play();
+
+            await completed.Task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("Audio cue playback cancelled: {CueFile}", cueFile);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The service was disposed between the guard above and the token being read.
+            _logger.LogDebug("Audio cue playback abandoned, service disposed: {CueFile}", cueFile);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error playing audio cue: {CueFile}", cueFile);
+        }
+        finally
+        {
+            player?.Dispose();
+            audioFile?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Opens the output a cue should sound on: the saved endpoint when it resolves against the live
+    /// enumeration, and the default output otherwise. This is the resolution
+    /// <see cref="AudioEngineService"/> uses for haptic patterns, so a cue and a pattern land on the
+    /// same device. Without an output factory there is nothing to route through and a cue plays on
+    /// the default WinMM output, exactly as it did before.
+    /// </summary>
+    private IWavePlayer OpenCueOutput()
+    {
+        if (_outputFactory == null) return new WaveOutEvent();
+
+        var resolution = AudioDeviceResolver.Resolve(
+            TryEnumerateDevices(),
+            _settings.Audio.AudioDeviceEndpointId,
+            _settings.Audio.AudioDeviceName,
+            _settings.Audio.AudioDeviceId);
+
+        if (resolution.IsUsable)
+        {
+            try
+            {
+                return _outputFactory.OpenEndpoint(resolution.EndpointId).Player;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Audio cue endpoint {EndpointId} could not be opened, falling back to default",
+                    resolution.EndpointId);
+            }
+        }
+        else if (!resolution.IsSystemDefault)
+        {
+            _logger.LogWarning("Audio cue output - {Selection}", resolution.Reason);
+        }
+
+        return _outputFactory.OpenDefault().Player;
+    }
+
+    /// <summary>An enumeration that fails leaves the saved selection unresolvable, which the
+    /// resolver already reads as "use the system default" - so a cue still plays.</summary>
+    private IReadOnlyList<AudioDevice>? TryEnumerateDevices()
+    {
+        if (_deviceCatalog == null) return null;
+
+        try
+        {
+            return _deviceCatalog.GetDevices();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enumerate render endpoints for audio cue playback");
+            return null;
         }
     }
 
@@ -177,7 +308,7 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 
     private async Task AnnounceCustomMessage(string message)
     {
-        if (!_isInitialized || string.IsNullOrEmpty(message)) return;
+        if (!_isInitialized || _synthesizer == null || string.IsNullOrEmpty(message)) return;
 
         try
         {
@@ -314,8 +445,15 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         try
         {
+            // Cancel first: a cue that is still sounding has to be stopped before the objects it
+            // plays through are torn down.
+            _disposeCts.Cancel();
+            _disposeCts.Dispose();
             _synthesizer?.Dispose();
             _logger.LogInformation("Voice Feedback Service disposed");
         }
