@@ -104,28 +104,41 @@ public class UserSettingsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Puts every setting back to its default. Like <see cref="SaveUserSettings"/>, this goes through
+    /// the one service that applies a change to the running configuration and writes it - so the
+    /// reset is what every other service is using from here on, it survives a restart, and the
+    /// response says the same things a save's does.
+    /// </summary>
     [HttpPost("reset")]
-    public ActionResult ResetUserSettings()
+    public async Task<ActionResult> ResetUserSettings()
     {
         try
         {
             _logger.LogInformation("Resetting user settings to defaults");
-            
-            // Delete the user settings file if it exists
-            var settingsPath = _userSettingsService.GetUserSettingsPath();
-            if (System.IO.File.Exists(settingsPath))
+
+            var result = await _settingsPersistence.ResetToDefaultsAsync();
+
+            if (!result.Valid)
             {
-                System.IO.File.Delete(settingsPath);
-                _logger.LogInformation("Deleted user settings file: {SettingsPath}", settingsPath);
+                return BadRequest(new
+                {
+                    error = "Failed to reset user settings",
+                    message = result.Message,
+                    validation_errors = result.ValidationErrors,
+                    settings = result.ToPayload()
+                });
             }
-            
-            // Reset app settings to defaults (you might want to reload from appsettings.json)
-            _appSettings.Audio.AudioDeviceId = -1;
-            _appSettings.Audio.AudioDeviceEndpointId = string.Empty;
-            _appSettings.Audio.AudioDeviceName = "Default";
-            // Reset other settings as needed
-            
-            return Ok(new { message = "Settings reset to defaults successfully" });
+
+            _logger.LogInformation("User settings reset handled: {Message}", result.Message);
+
+            // A reset that only reached memory is not a reset: it would come back on the next start.
+            return StatusCode(result.Saved ? 200 : 500, new
+            {
+                message = result.Message,
+                timestamp = DateTime.UtcNow,
+                settings = result.ToPayload()
+            });
         }
         catch (Exception ex)
         {
