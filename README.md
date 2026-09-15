@@ -9,7 +9,7 @@ A C# application that monitors Elite Dangerous journal files and generates bass 
 - **Real-time Journal Monitoring**: Watches Elite Dangerous journal files for game events
 - **Audio Device Selection**: Choose the output audio device in the local web interface
 - **Configurable Patterns**: JSON-based event mapping with customizable haptic patterns
-- **Multiple Event Support**: FSDJump, Docking, Hull Damage, Targeting, and Explosions
+- **Multiple Event Support**: 51 wired events — FSD jumps, docking, hull damage, on-foot Odyssey warnings, and more
 - **Bass-Optimized Audio**: 20-80Hz sine waves optimized for buttkicker hardware
 
 ## Quick Start
@@ -70,36 +70,102 @@ The value must match the first value in the downloaded `.sha256` file. Windows m
 
 ## Supported Events
 
-### Core Events (✅ Implemented)
-- ✅ **FSDJump** - Hyperspace jump with buildup rumble (35Hz, 3s, 90% intensity)
-- ✅ **Docked/Undocked** - Station docking impact and fade (45Hz/40Hz)
-- ✅ **HullDamage** - Damage-scaled sharp pulses (50Hz, variable intensity)  
-- ✅ **ShipTargeted** - Target lock brief pulse (60Hz, 150ms)
+51 event types are wired in the default configuration. Events marked ⚙️ are disabled by
+default — enable them in the pattern editor or in `patterns/default-patterns.json`.
 
-### Combat Events (✅ Implemented)  
-- ✅ **UnderAttack** - Intense combat pulses (70Hz, 300ms, 95% intensity)
-- ✅ **ShieldDown/ShieldsUp** - Shield status changes with impact/buildup patterns
-- ✅ **FighterDestroyed** - Explosion intense burst (30Hz, 1s)
+### Hyperspace & Supercruise
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `StartJump` | ✅ | MultiLayer buildup | Hyperspace jump initiation — 5 s exponential buildup (35 Hz, 90%) |
+| `FSDJump` | ✅ | Sequence | Hyperspace arrival — thump + settling rumble (38 Hz, 70%) |
+| `FsdJumpInProgress` | ✅ | SharpPulse | Hyperspace transit mid-jump pulse (38 Hz, 50%) |
+| `FsdCooldown` | ✅ | Oscillating | FSD cooldown oscillation after jump (30 Hz, 35%) |
+| `SupercruiseEntry` | ✅ | BuildupRumble | Supercruise engage buildup (30 Hz, 50%) |
+| `SupercruiseExit` | ✅ | Impact | Supercruise drop-out impact (40 Hz, 60%) |
+| `SupercruiseDestinationDrop` | ✅ | Impact | Destination proximity drop (38 Hz, 50%) |
+| `JetConeBoost` | ✅ | Oscillating | Neutron star cone boost (25 Hz, 80%, 3 s) |
 
-### Planetary Operations (✅ Implemented)
-- ✅ **Touchdown/Liftoff** - Planetary landings with ship-mass scaling (25Hz/30Hz)
+### Station & Docking
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `Docked` | ✅ | Sequence | Full docking sequence — contact, clamps, fuel hose (38 Hz, 5.5 s) |
+| `Undocked` | ✅ | Sequence | Undocking sequence — fuel disconnect, clamp release, liftoff (38 Hz, 2 s) |
+| `DockingGranted` | ✅ | SharpPulse | Docking clearance confirmation pulse (55 Hz, 120 ms) |
+| `RefuelAll` | ✅ | SustainedRumble | Station refuel sustained rumble (32 Hz, 1.2 s) |
 
-### Heat & Fuel Management (✅ Implemented)
-- ✅ **HeatWarning/HeatDamage** - Oscillating patterns with heat-level scaling (55Hz/65Hz)
-- ✅ **FuelScoop** - Star scooping sustained rumble with rate-based intensity (35Hz, 2.5s)
+### Combat
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `HullDamage` | ✅ | SharpPulse | Hull hit — intensity scales with damage amount (50 Hz) |
+| `CriticalDamageSequence` | ✅ | Sequence | Chained critical damage alert — triggers below 25% hull (60 Hz, 100%) |
+| `ShieldsDown` | ✅ | Impact | Shield collapse — heavy impact (35 Hz, 90%, 1 s) |
+| `ShieldsUp` | ✅ | BuildupRumble | Shields back online (50 Hz, 60%) |
+| `ShieldState` | ✅ | SharpPulse | Generic shield state change pulse (45 Hz, 60%) |
+| `FighterDestroyed` | ✅ | Impact | Explosion burst — fighter lost (30 Hz, 95%, 1 s) |
+| `UnderAttack` | ⚙️ | SharpPulse | Active attack pulses (70 Hz, 95%) — disabled by default to avoid spam |
+| `ShipTargeted` | ⚙️ | SharpPulse | Target lock confirmation (60 Hz, 40%, 150 ms) |
+| `Interdicted` | ✅ | Oscillating | Being pulled from supercruise (45 Hz, 75%, 4 s) |
+| `Interdiction` | ✅ | BuildupRumble | Interdicting another ship (40 Hz, 75%, 3.5 s) |
 
-### Fighter Operations (✅ Implemented)
-- ✅ **LaunchFighter/DockFighter** - Fighter bay operations (40Hz/45Hz)
+### Planetary Operations
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `Touchdown` | ✅ | Sequence | Planetary landing — gear contact, settle, clamps (25 Hz, 5 s) |
+| `Liftoff` | ✅ | Sequence | Planetary liftoff — clamp release, thruster spool, climb (30 Hz, 3 s) |
+| `GlideModeOn` | ✅ | SharpPulse | Atmospheric glide engaged (42 Hz, 45%) |
+| `GlideModeOff` | ✅ | SharpPulse | Atmospheric glide ended (38 Hz, 35%) |
 
-### Navigation (✅ Implemented)
-- ✅ **JetConeBoost** - Neutron star boost with unique deep oscillation (25Hz, 3s)
-- ✅ **Interdicted/Interdiction** - Interdiction events with stress patterns (45Hz/40Hz)
+### Heat & Warnings
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `HeatWarning` | ✅ | Oscillating | Ship overheating warning (55 Hz, 60%, 1.5 s) |
+| `HeatDamage` | ✅ | Oscillating | Active heat damage (65 Hz, 85%, 0.8 s) |
+| `Overheating` | ✅ | Oscillating | Critical overheating alert (60 Hz, 80%, 1.5 s) |
+| `LowFuel` | ✅ | Oscillating | Low fuel warning (45 Hz, 70%, 2 s) |
 
-### Advanced Features
-- ✅ **Dynamic intensity scaling** - Events adjust based on ship type, damage levels, heat, etc.
-- ✅ **Oscillating patterns** - Amplitude modulation for heat warnings, interdictions, neutron boosts
-- ✅ **Rate limiting** - Prevents audio spam while maintaining responsiveness
-- ✅ **Context-aware modifications** - Ship mass, jump distance, heat levels affect feedback
+### Ship Systems
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `LandingGearDown` | ✅ | Sequence | Gear deploy — clunk, hydraulic extension, lock (38 Hz, 3 s) |
+| `LandingGearUp` | ✅ | Sequence | Gear retract — pins release, hydraulic pull, stow (38 Hz, 2.5 s) |
+| `HardpointsDeployed` | ✅ | Sequence | Weapons deploy — mechanical clunk + tone (45 Hz, 95%, 0.8 s) |
+| `HardpointsRetracted` | ✅ | SharpPulse | Weapons retract (42 Hz, 40%) |
+| `CargoScoopDeployed` | ✅ | BuildupRumble | Cargo scoop extend (35 Hz, 40%) |
+| `CargoScoopRetracted` | ✅ | SharpPulse | Cargo scoop retract (38 Hz, 30%) |
+| `SilentRunningOn` | ✅ | Fade | Silent running engaged — fades to quiet (28 Hz, 45%) |
+| `SilentRunningOff` | ✅ | BuildupRumble | Silent running disengaged (38 Hz, 40%) |
+| `NightVisionOn` | ⚙️ | SharpPulse | Night vision toggle on (52 Hz, 25%) |
+| `NightVisionOff` | ⚙️ | SharpPulse | Night vision toggle off (48 Hz, 20%) |
+
+### Fighter Bay
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `LaunchFighter` | ✅ | BuildupRumble | Fighter launch from bay (40 Hz, 60%, 1.5 s) |
+| `DockFighter` | ✅ | Impact | Fighter recovered into bay (45 Hz, 55%, 0.6 s) |
+
+### On Foot (Odyssey)
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `OnFoot` | ✅ | SharpPulse | Transition to on-foot (suit disembarked) (40 Hz, 40%) |
+| `LowOxygen` | ✅ | Oscillating | Low oxygen suit warning (45 Hz, 70%, 2 s) |
+| `LowHealth` | ✅ | Oscillating | Low health warning (50 Hz, 75%, 2 s) |
+| `Cold` | ✅ | SharpPulse | Cold environment alert (35 Hz, 35%) |
+| `VeryCold` | ✅ | Oscillating | Extreme cold warning (35 Hz, 70%, 1.5 s) |
+| `Hot` | ✅ | SharpPulse | Hot environment alert (55 Hz, 35%) |
+| `VeryHot` | ✅ | Oscillating | Extreme heat warning (60 Hz, 80%, 1.5 s) |
+
+### Trading & Colonisation
+| Event | Default | Pattern | Description |
+|-------|---------|---------|-------------|
+| `FuelScoop` | ⚙️ | SustainedRumble | Star fuel scooping rumble (35 Hz, 50%, 2.5 s) |
+| `ColonisationContribution` | ⚙️ | Sequence | Cargo delivered to colony (40 Hz, 65%, 1.8 s) |
+| `MarketBuy` | ⚙️ | SharpPulse | Cargo loaded at market (45 Hz, 25%) |
+
+### Engine Features
+- **Dynamic intensity scaling** — `HullDamage` and `CriticalDamageSequence` scale with damage amount; heat events scale with temperature
+- **Oscillating patterns** — Amplitude-modulated waveforms for sustained warnings (heat, interdiction, low fuel)
+- **Rate limiting** — Prevents audio saturation while maintaining responsiveness
+- **Context-aware conditions** — `CriticalDamageSequence` triggers only below 25% hull; `HullDamage` voice at 50%
 
 ## Technical Details
 
