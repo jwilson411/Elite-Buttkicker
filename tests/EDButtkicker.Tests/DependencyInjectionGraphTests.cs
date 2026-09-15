@@ -121,15 +121,14 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
 
         // 4xx is fine - these requests carry deliberately minimal bodies. 5xx means the route could
         // not be served at all, which is what a broken service graph looks like from the outside.
-        // Two documented exceptions: the import endpoint answers 501 by design, and the audio test
-        // answers 503 on a machine with no output device, which is the whole point of that route -
-        // it refuses to report a success it cannot back up.
-        var allowNotImplemented = path == "/api/PatternFiles/import";
+        // One documented exception: the audio test answers 503 on a machine with no output device,
+        // which is the whole point of that route - it refuses to report a success it cannot back up.
+        // /api/PatternFiles/import needs no carve-out: it is a multipart endpoint, so probing it
+        // with a JSON body lands on 400 Bad Request, which is already under the 5xx bar.
         var allowNoAudioDevice = path == "/api/audio/test";
 
         Assert.True(
             status < 500
-                || (allowNotImplemented && status == (int)HttpStatusCode.NotImplemented)
                 || (allowNoAudioDevice && status == (int)HttpStatusCode.ServiceUnavailable),
             $"{method} {path} returned {status}: {body}");
     }
