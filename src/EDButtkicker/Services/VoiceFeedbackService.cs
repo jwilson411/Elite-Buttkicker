@@ -23,7 +23,7 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
     private readonly IAudioDeviceCatalog? _deviceCatalog;
     private readonly IAudioOutputFactory? _outputFactory;
     private readonly SpeechSynthesizer? _synthesizer;
-    private readonly Dictionary<string, string> _eventMessages = new();
+    private readonly Func<IEventPatternSource?>? _patternSource;
     private readonly Dictionary<string, DateTime> _lastAnnouncementTimes = new();
 
     /// <summary>Cancels any cue still playing when the service goes away.</summary>
@@ -37,17 +37,25 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
     /// so a cue plays out of the device the user selected rather than out of whatever Windows calls
     /// the default. Both are optional: with neither one, cue playback falls back to the default
     /// output, which is what the service did before it could route.
+    ///
+    /// The pattern source is reached through a delegate rather than injected directly because the
+    /// service that holds the mappings depends on this one - resolving it here would close a
+    /// construction cycle. Nothing is looked up until an event is announced, by which time the
+    /// mapping service exists. Null where there is nothing to read mappings from, which leaves an
+    /// event with no message to speak rather than a failure.
     /// </summary>
     public VoiceFeedbackService(
         ILogger<VoiceFeedbackService> logger,
         AppSettings settings,
         IAudioDeviceCatalog? deviceCatalog = null,
-        IAudioOutputFactory? outputFactory = null)
+        IAudioOutputFactory? outputFactory = null,
+        Func<IEventPatternSource?>? patternSource = null)
     {
         _logger = logger;
         _settings = settings;
         _deviceCatalog = deviceCatalog;
         _outputFactory = outputFactory;
+        _patternSource = patternSource;
 
         // System.Speech exists on Windows and nowhere else, and it can also fail on a Windows box
         // with no speech platform installed. A service that cannot speak still plays audio cues, so
@@ -60,8 +68,6 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         {
             _logger.LogWarning(ex, "Speech synthesis is unavailable; voice announcements are disabled");
         }
-
-        InitializeEventMessages();
     }
 
     /// <summary>
@@ -150,6 +156,10 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         _logger.LogDebug("Voice volume {Volume}, rate {Rate}", _synthesizer.Volume, _synthesizer.Rate);
     }
 
+    /// <summary>
+    /// Speaks the line configured for <paramref name="eventType"/>, subject to the announcement's
+    /// own rate limit. An event with nothing configured to say is silent.
+    /// </summary>
     public async Task AnnounceEvent(string eventType, JournalEvent? journalEvent = null)
     {
         if (!_isInitialized || _synthesizer == null) return;
@@ -377,30 +387,39 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         }
     }
 
+    /// <summary>
+    /// What to say for one event, taken from the pattern mapped to it - the same
+    /// <see cref="HapticPattern.VoiceMessage"/> that <see cref="ProcessPatternVoiceFeedback"/>
+    /// speaks, templated the same way. An event with no mapping, with voice switched off, or with
+    /// no message written has nothing to say and returns empty, which callers drop rather than
+    /// speak; the alternative - a message kept here - is a second place to edit and a place for the
+    /// voice to disagree with the pattern the user configured.
+    /// </summary>
     private string GenerateEventMessage(string eventType, JournalEvent? journalEvent)
     {
-        if (_eventMessages.TryGetValue(eventType, out string? baseMessage))
+        var pattern = TryGetEventPattern(eventType);
+
+        if (pattern is not { EnableVoiceAnnouncement: true } || string.IsNullOrWhiteSpace(pattern.VoiceMessage))
         {
-            return ProcessMessageTemplate(baseMessage, journalEvent);
+            return string.Empty;
         }
 
-        return eventType switch
+        return ProcessMessageTemplate(pattern.VoiceMessage, journalEvent);
+    }
+
+    /// <summary>A mapping lookup that fails leaves the event unannounced - it must not fault the
+    /// haptics the announcement came with.</summary>
+    private HapticPattern? TryGetEventPattern(string eventType)
+    {
+        try
         {
-            "FSDJump" => "Hyperspace jump initiated",
-            "Docked" => GetDockingMessage(journalEvent),
-            "Undocked" => "Undocking complete",
-            "HullDamage" => GetHullDamageMessage(journalEvent),
-            "ShieldDown" => "Shields offline",
-            "ShieldsUp" => "Shields online",
-            "UnderAttack" => "Under attack!",
-            "HeatWarning" => "Heat warning",
-            "HeatDamage" => "Heat damage detected",
-            "Interdicted" => "Interdiction detected",
-            "JetConeBoost" => "Neutron boost acquired",
-            "Touchdown" => GetLandingMessage(journalEvent),
-            "Liftoff" => "Liftoff complete",
-            _ => string.Empty
-        };
+            return _patternSource?.Invoke()?.GetPattern(eventType);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not read the configured pattern for {EventType}", eventType);
+            return null;
+        }
     }
 
     private string ProcessMessageTemplate(string template, JournalEvent? journalEvent)
@@ -414,40 +433,6 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
         processed = processed.Replace("{system}", journalEvent.StarSystem ?? "system");
         
         return processed;
-    }
-
-    private string GetDockingMessage(JournalEvent? journalEvent)
-    {
-        if (journalEvent?.StationName != null)
-        {
-            return $"Docked at {journalEvent.StationName}";
-        }
-        return "Docking complete";
-    }
-
-    private string GetHullDamageMessage(JournalEvent? journalEvent)
-    {
-        if (journalEvent?.Health.HasValue == true)
-        {
-            int healthPercent = (int)(journalEvent.Health.Value * 100);
-            if (healthPercent < 25)
-                return "Critical hull damage!";
-            else if (healthPercent < 50)
-                return "Significant hull damage";
-            else
-                return "Hull damage detected";
-        }
-        return "Hull damage detected";
-    }
-
-    private string GetLandingMessage(JournalEvent? journalEvent)
-    {
-        if (journalEvent?.AdditionalData?.ContainsKey("Body") == true)
-        {
-            string bodyName = journalEvent.AdditionalData["Body"]?.ToString() ?? "planetary surface";
-            return $"Landed on {bodyName}";
-        }
-        return "Planetary landing complete";
     }
 
     private bool ShouldRateLimit(string eventType)
@@ -469,25 +454,6 @@ public class VoiceFeedbackService : IVoiceFeedback, IDisposable
             return false;
 
         return DateTime.UtcNow - lastTime < minInterval;
-    }
-
-    private void InitializeEventMessages()
-    {
-        // Load custom messages from configuration if available
-        // For now, using default messages
-        _eventMessages["FSDJump"] = "Hyperspace jump initiated";
-        _eventMessages["Docked"] = "Docking complete at {station}";
-        _eventMessages["Undocked"] = "Undocking from {station}";
-        _eventMessages["HullDamage"] = "Hull integrity at {health} percent";
-        _eventMessages["ShieldDown"] = "Shields are offline";
-        _eventMessages["ShieldsUp"] = "Shields are online";
-        _eventMessages["UnderAttack"] = "Warning: Under attack!";
-        _eventMessages["HeatWarning"] = "Heat levels critical";
-        _eventMessages["HeatDamage"] = "Heat damage detected";
-        _eventMessages["Interdicted"] = "Interdiction in progress";
-        _eventMessages["JetConeBoost"] = "Frame shift drive supercharged";
-        _eventMessages["Touchdown"] = "Touchdown confirmed";
-        _eventMessages["Liftoff"] = "Liftoff complete";
     }
 
     public void Dispose()

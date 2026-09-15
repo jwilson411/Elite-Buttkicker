@@ -30,3 +30,15 @@ public interface IVoiceFeedback
     /// </summary>
     bool ApplyVoiceSettings(int volume, int rate);
 }
+
+/// <summary>
+/// The pattern configured for one event type, as the voice service needs to read it. A per-event
+/// line is written once, on <see cref="HapticPattern.VoiceMessage"/> in the event mappings, and
+/// read back through here - so editing a mapping changes what the voice says, and there is no
+/// second list of messages to diverge from it.
+/// </summary>
+public interface IEventPatternSource
+{
+    /// <summary>The pattern mapped to <paramref name="eventType"/>, or null when nothing is.</summary>
+    HapticPattern? GetPattern(string eventType);
+}

@@ -251,6 +251,71 @@ public class VoiceFeedbackServiceTests
         Assert.Equal("{ship} is fine", ProcessMessageTemplate(service, "{ship} is fine", null));
     }
 
+    // ---- Message source (issue #113) -------------------------------------------------------
+
+    /// <summary>
+    /// The canonical voice message for each event lives on the configured HapticPattern, not on a
+    /// hardcoded list. GenerateEventMessage must read the configured VoiceMessage and must not
+    /// produce a message that differs from what the pattern carries.
+    /// </summary>
+    [Fact]
+    public void GenerateEventMessage_ReturnsMsgFromConfiguredPattern_NotAHardcodedLiteral()
+    {
+        const string configuredMsg = "Hyperdrive engaged — configured text";
+        var fakeSource = new FakePatternSource("FSDJump", new HapticPattern
+        {
+            EnableVoiceAnnouncement = true,
+            VoiceMessage = configuredMsg,
+        });
+
+        using var service = CreateService(
+            new AppSettings(),
+            new FakeAudioOutputFactory(),
+            patternSource: () => fakeSource);
+
+        var message = GenerateEventMessage(service, "FSDJump");
+
+        Assert.Equal(configuredMsg, message);
+    }
+
+    /// <summary>
+    /// When there is no pattern source (old construction path or test without one), the event
+    /// generates no message rather than crashing. A blank announcement is dropped before the
+    /// synthesizer is ever reached.
+    /// </summary>
+    [Fact]
+    public void GenerateEventMessage_WithNoPatternSource_ReturnsEmpty()
+    {
+        using var service = CreateService(new AppSettings(), new FakeAudioOutputFactory());
+
+        var message = GenerateEventMessage(service, "FSDJump");
+
+        Assert.Equal(string.Empty, message);
+    }
+
+    /// <summary>
+    /// A pattern that has voice disabled must not generate a message, even if the VoiceMessage
+    /// field is populated — the toggle is what the user uses to silence a noisy event.
+    /// </summary>
+    [Fact]
+    public void GenerateEventMessage_WithVoiceDisabledOnPattern_ReturnsEmpty()
+    {
+        var fakeSource = new FakePatternSource("FSDJump", new HapticPattern
+        {
+            EnableVoiceAnnouncement = false,
+            VoiceMessage = "should not be spoken",
+        });
+
+        using var service = CreateService(
+            new AppSettings(),
+            new FakeAudioOutputFactory(),
+            patternSource: () => fakeSource);
+
+        var message = GenerateEventMessage(service, "FSDJump");
+
+        Assert.Equal(string.Empty, message);
+    }
+
     // ---- Rate limiting ---------------------------------------------------------------------
 
     /// <summary>
@@ -463,8 +528,14 @@ public class VoiceFeedbackServiceTests
     private static VoiceFeedbackService CreateService(
         AppSettings settings,
         IAudioOutputFactory factory,
-        IAudioDeviceCatalog? catalog = null) =>
-        new(NullLogger<VoiceFeedbackService>.Instance, settings, catalog, factory);
+        IAudioDeviceCatalog? catalog = null,
+        Func<IEventPatternSource?>? patternSource = null) =>
+        new(NullLogger<VoiceFeedbackService>.Instance, settings, catalog, factory, patternSource);
+
+    private static string GenerateEventMessage(VoiceFeedbackService service, string eventType, JournalEvent? journalEvent = null) =>
+        (string)typeof(VoiceFeedbackService)
+            .GetMethod("GenerateEventMessage", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(service, new object?[] { eventType, journalEvent })!;
 
     private static JournalEvent SampleEvent() => new()
     {
@@ -617,6 +688,21 @@ public class VoiceFeedbackServiceTests
         }
 
         public void Dispose() => Disposed = true;
+    }
+
+    private sealed class FakePatternSource : IEventPatternSource
+    {
+        private readonly string _eventType;
+        private readonly HapticPattern _pattern;
+
+        public FakePatternSource(string eventType, HapticPattern pattern)
+        {
+            _eventType = eventType;
+            _pattern = pattern;
+        }
+
+        public HapticPattern? GetPattern(string eventType) =>
+            eventType == _eventType ? _pattern : null;
     }
 }
 

@@ -42,7 +42,7 @@ public readonly record struct EventMappingChange(EventMappingChangeStatus Status
         new(EventMappingChangeStatus.NotPersisted, error);
 }
 
-public class EventMappingService : IJournalEventAudioSink
+public class EventMappingService : IJournalEventAudioSink, IEventPatternSource
 {
     private readonly ILogger<EventMappingService> _logger;
     private readonly AudioEngineService _audioEngine;
@@ -365,6 +365,13 @@ public class EventMappingService : IJournalEventAudioSink
 
     /// <summary>Every stored mapping, as the API and the web UI list them.</summary>
     public IReadOnlyDictionary<string, EventMapping> GetEventMappings() => _eventMappings.EventMappings;
+
+    /// <summary>
+    /// The pattern mapped to an event, for callers that only need what it says rather than whether
+    /// it is enabled - see <see cref="IEventPatternSource"/>. Reads the live mappings, so a mapping
+    /// the user has edited is the one the voice reads from.
+    /// </summary>
+    public HapticPattern? GetPattern(string eventType) => GetEventMapping(eventType)?.Pattern;
 
     /// <summary>
     /// Maps a pattern to an event that has none. Existing events are the update path, so this
