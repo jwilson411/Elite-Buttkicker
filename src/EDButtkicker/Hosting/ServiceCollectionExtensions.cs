@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using EDButtkicker.Configuration;
 using EDButtkicker.Controllers;
 using EDButtkicker.Services;
@@ -73,7 +74,21 @@ public static class ServiceCollectionExtensions
         [System.Runtime.Versioning.SupportedOSPlatform("windows")]
         static void RegisterVoiceServices(IServiceCollection s)
         {
-            s.AddSingleton<VoiceFeedbackService>();
+            // The pattern source is handed over as a delegate, not resolved here: the mapping
+            // service that implements it takes IVoiceFeedback, so asking for it during construction
+            // would be a circular dependency. It is only called when an event is announced.
+            //
+            // CA1416 is suppressed on the factory lambda: the outer method carries
+            // [SupportedOSPlatform("windows")] which already guards the call-site, but the Roslyn
+            // platform-compatibility analyzer does not flow that guard through Func<,> arguments.
+#pragma warning disable CA1416
+            s.AddSingleton(sp => new VoiceFeedbackService(
+                sp.GetRequiredService<ILogger<VoiceFeedbackService>>(),
+                sp.GetRequiredService<AppSettings>(),
+                sp.GetService<IAudioDeviceCatalog>(),
+                sp.GetService<IAudioOutputFactory>(),
+                sp.GetService<IEventPatternSource>));
+#pragma warning restore CA1416
             s.AddSingleton<IVoiceFeedback>(sp => (IVoiceFeedback)sp.GetRequiredService(typeof(VoiceFeedbackService)));
         }
 
