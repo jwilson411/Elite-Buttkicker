@@ -151,10 +151,10 @@ public static class ServiceCollectionExtensions
         services.AddTransient<SetupApiController>();
         services.AddTransient<HealthApiController>();
         services.AddTransient<PatternSelectionController>();
-
-        // Not routed today - UnroutedControllerConvention takes them back out of the application
-        // model - but they belong to the same graph so they stay resolvable.
         services.AddTransient<UserSettingsController>();
+
+        // Not routed today - UnroutedControllerConvention takes it back out of the application
+        // model - but it belongs to the same graph so it stays resolvable.
         services.AddTransient<ShipPatternsController>();
 
         return services;
@@ -169,7 +169,6 @@ internal sealed class UnroutedControllerConvention : IApplicationModelConvention
 {
     private static readonly HashSet<Type> Unrouted = new()
     {
-        typeof(UserSettingsController),
         typeof(ShipPatternsController)
     };
 

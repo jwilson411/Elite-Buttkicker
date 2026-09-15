@@ -278,6 +278,60 @@ public class SettingsPersistenceService
     }
 
     /// <summary>
+    /// Puts every setting back to what a fresh installation would use, through the same validated,
+    /// atomic path as any other change - so a reset is applied to the running configuration every
+    /// other service shares, is written to disk, and reports itself in exactly the shape a save does.
+    /// Deleting the settings file instead would leave the process running the old values until it
+    /// restarted, which is the one thing a reset must not do.
+    /// The journal folder is the single exception: its default is a guess about this machine, so it
+    /// is only restored when that folder actually exists. Handing back a path that points nowhere
+    /// would stop the watcher, which is worse than keeping the folder the user chose.
+    /// </summary>
+    public async Task<SettingsUpdateResult> ResetToDefaultsAsync()
+    {
+        var defaults = new AppSettings();
+        var defaultContext = defaults.ContextualIntelligence ?? new ContextualIntelligenceConfiguration();
+        var defaultJournalPath = defaults.EliteDangerous.JournalPath;
+
+        var result = await ApplyAsync(new SettingsUpdate
+        {
+            AudioDeviceId = defaults.Audio.AudioDeviceId,
+            AudioDeviceEndpointId = defaults.Audio.AudioDeviceEndpointId,
+            AudioDeviceName = defaults.Audio.AudioDeviceName,
+            MaxIntensity = defaults.Audio.MaxIntensity,
+            DefaultFrequency = defaults.Audio.DefaultFrequency,
+            SampleRate = defaults.Audio.SampleRate,
+            BufferSize = defaults.Audio.BufferSize,
+
+            JournalPath = Directory.Exists(defaultJournalPath) ? defaultJournalPath : null,
+            MonitorLatestOnly = defaults.EliteDangerous.MonitorLatestOnly,
+
+            ContextualIntelligenceEnabled = defaultContext.Enabled,
+            LearningRate = defaultContext.LearningRate,
+            PredictionThreshold = defaultContext.PredictionThreshold,
+            EnableAdaptiveIntensity = defaultContext.EnableAdaptiveIntensity,
+            EnablePredictivePatterns = defaultContext.EnablePredictivePatterns,
+            EnableContextualVoice = defaultContext.EnableContextualVoice,
+            LogContextAnalysis = defaultContext.LogContextAnalysis,
+
+            VoiceVolume = defaults.Voice.Volume,
+            VoiceRate = defaults.Voice.Rate
+        });
+
+        if (result.Valid && result.Changes.Count == 0)
+        {
+            // Nothing differed from the defaults, so nothing was written - but a reset still has to
+            // leave a settings file saying so, because the running configuration may only look
+            // default for want of a file that was never there.
+            var saved = await PersistCurrentAsync();
+
+            return SettingsUpdateResult.Applied(result.Changes, saved, saveError: null, SettingsPath);
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Writes the running configuration exactly as it stands. This is for callers that have already
     /// validated and applied a change themselves - the first-run wizard - so that they still write
     /// through the one atomic, backed-up path instead of a second one of their own.
