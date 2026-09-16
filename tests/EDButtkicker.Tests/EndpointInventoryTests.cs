@@ -59,7 +59,7 @@ public class EndpointInventoryTests : IClassFixture<WebUiTestServerFixture>
     /// <summary>
     /// <see cref="DependencyInjectionGraphTests.MappedRoutes"/> without "/", which is the SPA
     /// fallback: it answers a page rather than an operation, so it is deliberately not described.
-    /// The two status GETs are named here as well - the UI polls them, and neither is covered above.
+    /// <c>GET /api/audio/status</c> is added explicitly because it is not included in MappedRoutes.
     /// </summary>
     public static TheoryData<string, string> DescribableRoutes()
     {
@@ -77,7 +77,6 @@ public class EndpointInventoryTests : IClassFixture<WebUiTestServerFixture>
         }
 
         routes.Add("GET", "/api/audio/status");
-        routes.Add("GET", "/api/journal/replay/status");
 
         return routes;
     }
