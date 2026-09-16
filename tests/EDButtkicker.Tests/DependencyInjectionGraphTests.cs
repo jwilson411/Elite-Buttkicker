@@ -201,7 +201,19 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         { "GET", "/api/health" },
         { "POST", "/api/health/journal/retry" },
         { "POST", "/api/health/audio/retry" },
-        { "GET", "/" }
+        { "GET", "/" },
+        // ShipPatternsController (api/ShipPatterns) — no-parameter GETs
+        { "GET", "/api/ShipPatterns/current-ship" },
+        { "GET", "/api/ShipPatterns" },
+        { "GET", "/api/ShipPatterns/classifications" },
+        // ShipPatternsController — parameterised GETs
+        { "GET", "/api/ShipPatterns/anaconda" },
+        { "GET", "/api/ShipPatterns/anaconda/recommendations" },
+        // ShipPatternsController — write routes
+        { "POST", "/api/ShipPatterns/anaconda/patterns" },
+        { "DELETE", "/api/ShipPatterns/anaconda/patterns/FSDJump" },
+        { "POST", "/api/ShipPatterns/anaconda/apply-recommendations" },
+        { "DELETE", "/api/ShipPatterns/anaconda" }
     };
 
     /// <summary>GETs that need no request body, so anything but success is a real failure.</summary>
@@ -220,7 +232,11 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         "/api/setup/status",
         "/api/setup/journal/candidates",
         "/api/health",
-        "/"
+        "/",
+        // ShipPatternsController read-only GETs
+        "/api/ShipPatterns/current-ship",
+        "/api/ShipPatterns",
+        "/api/ShipPatterns/classifications"
     };
 
     private Task<HttpResponseMessage> SendAsync(string method, string path)
@@ -245,6 +261,8 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         // a full selection, and a resolution strategy by name rather than by ordinal.
         "/api/patternselection/select" => """{"shipType":"anaconda","eventName":"FSDJump","sourceId":"default"}""",
         "/api/patternselection/auto-resolve" => """{"resolutionStrategy":"LatestModified"}""",
+        // ShipPatternsController: SetPatternRequest needs eventName + pattern
+        "/api/ShipPatterns/anaconda/patterns" => """{"eventName":"FSDJump","pattern":{"name":"Test","pattern":"SharpPulse","frequency":40,"intensity":50,"duration":500}}""",
         _ => "{}"
     };
 

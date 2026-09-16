@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.AspNetCore.Mvc.ApplicationModels;
 using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -136,7 +135,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(parts);
 
         services
-            .AddControllers(options => options.Conventions.Add(new UnroutedControllerConvention()))
+            .AddControllers()
             .AddJsonOptions(options =>
             {
                 // One JSON contract for every endpoint: camelCase as the pages read it, enums by
@@ -168,32 +167,10 @@ public static class ServiceCollectionExtensions
         services.AddTransient<PatternSelectionController>();
         services.AddTransient<UserSettingsController>();
 
-        // Not routed today - UnroutedControllerConvention takes it back out of the application
-        // model - but it belongs to the same graph so it stays resolvable.
         services.AddTransient<ShipPatternsController>();
 
         return services;
     }
 }
 
-/// <summary>
-/// Keeps controllers that the web UI does not call out of the routing table. They are registered
-/// and resolvable, but nothing may reach them over HTTP until the UI actually needs them.
-/// </summary>
-internal sealed class UnroutedControllerConvention : IApplicationModelConvention
-{
-    private static readonly HashSet<Type> Unrouted = new()
-    {
-        typeof(ShipPatternsController)
-    };
 
-    public void Apply(ApplicationModel application)
-    {
-        foreach (var controller in application.Controllers
-                     .Where(c => Unrouted.Contains(c.ControllerType.AsType()))
-                     .ToList())
-        {
-            application.Controllers.Remove(controller);
-        }
-    }
-}
