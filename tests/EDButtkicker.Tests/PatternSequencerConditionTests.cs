@@ -8,6 +8,12 @@ using Xunit;
 namespace EDButtkicker.Tests;
 
 /// <summary>
+/// Pattern conditions exercised through the public conditional-playback entry point, with the audio
+/// engine subclassed to record what would have been played so no device is opened. Covers the
+/// implemented threshold conditions - health_below, health_above, ship_type and hull_damage_above,
+/// each including the case where the event carries no such field - alongside the stubs described
+/// below.
+///
 /// The "event_frequency" and "session_duration" pattern conditions are unimplemented stubs:
 /// EvaluateEventFrequency and EvaluateSessionDuration ignore their arguments and return true, so a
 /// pattern gated on either one always plays. These tests pin that pass-through down through the
@@ -165,6 +171,153 @@ public class PatternSequencerConditionTests : IDisposable
         Assert.Contains(log.Warnings, w => w.Contains("time_od_day") && w.Contains("always-true"));
     }
 
+    /// <summary>
+    /// health_below is the canonical "my hull is in trouble" gate: a pattern asking for
+    /// health_below 0.5 plays at 30% health and stays silent at 80%.
+    /// </summary>
+    [Fact]
+    public async Task HealthBelow_Plays_WhenHealthIsBelowTheThreshold()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("health_below", 0.5), EventWithHealth(0.3));
+
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task HealthBelow_Suppressed_WhenHealthIsAboveTheThreshold()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("health_below", 0.5), EventWithHealth(0.8));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    /// <summary>
+    /// Most journal events carry no Health field at all. EvaluateHealthBelow returns false rather
+    /// than defaulting to true, so a health-gated pattern stays silent on events that say nothing
+    /// about health - the opposite of the always-true default an unknown condition key gets.
+    /// </summary>
+    [Fact]
+    public async Task HealthBelow_Suppressed_WhenTheEventCarriesNoHealth()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("health_below", 0.5), EventWithHealth(null));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    [Fact]
+    public async Task HealthAbove_Plays_WhenHealthIsAboveTheThreshold()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("health_above", 0.5), EventWithHealth(0.8));
+
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task HealthAbove_Suppressed_WhenHealthIsBelowTheThreshold()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("health_above", 0.5), EventWithHealth(0.3));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    /// <summary>
+    /// A missing Health field suppresses health_above too: the absent-field default is false on both
+    /// sides of the comparison, so neither direction quietly fires on every event.
+    /// </summary>
+    [Fact]
+    public async Task HealthAbove_Suppressed_WhenTheEventCarriesNoHealth()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("health_above", 0.5), EventWithHealth(null));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    [Fact]
+    public async Task ShipType_Plays_WhenTheShipMatches()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(
+            PatternRequiring("ship_type", "sidewinder"), EventWithShip("sidewinder"));
+
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task ShipType_Suppressed_WhenTheShipIsADifferentHull()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(
+            PatternRequiring("ship_type", "sidewinder"), EventWithShip("eagle"));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    /// <summary>
+    /// No Ship field means no match: EvaluateShipType returns false for a null or empty Ship rather
+    /// than treating "we don't know which ship" as "any ship".
+    /// </summary>
+    [Fact]
+    public async Task ShipType_Suppressed_WhenTheEventCarriesNoShip()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(
+            PatternRequiring("ship_type", "sidewinder"), EventWithShip(null));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    [Fact]
+    public async Task HullDamageAbove_Plays_WhenDamageExceedsTheThreshold()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(
+            PatternRequiring("hull_damage_above", 0.5), EventWithHullDamage(0.8));
+
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task HullDamageAbove_Suppressed_WhenDamageIsBelowTheThreshold()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(
+            PatternRequiring("hull_damage_above", 0.5), EventWithHullDamage(0.3));
+
+        Assert.Empty(_audio.Played);
+    }
+
+    /// <summary>
+    /// An event with no HullDamage field suppresses the pattern - the same absent-field default the
+    /// health conditions use.
+    /// </summary>
+    [Fact]
+    public async Task HullDamageAbove_Suppressed_WhenTheEventCarriesNoHullDamage()
+    {
+        var sequencer = Sequencer();
+
+        await sequencer.ExecuteConditionalPattern(
+            PatternRequiring("hull_damage_above", 0.5), EventWithHullDamage(null));
+
+        Assert.Empty(_audio.Played);
+    }
+
     public void Dispose()
     {
         _settingsDir.Dispose();
@@ -185,6 +338,30 @@ public class PatternSequencerConditionTests : IDisposable
         Event = name,
         Timestamp = DateTime.UtcNow
     };
+
+    /// <summary>A HullDamage event whose Health field is set - or, for null, left absent.</summary>
+    private static JournalEvent EventWithHealth(double? health)
+    {
+        var journalEvent = Event("HullDamage");
+        journalEvent.Health = health;
+        return journalEvent;
+    }
+
+    /// <summary>A HullDamage event whose HullDamage field is set - or, for null, left absent.</summary>
+    private static JournalEvent EventWithHullDamage(double? hullDamage)
+    {
+        var journalEvent = Event("HullDamage");
+        journalEvent.HullDamage = hullDamage;
+        return journalEvent;
+    }
+
+    /// <summary>A Loadout event whose Ship field is set - or, for null, left absent.</summary>
+    private static JournalEvent EventWithShip(string? ship)
+    {
+        var journalEvent = Event("Loadout");
+        journalEvent.Ship = ship;
+        return journalEvent;
+    }
 
     private sealed class RecordingAudioEngine : AudioEngineService
     {
