@@ -1,6 +1,7 @@
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -145,6 +146,25 @@ public class PatternSequencerConditionTests : IDisposable
         Assert.Empty(_audio.Played);
     }
 
+    /// <summary>
+    /// A condition the sequencer has no branch for - a misspelt "time_of_day", say - still lets the
+    /// pattern play: a typo must not cost the author their haptics, and the schema validator already
+    /// refuses the pack before it can reach a release. What the runtime owes the author is a warning
+    /// that names the key, so a pattern that fires at every opportunity is explicable rather than
+    /// mysterious.
+    /// </summary>
+    [Fact]
+    public async Task AnUnknownConditionKey_PlaysAnywayAndIsNamedInAWarning()
+    {
+        var log = new CapturingSequencerLogger();
+        var sequencer = new PatternSequencer(log, _audio, null);
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("time_od_day", "morning"), Event("FSDJump"));
+
+        Assert.Single(_audio.Played);
+        Assert.Contains(log.Warnings, w => w.Contains("time_od_day") && w.Contains("always-true"));
+    }
+
     public void Dispose()
     {
         _settingsDir.Dispose();
@@ -183,6 +203,36 @@ public class PatternSequencerConditionTests : IDisposable
             }
 
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// A minimal logger that captures warning messages so tests can assert on them.
+    /// Scoped to <see cref="PatternSequencer"/> so it satisfies the constructor's
+    /// <c>ILogger&lt;PatternSequencer&gt;</c> parameter without pulling in the
+    /// <see cref="PatternSchemaValidationTests"/>-private <c>CapturingLogger</c>.
+    /// </summary>
+    private sealed class CapturingSequencerLogger : ILogger<PatternSequencer>
+    {
+        private readonly List<string> _warnings = new();
+
+        public IReadOnlyList<string> Warnings
+        {
+            get { lock (_warnings) { return _warnings.ToList(); } }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning)
+            {
+                var message = formatter(state, exception);
+                lock (_warnings) { _warnings.Add(message); }
+            }
         }
     }
 }

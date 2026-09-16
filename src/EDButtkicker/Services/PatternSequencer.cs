@@ -145,7 +145,7 @@ public class PatternSequencer
                 "session_duration" => EvaluateSessionDuration(conditionValue),
                 "hull_damage_above" => EvaluateHullDamageAbove(conditionValue, journalEvent),
                 "in_combat" => EvaluateInCombat(conditionValue, journalEvent),
-                _ => true // Unknown conditions default to true
+                _ => EvaluateUnknownCondition(conditionType)
             };
         }
         catch (Exception ex)
@@ -153,6 +153,21 @@ public class PatternSequencer
             _logger.LogWarning(ex, "Error evaluating condition {ConditionType}", conditionType);
             return true; // Default to true on error
         }
+    }
+
+    /// <summary>
+    /// A condition the switch above has no branch for. Playback is not blocked - a pack that reached
+    /// the sequencer has already passed validation, and refusing to play here would turn a typo into
+    /// silence - but the key is named in the log so the author can see which gate did nothing.
+    /// </summary>
+    private bool EvaluateUnknownCondition(string conditionType)
+    {
+        _logger.LogWarning(
+            "Unknown condition key '{ConditionType}' in pattern - treated as always-true; check for typos. Valid keys are: {ValidKeys}",
+            conditionType,
+            string.Join(", ", PatternSchemaValidator.KnownConditionKeys));
+
+        return true;
     }
 
     private bool EvaluateHealthBelow(object threshold, JournalEvent journalEvent)
