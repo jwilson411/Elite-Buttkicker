@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `time_of_day` pattern conditions now support overnight ranges. A window whose end is before its
+  start (e.g. `"22:00-06:00"`) wraps past midnight instead of never matching, and a zero-width
+  window (e.g. `"06:00-06:00"`) matches all day. (#125)
+
 ## [1.2.0] - 2026-09-16
 
 ### Added

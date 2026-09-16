@@ -191,19 +191,43 @@ public class PatternSequencer
 
     private bool EvaluateTimeOfDay(object timeRange)
     {
+        // DateTime.Now, not UtcNow: a "daytime only" or "night only" pattern is about the wall clock
+        // in the room the buttkicker is in, so the machine's local time zone is the right frame of
+        // reference. Pattern authors write "22:00-06:00" meaning their evening, not UTC's.
+        return IsWithinTimeOfDay(timeRange, TimeOnly.FromDateTime(DateTime.Now));
+    }
+
+    /// <summary>
+    /// Pure time-of-day window check, split out from <see cref="EvaluateTimeOfDay"/> so the window
+    /// logic can be exercised against a supplied clock reading instead of the local wall clock.
+    /// A range whose end is before its start (e.g. "22:00-06:00") wraps over midnight; a range whose
+    /// end equals its start (e.g. "06:00-06:00") covers the whole day. Anything unparseable -
+    /// null, no separator, junk on either side - defaults to true so a malformed condition never
+    /// silently suppresses a pattern.
+    /// </summary>
+    public static bool IsWithinTimeOfDay(object? timeRange, TimeOnly currentTime)
+    {
         // Example: "06:00-18:00" for daytime only patterns
         if (timeRange?.ToString() is not string timeStr) return true;
-        
+
         var parts = timeStr.Split('-');
         if (parts.Length != 2) return true;
-        
-        if (TimeOnly.TryParse(parts[0], out var startTime) && 
+
+        if (TimeOnly.TryParse(parts[0], out var startTime) &&
             TimeOnly.TryParse(parts[1], out var endTime))
         {
-            var currentTime = TimeOnly.FromDateTime(DateTime.Now);
-            return currentTime >= startTime && currentTime <= endTime;
+            if (startTime == endTime)
+            {
+                // A zero-width window is almost certainly not what the author meant, and treating it
+                // as "never" would make the pattern dead weight with no diagnostic. Fire all day.
+                return true;
+            }
+
+            return startTime <= endTime
+                ? currentTime >= startTime && currentTime <= endTime
+                : currentTime >= startTime || currentTime <= endTime; // wraps past midnight
         }
-        
+
         return true;
     }
 
