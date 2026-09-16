@@ -667,7 +667,12 @@ class ButtkickerApp {
         ])));
     }
 
+    // The saved settings and the device list come from two different routes, and each is worth
+    // showing on its own: a device list that fails to load must not leave the sliders sitting on
+    // the markup's defaults, which are not what the service is configured with.
     async loadAudioConfig() {
+        await this.loadAudioSettings();
+
         try {
             const response = await fetch('/api/audio/devices');
             const data = await response.json();
@@ -709,6 +714,23 @@ class ButtkickerApp {
             if (deviceList) {
                 dom.replace(deviceList, dom.el('div', { className: 'loading', text: 'Error loading audio devices' }));
             }
+        }
+    }
+
+    // The sliders start on the numbers written into the markup; those are placeholders, and the
+    // saved settings are what the service is actually running with.
+    async loadAudioSettings() {
+        try {
+            const response = await fetch('/api/usersettings/current');
+            if (!response.ok) throw new Error(`/api/usersettings/current returned ${response.status}`);
+
+            const data = await response.json();
+            const audio = (data && data.audio) || {};
+
+            setRangeValue('maxIntensity', audio.maxIntensity);
+            setRangeValue('defaultFrequency', audio.defaultFrequency);
+        } catch (error) {
+            console.error('Error loading audio settings:', error);
         }
     }
 
@@ -1434,6 +1456,45 @@ window.updateRangeDisplay = (input) => {
     const valueSpan = input.nextElementSibling;
     if (valueSpan && valueSpan.classList.contains('range-value')) {
         valueSpan.textContent = input.value;
+    }
+};
+
+// A range input and the number beside it are one control: moving the slider updates the span, so
+// setting it from code has to as well. The span shows `input.value`, which is the value after the
+// input has clamped it to its own min and max, rather than whatever was handed in.
+function setRangeValue(id, value) {
+    const input = document.getElementById(id);
+    if (!input || value === null || value === undefined) return;
+
+    input.value = value;
+    window.updateRangeDisplay(input);
+}
+
+// Saving is a button press, not a side effect of dragging a slider: the sliders show what the page
+// would save, and nothing is written until the user asks for it.
+window.saveAudioSettings = async () => {
+    const maxIntensity = document.getElementById('maxIntensity');
+    const defaultFrequency = document.getElementById('defaultFrequency');
+    if (!maxIntensity || !defaultFrequency) return;
+
+    try {
+        const response = await fetch('/api/usersettings/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                maxIntensity: dom.num(maxIntensity.value),
+                defaultFrequency: dom.num(defaultFrequency.value)
+            })
+        });
+
+        if (response.ok) {
+            app.showToast('Audio settings saved!', 'success');
+        } else {
+            app.showToast('Error saving audio settings', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving audio settings:', error);
+        app.showToast('Error saving audio settings', 'error');
     }
 };
 
