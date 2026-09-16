@@ -210,6 +210,7 @@ public class DependencyInjectionGraphTests : IClassFixture<WebUiTestServerFixtur
         { "GET", "/api/ShipPatterns/anaconda" },
         { "GET", "/api/ShipPatterns/anaconda/recommendations" },
         // ShipPatternsController — write routes
+        { "GET", "/api/audio/status" },
         { "POST", "/api/ShipPatterns/anaconda/patterns" },
         { "DELETE", "/api/ShipPatterns/anaconda/patterns/FSDJump" },
         { "POST", "/api/ShipPatterns/anaconda/apply-recommendations" },
