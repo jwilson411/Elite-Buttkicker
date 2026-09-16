@@ -197,7 +197,19 @@
           "type": "object",
           "maxProperties": 64,
           "additionalProperties": true,
-          "description": "Conditional logic, as a property-name -> expected-value map (runtime: Dictionary<string, object>), e.g. { \"health_below\": 0.5 }. Not an array of comparison objects."
+          "propertyNames": {
+            "enum": [
+              "health_below",
+              "health_above",
+              "ship_type",
+              "event_frequency",
+              "time_of_day",
+              "session_duration",
+              "hull_damage_above",
+              "in_combat"
+            ]
+          },
+          "description": "Conditional logic, as a property-name -> expected-value map (runtime: Dictionary<string, object>), e.g. { \"health_below\": 0.5 }. Not an array of comparison objects. Only the keys listed in propertyNames are evaluated: the runtime has no branch for any other name and would treat it as a condition that is always met, so a misspelling is rejected here rather than silently letting the pattern play unconditionally."
         },
         "chainedPatterns": {
           "type": "array",

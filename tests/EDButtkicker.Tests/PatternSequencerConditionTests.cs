@@ -145,6 +145,25 @@ public class PatternSequencerConditionTests : IDisposable
         Assert.Empty(_audio.Played);
     }
 
+    /// <summary>
+    /// A condition the sequencer has no branch for - a misspelt "time_of_day", say - still lets the
+    /// pattern play: a typo must not cost the author their haptics, and the schema validator already
+    /// refuses the pack before it can reach a release. What the runtime owes the author is a warning
+    /// that names the key, so a pattern that fires at every opportunity is explicable rather than
+    /// mysterious.
+    /// </summary>
+    [Fact]
+    public async Task AnUnknownConditionKey_PlaysAnywayAndIsNamedInAWarning()
+    {
+        var log = new CapturingLogger();
+        var sequencer = new PatternSequencer(log, _audio, null);
+
+        await sequencer.ExecuteConditionalPattern(PatternRequiring("time_od_day", "morning"), Event("FSDJump"));
+
+        Assert.Single(_audio.Played);
+        Assert.Contains(log.Warnings, w => w.Contains("time_od_day") && w.Contains("always-true"));
+    }
+
     public void Dispose()
     {
         _settingsDir.Dispose();

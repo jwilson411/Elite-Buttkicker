@@ -243,6 +243,59 @@ public class PatternSchemaValidationTests
         Assert.Contains(errors, e => e.Contains("chainedPatterns contains a blank pattern name"));
     }
 
+    /// <summary>
+    /// A misspelt condition key is the one mistake the runtime cannot report as a failure: the
+    /// sequencer has no branch for it, so the gate evaluates to "met" and the pattern plays whenever
+    /// its event fires. The validator has to be the thing that notices, and the diagnostic has to
+    /// name both the typo and what the author probably meant to write.
+    /// </summary>
+    [Fact]
+    public void AMisspeltConditionKey_IsRejectedWithTheValidKeysListed()
+    {
+        var pack = Pack();
+        Pattern(pack).Conditions = new Dictionary<string, object> { ["time_od_day"] = "morning" };
+
+        var errors = PatternSchemaValidator.Validate(pack);
+
+        Assert.Contains(errors, e => e.Contains("event 'HullDamage'") &&
+                                     e.Contains("'time_od_day'") &&
+                                     e.Contains("not a recognised condition") &&
+                                     e.Contains("time_of_day"));
+    }
+
+    /// <summary>Every key the sequencer actually switches over is accepted, one pack at a time.</summary>
+    [Fact]
+    public void EveryConditionKeyTheRuntimeEvaluates_IsAccepted()
+    {
+        foreach (var key in PatternSchemaValidator.KnownConditionKeys)
+        {
+            var pack = Pack();
+            Pattern(pack).Conditions = new Dictionary<string, object> { [key] = 0.5 };
+
+            Assert.Empty(PatternSchemaValidator.Validate(pack));
+        }
+    }
+
+    /// <summary>The sequencer lowercases a key before matching it, so casing is not a typo.</summary>
+    [Fact]
+    public void AConditionKeyInADifferentCase_IsAcceptedTheWayTheSequencerAcceptsIt()
+    {
+        var pack = Pack();
+        Pattern(pack).Conditions = new Dictionary<string, object> { ["Health_Below"] = 0.5 };
+
+        Assert.Empty(PatternSchemaValidator.Validate(pack));
+    }
+
+    [Fact]
+    public void ABlankConditionKey_IsRejected()
+    {
+        var pack = Pack();
+        Pattern(pack).Conditions = new Dictionary<string, object> { ["  "] = 1 };
+
+        Assert.Contains(PatternSchemaValidator.Validate(pack),
+            e => e.Contains("conditions contains a blank property name"));
+    }
+
     [Fact]
     public void AFutureSchemaVersion_IsRejectedRatherThanGuessedAt()
     {

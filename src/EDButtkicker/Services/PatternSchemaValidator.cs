@@ -43,6 +43,31 @@ public static class PatternSchemaValidator
     public const int MinPhaseOffsetDegrees = -360;
     public const int MaxPhaseOffsetDegrees = 360;
 
+    /// <summary>
+    /// The condition keys the runtime actually evaluates, in the order
+    /// <see cref="PatternSequencer.EvaluateCondition"/> switches over them. A key outside this set is
+    /// a typo rather than a feature: the sequencer has no branch for it and falls through to
+    /// "condition met", so the pattern plays unconditionally and the author never learns why.
+    /// <c>patterns/schema.json</c> lists the same eight names under
+    /// <c>conditions.propertyNames</c>.
+    /// </summary>
+    public static readonly IReadOnlyList<string> KnownConditionKeys = new[]
+    {
+        "health_below",
+        "health_above",
+        "ship_type",
+        "event_frequency",
+        "time_of_day",
+        "session_duration",
+        "hull_damage_above",
+        "in_combat"
+    };
+
+    // The sequencer lowercases a key before matching it, so "Health_Below" reaches the same branch
+    // "health_below" does and must not be reported as unknown.
+    private static readonly HashSet<string> RecognisedConditionKeys =
+        new(KnownConditionKeys, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every rule the pack breaks, or an empty list when it breaks none.</summary>
     public static IReadOnlyList<string> Validate(PatternFile patternFile)
     {
@@ -151,13 +176,7 @@ public static class PatternSchemaValidator
             }
         }
 
-        foreach (var condition in pattern.Conditions ?? new Dictionary<string, object>())
-        {
-            if (string.IsNullOrWhiteSpace(condition.Key))
-            {
-                errors.Add($"{description}: conditions contains a blank property name");
-            }
-        }
+        ValidateConditions(errors, pattern, description);
 
         return errors;
     }
@@ -201,6 +220,34 @@ public static class PatternSchemaValidator
         if (intensity < MinScalingIntensityPercent || intensity > MaxIntensityPercent)
         {
             errors.Add($"{description}: {field} is {intensity}%, outside the supported {MinScalingIntensityPercent}-{MaxIntensityPercent}% range");
+        }
+    }
+
+    /// <summary>
+    /// A pattern with no conditions is the common case and always fine. A pattern gated on a key the
+    /// sequencer does not know is not: the unknown key evaluates to "met", so the gate the author
+    /// wrote silently does nothing. Rejecting it here turns a pattern that quietly plays at the wrong
+    /// moment into a diagnostic that names the misspelling.
+    /// </summary>
+    private static void ValidateConditions(List<string> errors, HapticPattern pattern, string description)
+    {
+        var conditions = pattern.Conditions;
+
+        if (conditions == null || conditions.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var condition in conditions)
+        {
+            if (string.IsNullOrWhiteSpace(condition.Key))
+            {
+                errors.Add($"{description}: conditions contains a blank property name");
+            }
+            else if (!RecognisedConditionKeys.Contains(condition.Key))
+            {
+                errors.Add($"{description}: condition key '{condition.Key}' is not a recognised condition; valid keys are: {string.Join(", ", KnownConditionKeys)}");
+            }
         }
     }
 
