@@ -1,6 +1,7 @@
 using EDButtkicker.Configuration;
 using EDButtkicker.Models;
 using EDButtkicker.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -155,7 +156,7 @@ public class PatternSequencerConditionTests : IDisposable
     [Fact]
     public async Task AnUnknownConditionKey_PlaysAnywayAndIsNamedInAWarning()
     {
-        var log = new CapturingLogger();
+        var log = new CapturingSequencerLogger();
         var sequencer = new PatternSequencer(log, _audio, null);
 
         await sequencer.ExecuteConditionalPattern(PatternRequiring("time_od_day", "morning"), Event("FSDJump"));
@@ -202,6 +203,36 @@ public class PatternSequencerConditionTests : IDisposable
             }
 
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// A minimal logger that captures warning messages so tests can assert on them.
+    /// Scoped to <see cref="PatternSequencer"/> so it satisfies the constructor's
+    /// <c>ILogger&lt;PatternSequencer&gt;</c> parameter without pulling in the
+    /// <see cref="PatternSchemaValidationTests"/>-private <c>CapturingLogger</c>.
+    /// </summary>
+    private sealed class CapturingSequencerLogger : ILogger<PatternSequencer>
+    {
+        private readonly List<string> _warnings = new();
+
+        public IReadOnlyList<string> Warnings
+        {
+            get { lock (_warnings) { return _warnings.ToList(); } }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning)
+            {
+                var message = formatter(state, exception);
+                lock (_warnings) { _warnings.Add(message); }
+            }
         }
     }
 }
