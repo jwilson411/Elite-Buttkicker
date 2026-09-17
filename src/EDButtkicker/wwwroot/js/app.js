@@ -2082,6 +2082,35 @@ window.retryHealthComponent = async (componentId) => {
     }
 };
 
+/// Puts every saved setting back to its default. The server does the reset atomically through the one
+/// service all the settings routes use, so the only work here is asking first - this is not
+/// undoable - and then refreshing the two tabs that show what was just thrown away. Patterns are not
+/// touched: this resets app settings only.
+window.resetToDefaults = async () => {
+    if (!window.confirm('This will reset all settings including audio device, journal path, and intensity. Continue?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/usersettings/reset', { method: 'POST' });
+        const result = await response.json();
+
+        if (!response.ok) {
+            app.showToast(result.error || 'Could not reset settings.', 'error');
+            return;
+        }
+
+        app.showToast(result.message || 'Settings reset to defaults.', 'success');
+
+        // The audio and journal tabs are showing the settings that just went away.
+        app.loadAudioConfig();
+        app.loadJournalConfig();
+    } catch (error) {
+        console.error('Error resetting settings:', error);
+        app.showToast('Error resetting settings.', 'error');
+    }
+};
+
 // Initialize app when DOM is loaded
 let app;
 document.addEventListener('DOMContentLoaded', () => {
