@@ -542,6 +542,19 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- The way back out of a bad configuration: a wrong journal folder or an intensity
+                     set to 1% otherwise leaves nothing to click, only the settings file to delete by
+                     hand. Kept apart from the cards above, and behind a confirm, because it throws
+                     away every saved setting at once. -->
+                <div class="settings-danger-zone" style="margin-top: 1.5rem;">
+                    <button class="btn btn-secondary" id="resetDefaultsBtn"
+                            style="background: var(--danger-color);"
+                            data-bind="resetToDefaults"
+                            aria-label="Reset all settings to defaults">
+                        <i class="fas fa-undo" aria-hidden="true"></i> Reset to Defaults
+                    </button>
+                </div>
             </div>
         </main>
     </div>

@@ -242,6 +242,37 @@ public class SettingsPersistenceRoundTripTests : IDisposable
         Assert.False(File.Exists(SettingsFile));
     }
 
+    /// <summary>
+    /// The way out of a bad configuration has to actually take it away: settings the user saved are
+    /// gone from the running session and from the file, so the next start comes up on defaults too.
+    /// </summary>
+    [Fact]
+    public async Task ResetToDefaultsAsync_ClearsPersistedSettings()
+    {
+        var defaults = new AppSettings();
+
+        await _persistence.ApplyAsync(new SettingsUpdate { MaxIntensity = 99, DefaultFrequency = 25 });
+
+        Assert.True(_userSettings.UserSettingsExist());
+        Assert.Equal(99, _settings.Audio.MaxIntensity);
+        Assert.Equal(25, _settings.Audio.DefaultFrequency);
+
+        var result = await _persistence.ResetToDefaultsAsync();
+
+        Assert.True(result.Valid);
+        Assert.True(result.Saved);
+
+        // Gone from this session...
+        Assert.Equal(defaults.Audio.MaxIntensity, _settings.Audio.MaxIntensity);
+        Assert.Equal(defaults.Audio.DefaultFrequency, _settings.Audio.DefaultFrequency);
+
+        // ...and from what the next start would read, so the 99 does not come back.
+        var reloaded = await AfterRestart().LoadUserPreferencesAsync();
+
+        Assert.Equal(defaults.Audio.MaxIntensity, reloaded.MaxIntensity);
+        Assert.Equal(defaults.Audio.DefaultFrequency, reloaded.DefaultFrequency);
+    }
+
     public void Dispose() => _dir.Dispose();
 }
 
