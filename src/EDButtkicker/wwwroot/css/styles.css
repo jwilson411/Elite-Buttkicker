@@ -584,6 +584,10 @@ body {
     color: var(--success-color);
 }
 
+.feature-disabled {
+    color: var(--text-secondary);
+}
+
 .info-item {
     justify-content: space-between;
 }

@@ -973,6 +973,55 @@ class ButtkickerApp {
         } catch (error) {
             console.error('Error loading settings:', error);
         }
+
+        // Bind the Advanced Features list to runtime feature state from the API.
+        //
+        // Always-on engine features (Advanced Pattern System, Multi-Layer Harmonics,
+        // Pattern Chaining, Conditional Logic, Intensity Curves) are part of the core
+        // haptic engine and have no user-facing toggle: they always show as enabled.
+        //
+        // Features with a user toggle:
+        //   - Voice Integration → contextualIntelligence.enableContextualVoice
+        try {
+            const settingsResp = await fetch('/api/usersettings/current');
+            const settings = await settingsResp.json();
+
+            const ci = settings.contextualIntelligence;
+
+            // Feature descriptor: { label, enabled }
+            // null `enabled` means always-on (engine-level, no toggle).
+            const features = [
+                { label: 'Advanced Pattern System', enabled: null },
+                { label: 'Multi-Layer Harmonics',   enabled: null },
+                {
+                    label: 'Voice Integration',
+                    enabled: ci ? (ci.enabled && ci.enableContextualVoice) : false
+                },
+                { label: 'Pattern Chaining',  enabled: null },
+                { label: 'Conditional Logic', enabled: null },
+                { label: 'Intensity Curves',  enabled: null }
+            ];
+
+            const list = document.getElementById('advancedFeatureList');
+            if (list) {
+                dom.clear(list);
+                features.forEach(f => {
+                    const isEnabled = f.enabled !== false; // null (always-on) or true
+                    const iconClass = isEnabled
+                        ? 'fas fa-check-circle feature-enabled'
+                        : 'fas fa-minus-circle feature-disabled';
+                    const labelText = isEnabled
+                        ? f.label
+                        : f.label + ' \u2014 Disabled in settings';
+                    dom.append(list, dom.el('div', { className: 'feature-item' }, [
+                        dom.el('i', { className: iconClass, attrs: { 'aria-hidden': 'true' } }),
+                        dom.el('span', { text: labelText })
+                    ]));
+                });
+            }
+        } catch (err) {
+            console.error('Error loading feature state:', err);
+        }
     }
 
     // Utility methods
