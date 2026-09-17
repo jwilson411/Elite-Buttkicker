@@ -42,6 +42,15 @@ class ButtkickerApp {
         address.textContent = window.location.host;
     }
 
+    // Same reasoning for the version: the build that answers /api/health is the build serving this
+    // page, so it is the only version worth showing. A literal in the markup reported 1.0.0 forever.
+    showBuildVersion(version) {
+        const element = document.getElementById('versionValue');
+        if (!element) return;
+
+        element.textContent = version || 'unknown';
+    }
+
     // Enter and Space are the button's own activation and already reach the click handler, so only
     // the roving-focus keys are handled here.
     onTabKeydown(event, tabs) {
@@ -990,6 +999,17 @@ class ButtkickerApp {
             
         } catch (error) {
             console.error('Error loading settings:', error);
+        }
+
+        // System Information shows the running build, read from the server rather than the markup.
+        try {
+            const healthResp = await fetch('/api/health');
+            if (!healthResp.ok) throw new Error(`/api/health returned ${healthResp.status}`);
+
+            this.showBuildVersion((await healthResp.json()).version);
+        } catch (error) {
+            console.error('Error loading build version:', error);
+            this.showBuildVersion(null);
         }
 
         // Bind the Advanced Features list to runtime feature state from the API.
