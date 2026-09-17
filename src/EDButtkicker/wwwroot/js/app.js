@@ -1325,6 +1325,64 @@ window.testAudio = async () => {
     }
 };
 
+// The dashboard's own test button. It plays the same canned pattern as the Audio tab, but asks
+// /api/audio/status first: a user who has never picked a device would otherwise read "could not be
+// played" and have nowhere to go, so an unconfigured device is named as such and points at the tab
+// that fixes it.
+window.testHaptic = async () => {
+    const setStatus = (message, state) => {
+        const element = document.getElementById('dashboardHapticTestStatus');
+        if (!element) return;
+        element.textContent = message;
+        element.className = state ? `test-status ${state}` : 'test-status';
+        element.hidden = false;
+    };
+
+    try {
+        const statusResponse = await fetch('/api/audio/status');
+        const status = await statusResponse.json().catch(() => ({}));
+
+        // Either there is a saved endpoint that no longer resolves, or the engine already tried to
+        // open an output and failed. Both mean pressing on would only produce silence.
+        const unresolvedSelection = status.selectedDevice?.usesSystemDefault === false
+            && !status.selectedDevice?.resolvedEndpointId;
+        const initializationFailed = status.initialized === false && status.initializationFailed === true;
+
+        if (unresolvedSelection || initializationFailed) {
+            const message = 'Audio device not configured. Go to the Audio tab to select your device.';
+            app.showToast(message, 'warning');
+            setStatus(message, 'warning');
+            return;
+        }
+    } catch (error) {
+        // A status call that cannot be made says nothing about the device, so fall through to the
+        // test itself rather than blocking on a diagnosis we do not have.
+        console.error('Error checking audio status before haptic test:', error);
+    }
+
+    try {
+        const response = await fetch('/api/audio/test', {
+            method: 'POST'
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+            const message = 'Test pattern sent — you should feel a vibration.';
+            app.showToast(message, 'success');
+            setStatus(message, 'success');
+        } else {
+            const message = result.error || 'The test pattern could not be played';
+            app.showToast(message, 'error');
+            setStatus(message, 'error');
+        }
+    } catch (error) {
+        console.error('Error sending test haptic:', error);
+        app.showToast('Error sending test haptic', 'error');
+        setStatus('Error sending test haptic', 'error');
+    }
+};
+
 // The way out of a tone that is too strong: stops everything already playing, immediately.
 window.stopAudio = async () => {
     try {
