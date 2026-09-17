@@ -542,7 +542,9 @@
                         <div class="info-list">
                             <div class="info-item">
                                 <span class="label">Version:</span>
-                                <span class="value">1.0.0</span>
+                                <!-- Filled in at runtime from /api/health: the literal that used to
+                                     sit here kept reporting 1.0.0 from every later release. -->
+                                <span class="value" id="versionValue"></span>
                             </div>
                             <div class="info-item">
                                 <span class="label">Web Interface:</span>

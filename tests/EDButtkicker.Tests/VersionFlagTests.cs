@@ -69,6 +69,20 @@ public class VersionFlagTests
         Assert.NotEqual("1.0.0", BuildVersion.DevelopmentVersion);
     }
 
+    /// <summary>
+    /// The settings panel used to spell its version out in the markup, so every build after 1.0.0
+    /// told users it was 1.0.0. The row is now filled in from the API, and no literal may creep back.
+    /// </summary>
+    [Fact]
+    public void SettingsPanel_DoesNotSpellItsVersionOutInTheMarkup()
+    {
+        var markup = File.ReadAllText(
+            Path.Combine(RepositoryRoot(), "src", "EDButtkicker", "wwwroot", "index.html"));
+
+        Assert.Contains("id=\"versionValue\"", markup, StringComparison.Ordinal);
+        Assert.DoesNotContain(">1.0.0<", markup, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Help_DocumentsTheVersionFlagAlongsideTheOtherOptions()
     {

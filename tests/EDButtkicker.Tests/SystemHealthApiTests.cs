@@ -219,5 +219,20 @@ public class SystemHealthApiTests : IDisposable
         Assert.Equal("pending", report.GetProperty("status").GetString());
     }
 
+    /// <summary>
+    /// The settings panel reads its "Version:" row from this field. It has to be the version the
+    /// running assembly reports, otherwise the panel is back to quoting a literal that goes stale
+    /// the moment a release is cut.
+    /// </summary>
+    [Fact]
+    public async Task Report_CarriesTheRunningBuildVersion()
+    {
+        using var host = NewHost();
+
+        var report = await host.GetJsonAsync("/api/health");
+
+        Assert.Equal(BuildVersion.Current, report.GetProperty("version").GetString());
+    }
+
     public void Dispose() => _settingsDir.Dispose();
 }

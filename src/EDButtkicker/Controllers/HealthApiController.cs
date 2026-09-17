@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using EDButtkicker.Configuration;
 using EDButtkicker.Services;
 using Microsoft.Extensions.Logging;
 
@@ -88,6 +89,9 @@ public class HealthApiController : ControllerBase
     internal static object Serialize(SystemHealthReport report) => new
     {
         status = report.Status,
+        // The running build, so the settings panel can report which version is actually serving
+        // the page instead of a literal in the markup that stopped being true after 1.0.0.
+        version = BuildVersion.Current,
         generated_at = report.GeneratedAtUtc,
         components = report.Components.Select(SerializeIndicator).ToList()
     };
