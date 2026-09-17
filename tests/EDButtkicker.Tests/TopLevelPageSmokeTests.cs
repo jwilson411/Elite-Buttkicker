@@ -98,4 +98,39 @@ public class TopLevelPageSmokeTests : IClassFixture<WebUiTestServerFixture>
         Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
         Assert.StartsWith("{", body.TrimStart());
     }
+
+    /// <summary>
+    /// The Settings tab Advanced Features list must be JS-driven rather than hard-coded, so
+    /// a user who has disabled Voice Integration actually sees it as disabled instead of green.
+    /// Verified by three invariants:
+    /// (1) The container has an id the JS can target — without the id, document.getElementById
+    ///     returns null and clear()/append() silently do nothing.
+    /// (2) loadSettings calls /api/usersettings/current to fetch the runtime feature state.
+    /// (3) The API endpoint answers JSON when the server is up.
+    /// </summary>
+    [Fact]
+    public async Task AdvancedFeatureList_IsJSDrivenRatherThanHardcoded()
+    {
+        var html = await _fixture.Client.GetStringAsync("/index.html");
+        var js   = await _fixture.Client.GetStringAsync("/js/app.js");
+
+        // (1) The container must carry an id so JS can find it.
+        Assert.Contains("id=\"advancedFeatureList\"", html, StringComparison.Ordinal);
+
+        // (2) loadSettings must call the feature-state endpoint.
+        var loadStart = js.IndexOf("async loadSettings(", StringComparison.Ordinal);
+        Assert.True(loadStart >= 0, "js/app.js no longer contains loadSettings");
+        var loadEnd = js.IndexOf("\n    }", loadStart + 1, StringComparison.Ordinal);
+        var loadBody = js[loadStart..(loadEnd > 0 ? loadEnd : js.Length)];
+        Assert.Contains("/api/usersettings/current", loadBody, StringComparison.Ordinal);
+
+        // (3) The API endpoint itself must answer JSON when the server is up.
+        var resp = await _fixture.Client.GetAsync("/api/usersettings/current");
+        var body = await resp.Content.ReadAsStringAsync();
+        Assert.True(
+            resp.IsSuccessStatusCode,
+            $"GET /api/usersettings/current returned {(int)resp.StatusCode}: {body}");
+        Assert.Equal("application/json", resp.Content.Headers.ContentType?.MediaType);
+        Assert.StartsWith("{", body.TrimStart());
+    }
 }
