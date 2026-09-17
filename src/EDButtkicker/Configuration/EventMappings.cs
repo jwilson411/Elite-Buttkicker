@@ -401,9 +401,9 @@ public class EventMappingsConfig
 					Enabled = true
 				},
 
-				["ShieldsDown"] = new EventMapping
+				["ShieldDown"] = new EventMapping
 				{
-					EventType = "ShieldsDown",
+					EventType = "ShieldDown",
 					Pattern = new HapticPattern
 					{
 						Name = "Shields Down",

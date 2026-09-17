@@ -98,7 +98,7 @@ default — enable them in the pattern editor or in `patterns/default-patterns.j
 |-------|---------|---------|-------------|
 | `HullDamage` | ✅ | SharpPulse | Hull hit — intensity scales with damage amount (50 Hz) |
 | `CriticalDamageSequence` | ✅ | Sequence | Chained critical damage alert — triggers below 25% hull (60 Hz, 100%) |
-| `ShieldsDown` | ✅ | Impact | Shield collapse — heavy impact (35 Hz, 90%, 1 s) |
+| `ShieldDown` | ✅ | Impact | Shield collapse — heavy impact (35 Hz, 90%, 1 s) |
 | `ShieldsUp` | ✅ | BuildupRumble | Shields back online (50 Hz, 60%) |
 | `ShieldState` | ✅ | SharpPulse | Generic shield state change pulse (45 Hz, 60%) |
 | `FighterDestroyed` | ✅ | Impact | Explosion burst — fighter lost (30 Hz, 95%, 1 s) |
