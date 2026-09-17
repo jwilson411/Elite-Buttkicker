@@ -89,6 +89,22 @@
 
                     <div class="stats-card">
                         <div class="card-header">
+                            <h3><i class="fas fa-gamepad"></i> Quick Test</h3>
+                        </div>
+                        <div class="card-content">
+                            <!-- The shortest path from "is this thing plugged in" to feeling it:
+                                 the same canned test the Audio tab plays, one click from the
+                                 first screen a new user lands on. -->
+                            <button class="btn btn-primary" data-bind="testHaptic"
+                                    aria-label="Send a test haptic pattern to verify your buttkicker">
+                                <i class="fas fa-bolt"></i> Test Haptic
+                            </button>
+                            <p class="test-status" id="dashboardHapticTestStatus" role="status" hidden></p>
+                        </div>
+                    </div>
+
+                    <div class="stats-card">
+                        <div class="card-header">
                             <h3><i class="fas fa-chart-line"></i> Event Statistics</h3>
                         </div>
                         <div class="card-content">

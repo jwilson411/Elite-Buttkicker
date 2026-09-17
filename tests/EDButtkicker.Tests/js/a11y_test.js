@@ -131,6 +131,13 @@ for (const binding of ['hidePatternTester', 'closeSetupWizard', 'closePatternMod
     check(name.length > 0 && name !== '×', `${binding} button has an accessible name, not just a glyph`);
 }
 
+// The dashboard's test button carries an icon and two words; the label is what says what pressing
+// it does, so a screen reader user is not told only "Test Haptic" about an unfamiliar device.
+const testHaptic = document.querySelector('[data-bind="testHaptic"]');
+check(!!testHaptic, 'the dashboard has a Test Haptic button');
+check((testHaptic?.getAttribute('aria-label') || '').trim().length > 0,
+    'the Test Haptic button has a non-empty aria-label');
+
 // ----- Dialogs -----
 
 for (const id of ['setupWizard', 'patternModal']) {

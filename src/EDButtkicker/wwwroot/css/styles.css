@@ -267,6 +267,16 @@ body {
     grid-column: 1 / -1;
 }
 
+/* The answer to "did that work", next to the button that asked. Colour repeats the wording,
+   it never carries the meaning alone. */
+.test-status {
+    margin-top: 0.75rem;
+}
+
+.test-status.success { color: var(--success-color); }
+.test-status.warning { color: var(--warning-color); }
+.test-status.error { color: var(--danger-color); }
+
 .status-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
