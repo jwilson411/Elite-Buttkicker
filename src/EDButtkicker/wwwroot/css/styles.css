@@ -413,6 +413,17 @@ body {
     left: 22px;
 }
 
+/* A mapping that is switched off still lists its settings, so the card says so twice: it recedes,
+   and its name is struck through for anyone who cannot tell the two switch colours apart. */
+.pattern-card.disabled {
+    opacity: 0.55;
+}
+
+.pattern-card.disabled .pattern-name {
+    text-decoration: line-through;
+    color: var(--text-secondary);
+}
+
 .pattern-details {
     display: grid;
     grid-template-columns: 1fr 1fr;

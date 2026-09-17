@@ -291,6 +291,99 @@ public class PatternApiController : ControllerBase
     }
 
     /// <summary>
+    /// Turns an existing mapping on or off, and writes the mappings out. The body is just
+    /// { "enabled": true|false }: a toggle in the patterns grid knows which switch was flipped, not
+    /// the pattern behind it, so requiring the whole pattern back would only invite the page to send
+    /// a stale copy of it. The stored pattern is carried through untouched.
+    /// </summary>
+    [HttpPatch("{eventType}/enabled")]
+    public async Task SetPatternEnabled(string eventType)
+    {
+        var context = HttpContext;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(eventType))
+            {
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Event type is required" });
+                return;
+            }
+
+            var json = await BoundedRequestReader.ReadOrRespondAsync(context, "Request body is empty");
+            if (json == null)
+            {
+                return;
+            }
+
+            if (!BoundedRequestReader.TryParseDocument(json, out var body) ||
+                body.ValueKind != JsonValueKind.Object)
+            {
+                await WriteJsonAsync(context, StatusCodes.Status400BadRequest, new { error = "Invalid JSON format" });
+                return;
+            }
+
+            // A missing or non-boolean flag is not "leave it as it is": this route has nothing else
+            // to do, so there would be no edit left to make.
+            var enabled = ReadEnabled(body);
+            if (enabled == null)
+            {
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status400BadRequest,
+                    new { error = "Missing required field: enabled must be true or false" });
+                return;
+            }
+
+            var existing = _eventMapping.GetEventMapping(eventType);
+            if (existing == null)
+            {
+                await WriteJsonAsync(
+                    context,
+                    StatusCodes.Status404NotFound,
+                    new { error = $"No pattern is mapped to event '{eventType}'" });
+                return;
+            }
+
+            var change = _eventMapping.UpdateEventMapping(eventType, existing.Pattern, enabled);
+            if (!change.IsApplied)
+            {
+                await WriteChangeFailureAsync(context, change);
+                return;
+            }
+
+            var stored = _eventMapping.GetEventMapping(eventType);
+            if (stored == null)
+            {
+                _logger.LogError("Pattern for {EventType} was updated but could not be read back", eventType);
+                await ApiError.WriteAsync(context, 500, "The pattern was not stored");
+                return;
+            }
+
+            _logger.LogInformation(
+                "Set the pattern mapping for event {EventType} to enabled={Enabled}",
+                eventType,
+                enabled);
+
+            await WriteJsonAsync(context, StatusCodes.Status200OK, new
+            {
+                success = true,
+                message = $"Pattern for {eventType} {(stored.Enabled ? "enabled" : "disabled")}",
+                eventType,
+                enabled = stored.Enabled,
+                mapping = DescribeMapping(stored)
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting the enabled flag for pattern {EventType}", eventType);
+            await ApiError.WriteAsync(context, 500, "Failed to update the pattern");
+        }
+    }
+
+    /// <summary>
     /// Unmaps an event and writes the mappings out. An event with no mapping answers 404 - deleting
     /// nothing is not a success.
     /// </summary>
