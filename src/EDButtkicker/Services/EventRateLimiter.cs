@@ -52,26 +52,35 @@ public sealed class EventRateLimiter
             return true;
         }
 
-        // AddOrUpdate keeps the check-and-record atomic, so two threads racing on the same event
-        // type can never both be accepted inside one window.
-        var accepted = false;
-        _lastAccepted.AddOrUpdate(
-            eventType,
-            _ =>
-            {
-                accepted = true;
-                return now;
-            },
-            (_, last) =>
-            {
-                if (now - last < minInterval)
-                    return last;
+        // ConcurrentDictionary.AddOrUpdate does NOT guarantee that addValueFactory/updateValueFactory
+        // run at most once across competing threads — the factory can be invoked speculatively by
+        // multiple threads even when only one write wins. Capturing `accepted` inside the factory
+        // therefore produces races. Use a compare-and-swap loop instead: TryAdd wins the very first
+        // acquisition for a new key; after that, TryUpdate wins when the window has elapsed and
+        // atomically moves the timestamp forward. A losing thread leaves the dictionary unchanged
+        // and correctly returns false.
+        if (_lastAccepted.TryAdd(eventType, now))
+            return true;
 
-                accepted = true;
-                return now;
-            });
+        while (true)
+        {
+            if (!_lastAccepted.TryGetValue(eventType, out var last))
+            {
+                // Key vanished (Reset() was called concurrently) — try to re-add.
+                if (_lastAccepted.TryAdd(eventType, now))
+                    return true;
+                continue;
+            }
 
-        return accepted;
+            if (now - last < minInterval)
+                return false;
+
+            // Window elapsed — attempt to advance the timestamp atomically.
+            if (_lastAccepted.TryUpdate(eventType, now, last))
+                return true;
+
+            // Another thread won the race; re-read and retry.
+        }
     }
 
     /// <summary>Last time an occurrence of <paramref name="eventType"/> was accepted, if any.</summary>
