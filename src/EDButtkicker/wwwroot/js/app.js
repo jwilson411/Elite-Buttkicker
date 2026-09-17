@@ -542,12 +542,30 @@ class ButtkickerApp {
                 el('span', { text: value })
             ]);
 
-            replace(patternsGrid, Object.entries(data.patterns).map(([eventType, pattern]) => el('div', { className: 'pattern-card' }, [
+            replace(patternsGrid, Object.entries(data.patterns).map(([eventType, pattern]) => el('div', {
+                className: `pattern-card${pattern.Enabled ? '' : ' disabled'}`,
+                dataset: { 'event-type': eventType }
+            }, [
                 el('div', { className: 'pattern-header' }, [
                     el('div', { className: 'pattern-name', text: pattern.Pattern.Name }),
+                    // A switch rather than a checkbox: it turns the mapping on or off straight away,
+                    // so it carries its own state and answers to Space and Enter like a button does.
                     el('div', {
                         className: `pattern-enabled ${pattern.Enabled ? 'active' : ''}`.trim(),
-                        on: { click: () => togglePattern(eventType) }
+                        attrs: {
+                            role: 'switch',
+                            tabindex: '0',
+                            'aria-checked': pattern.Enabled ? 'true' : 'false',
+                            'aria-label': `${pattern.Enabled ? 'Disable' : 'Enable'} ${pattern.Pattern.Name}`
+                        },
+                        on: {
+                            click: (e) => togglePattern(eventType, e.currentTarget),
+                            keydown: (e) => {
+                                if (e.key !== ' ' && e.key !== 'Enter') return;
+                                e.preventDefault();
+                                togglePattern(eventType, e.currentTarget);
+                            }
+                        }
                     })
                 ]),
                 el('div', { className: 'pattern-details' }, [
@@ -1163,12 +1181,55 @@ document.addEventListener('keydown', (event) => {
 window.refreshDashboard = () => app.loadDashboard();
 window.loadRecentEvents = () => app.loadRecentEvents();
 
-window.togglePattern = async (eventType) => {
+// The switch, its card and its accessible name all say the same thing about one mapping, so they
+// are set together - by the optimistic flip, and again by the revert if the request is refused.
+function renderPatternEnabled(toggle, enabled) {
+    toggle.classList.toggle('active', enabled);
+    toggle.setAttribute('aria-checked', enabled ? 'true' : 'false');
+
+    const card = toggle.closest('.pattern-card');
+    if (!card) return;
+
+    card.classList.toggle('disabled', !enabled);
+
+    const name = card.querySelector('.pattern-name');
+    if (name) {
+        toggle.setAttribute('aria-label', `${enabled ? 'Disable' : 'Enable'} ${name.textContent}`);
+    }
+}
+
+window.togglePattern = async (eventType, toggle) => {
+    const target = toggle || document.querySelector(
+        `#patternsGrid .pattern-card[data-event-type="${CSS.escape(eventType)}"] .pattern-enabled`);
+    if (!target) return;
+
+    // One request per switch: a second click while the first is in flight would race its revert.
+    if (target.dataset.busy === 'true') return;
+    target.dataset.busy = 'true';
+
+    const wasEnabled = target.classList.contains('active');
+    const enabled = !wasEnabled;
+
+    // Flip first, so the switch answers the click at once; the revert below is what a refused
+    // request looks like.
+    renderPatternEnabled(target, enabled);
+
     try {
-        // This would need to be implemented in the API
-        app.showToast(`Pattern ${eventType} toggled`, 'success');
+        const response = await fetch(`/api/patterns/${encodeURIComponent(eventType)}/enabled`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled })
+        });
+
+        if (!response.ok) throw new Error(`/api/patterns/${eventType}/enabled returned ${response.status}`);
+
+        app.showToast(`Pattern "${eventType}" ${enabled ? 'enabled' : 'disabled'}`, 'success');
     } catch (error) {
-        app.showToast('Error toggling pattern', 'error');
+        console.error('Error toggling pattern:', error);
+        renderPatternEnabled(target, wasEnabled);
+        app.showToast(`Error ${enabled ? 'enabling' : 'disabling'} pattern "${eventType}"`, 'error');
+    } finally {
+        delete target.dataset.busy;
     }
 };
 

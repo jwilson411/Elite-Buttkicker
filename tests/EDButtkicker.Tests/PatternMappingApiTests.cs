@@ -194,6 +194,61 @@ public class PatternMappingApiTests : IDisposable
     }
 
     [Fact]
+    public async Task Toggle_Enabled_FlipsTheFlagAndPersists()
+    {
+        var before = Mappings.GetEventMapping(MappedEvent)!;
+        Assert.True(before.Enabled, $"{MappedEvent} is expected to start enabled");
+
+        var response = await PatchAsync($"/api/patterns/{MappedEvent}/enabled", new { enabled = false });
+        var body = await SetupTestHost.ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(body.GetProperty("success").GetBoolean());
+        Assert.False(body.GetProperty("enabled").GetBoolean());
+
+        // Off, stored, on disk - and the pattern itself carried through untouched, since the
+        // request never sent one.
+        var stored = Mappings.GetEventMapping(MappedEvent)!;
+        Assert.False(stored.Enabled);
+        Assert.Equal(before.Pattern.Name, stored.Pattern.Name);
+        Assert.False(PersistedMappings().EventMappings[MappedEvent].Enabled);
+        Assert.False((await ListedPatternAsync(MappedEvent))!.Value.GetProperty("Enabled").GetBoolean());
+
+        // And back on again: the flag follows the body, it does not just flip once.
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await PatchAsync($"/api/patterns/{MappedEvent}/enabled", new { enabled = true })).StatusCode);
+        Assert.True(Mappings.GetEventMapping(MappedEvent)!.Enabled);
+        Assert.True(PersistedMappings().EventMappings[MappedEvent].Enabled);
+    }
+
+    [Fact]
+    public async Task Toggle_Enabled_WithUnknownEvent_Returns404()
+    {
+        var response = await PatchAsync($"/api/patterns/{UnmappedEvent}/enabled", new { enabled = false });
+        var body = await SetupTestHost.ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains(UnmappedEvent, body.GetProperty("error").GetString());
+        Assert.Null(Mappings.GetEventMapping(UnmappedEvent));
+        Assert.False(File.Exists(Mappings.MappingsFilePath), "a 404 toggle must not write a file");
+    }
+
+    [Theory]
+    [InlineData("{ not json at all")]
+    [InlineData("{}")]
+    [InlineData("""{"enabled":"false"}""")]
+    [InlineData("""{"enabled":null}""")]
+    public async Task Toggle_Enabled_WithMissingField_Returns400(string requestBody)
+    {
+        var response = await _host.Client.PatchAsync($"/api/patterns/{MappedEvent}/enabled", Json(requestBody));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.True(Mappings.GetEventMapping(MappedEvent)!.Enabled);
+        Assert.False(File.Exists(Mappings.MappingsFilePath), "a rejected toggle must not write a file");
+    }
+
+    [Fact]
     public async Task Delete_RemovesTheMapping_AndPersistsTheRemoval()
     {
         var response = await _host.Client.DeleteAsync($"/api/patterns/{MappedEvent}");
@@ -273,6 +328,9 @@ public class PatternMappingApiTests : IDisposable
 
     private Task<HttpResponseMessage> PutAsync(string path, object body) =>
         _host.Client.PutAsync(path, Json(JsonSerializer.Serialize(body)));
+
+    private Task<HttpResponseMessage> PatchAsync(string path, object body) =>
+        _host.Client.PatchAsync(path, Json(JsonSerializer.Serialize(body)));
 
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
 
