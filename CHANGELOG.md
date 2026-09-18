@@ -7,8 +7,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Unknown condition keys in pattern schemas now trigger a warning at schema-load time and again at
+  runtime evaluation, making misconfigured patterns visible in the log without failing silently. (#126)
+- Unit tests for `health_below`, `health_above`, `ship_type`, and `hull_damage_above` pattern
+  conditions, covering boundary values and type-mismatch handling. (#127)
+- Audio intensity slider value is now loaded from persisted user settings on page load and saved
+  back on change, so volume preferences survive restarts. (#128)
+- Per-pattern enable/disable toggle wired end-to-end: toggling a pattern in the UI immediately
+  writes through to the runtime registry and is persisted. (#134)
+- Test Haptic button on the Dashboard fires a configurable one-shot pattern so users can verify
+  buttkicker hardware without needing a live journal event. (#133)
+- `BuildVersion.Current` is now surfaced in the `/api/health` response and populated in the
+  settings panel, giving the UI a machine-readable build identifier. (#129)
+
+### Changed
+
+- Advanced Features list in the settings panel is now bound to live runtime feature-flag state
+  rather than a static HTML list, so enabling or disabling a feature is immediately reflected. (#132)
+
 ### Fixed
 
+- `ShieldsDown` event name normalised to `ShieldDown` (matching the Elite Dangerous journal
+  spelling) so shield-loss conditions fire correctly. (#131)
+- `EventRateLimiter` lock contention resolved; the limiter is now thread-safe under concurrent
+  event ingestion. (#131)
+- Reset to Defaults button wired to `POST /api/usersettings/reset`; previously the button was
+  present in the UI but made no API call. (#130)
 - `time_of_day` pattern conditions now support overnight ranges. A window whose end is before its
   start (e.g. `"22:00-06:00"`) wraps past midnight instead of never matching, and a zero-width
   window (e.g. `"06:00-06:00"`) matches all day. (#125)
