@@ -229,6 +229,61 @@ public class SettingsPersistenceRoundTripTests : IDisposable
     }
 
     [Fact]
+    public async Task ContextualIntelligenceSettings_SurviveARestart()
+    {
+        var result = await _persistence.ApplyAsync(new SettingsUpdate
+        {
+            ContextualIntelligenceEnabled = true,
+            LearningRate = 0.3,
+            PredictionThreshold = 0.85
+        });
+
+        Assert.True(result.Valid);
+        Assert.True(result.Saved);
+
+        // Live in this session...
+        Assert.NotNull(_settings.ContextualIntelligence);
+        Assert.True(_settings.ContextualIntelligence!.Enabled);
+        Assert.Equal(0.3, _settings.ContextualIntelligence.LearningRate);
+        Assert.Equal(0.85, _settings.ContextualIntelligence.PredictionThreshold);
+
+        // ...and still there for the next one.
+        Assert.True(File.Exists(SettingsFile));
+        var reloaded = await AfterRestart().LoadUserPreferencesAsync();
+
+        Assert.NotNull(reloaded.ContextualIntelligence);
+        Assert.True(reloaded.ContextualIntelligence!.Enabled);
+        Assert.Equal(0.3, reloaded.ContextualIntelligence.LearningRate);
+        Assert.Equal(0.85, reloaded.ContextualIntelligence.PredictionThreshold);
+
+        var restored = new AppSettings();
+        AfterRestart().ApplyUserPreferencesToAppSettings(reloaded, restored);
+
+        Assert.NotNull(restored.ContextualIntelligence);
+        Assert.True(restored.ContextualIntelligence!.Enabled);
+        Assert.Equal(0.3, restored.ContextualIntelligence.LearningRate);
+        Assert.Equal(0.85, restored.ContextualIntelligence.PredictionThreshold);
+    }
+
+    [Theory]
+    [InlineData(0.005)]
+    [InlineData(1.5)]
+    public async Task ContextualIntelligence_OutOfRangeLearningRate_IsRejected(double learningRate)
+    {
+        double before = new AppSettings().ContextualIntelligence!.LearningRate;
+
+        var result = await _persistence.ApplyAsync(new SettingsUpdate { LearningRate = learningRate });
+
+        Assert.False(result.Valid);
+        Assert.False(result.Saved);
+        Assert.Empty(result.Changes);
+        Assert.NotEmpty(result.ValidationErrors);
+
+        Assert.Equal(before, _settings.ContextualIntelligence!.LearningRate);
+        Assert.False(File.Exists(SettingsFile));
+    }
+
+    [Fact]
     public async Task NoChange_WritesNothingAndSaysSo()
     {
         var result = await _persistence.ApplyAsync(new SettingsUpdate
