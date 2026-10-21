@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-21
+
+### Fixed
+
+- Pattern `event_frequency` and `session_duration` conditions now enforce their thresholds instead
+  of always playing. Frequency counts journal occurrences in the app session; duration accepts
+  seconds or ISO 8601 durations and uses monotonic elapsed time. (#93)
+
+### Changed
+
+- Run the full hardware-free regression suite on Windows as well as Ubuntu before release. (#152)
+
 ## [1.3.0] - 2026-09-19
 
 ### Added

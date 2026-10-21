@@ -14,7 +14,9 @@ public class JournalStorageSeamTests
 {
     private const string FileA = "Journal.2026-08-27T114250.01.log";
     private const string FileB = "Journal.2026-08-27T120000.01.log";
-    private const string Directory = "/memory/journals";
+    // Use native separators: Path.GetDirectoryName normalizes them on Windows, so comparing
+    // a hard-coded Unix directory against its result made the fake enumerate no journals there.
+    private static readonly string Directory = Path.Combine("memory", "journals");
 
     [Fact]
     public async Task Rotation_FollowsTheNewerJournalWithoutLosingItsFirstLine()

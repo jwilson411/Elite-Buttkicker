@@ -242,6 +242,35 @@ public class EventMappingServiceTests : IDisposable
         Assert.Equal("Docking Thump", _service.GetDefaultPatternForEvent(UnlimitedEvent)!.Name);
     }
 
+    [Fact]
+    public async Task FrequencyCondition_CountsUnmappedAndDisabledEventsAndSurvivesMappingReload()
+    {
+        _service.UpdateEventMappings(Mappings());
+        await _service.ProcessEvent(Event(UnlimitedEvent)); // unmapped
+        var mapping = Mapping(UnlimitedEvent, "Conditional", enabled: false);
+        mapping.Pattern.Conditions["event_frequency"] = 2;
+        _service.UpdateEventMappings(Mappings(mapping));
+        await _service.ProcessEvent(Event(UnlimitedEvent)); // disabled
+        Assert.Empty(_audio.Played);
+        mapping.Enabled = true;
+        _service.UpdateEventMappings(Mappings(mapping));
+        await _service.ProcessEvent(Event(UnlimitedEvent)); // third occurrence
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task FrequencyCondition_CountsRateLimitedEvents()
+    {
+        var mapping = Mapping(LimitedEvent, "Conditional");
+        mapping.Pattern.Conditions["event_frequency"] = 2;
+        _service.UpdateEventMappings(Mappings(mapping));
+        await _service.ProcessEvent(Event(LimitedEvent)); // below threshold, acquires rate limit
+        await _service.ProcessEvent(Event(LimitedEvent)); // rate limited, still counts
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        await _service.ProcessEvent(Event(LimitedEvent));
+        Assert.Single(_audio.Played);
+    }
+
     public void Dispose()
     {
         _contextualIntelligence.Dispose();

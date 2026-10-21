@@ -166,6 +166,12 @@ default — enable them in the pattern editor or in `patterns/default-patterns.j
 - **Oscillating patterns** — Amplitude-modulated waveforms for sustained warnings (heat, interdiction, low fuel)
 - **Rate limiting** — Prevents audio saturation while maintaining responsiveness
 - **Context-aware conditions** — `CriticalDamageSequence` triggers only below 25% hull; `HullDamage` voice at 50%
+- **Session conditions** — `event_frequency: 5` plays after more than five occurrences of the same
+  journal event, including the current event. Unmapped, disabled, and rate-limited occurrences count.
+  `session_duration: 60` (seconds) or `session_duration: "PT1M"` waits at least one minute after
+  the app's sequencer starts. Both reset on app restart, survive pattern reloads, and combine with
+  other conditions using AND. Invalid or negative thresholds suppress playback. Replay events
+  count in the same app session; event timestamps do not change elapsed session time.
 
 ## Technical Details
 

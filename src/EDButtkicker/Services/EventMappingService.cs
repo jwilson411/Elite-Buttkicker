@@ -105,6 +105,7 @@ public class EventMappingService : IJournalEventAudioSink, IEventPatternSource
                 return;
 
             var eventType = journalEvent.Event;
+            _patternSequencer.RecordEvent(eventType);
 
             // Process for contextual intelligence first (even for unmapped events)
             _contextualIntelligence.ProcessEvent(journalEvent);
