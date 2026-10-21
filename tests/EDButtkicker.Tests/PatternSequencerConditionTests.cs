@@ -7,21 +7,7 @@ using Xunit;
 
 namespace EDButtkicker.Tests;
 
-/// <summary>
-/// Pattern conditions exercised through the public conditional-playback entry point, with the audio
-/// engine subclassed to record what would have been played so no device is opened. Covers the
-/// implemented threshold conditions - health_below, health_above, ship_type and hull_damage_above,
-/// each including the case where the event carries no such field - alongside the stubs described
-/// below.
-///
-/// The "event_frequency" and "session_duration" pattern conditions are unimplemented stubs:
-/// EvaluateEventFrequency and EvaluateSessionDuration ignore their arguments and return true, so a
-/// pattern gated on either one always plays. These tests pin that pass-through down through the
-/// public conditional-playback entry point - the same way the in_combat tests do, with the audio
-/// engine subclassed to record what would have been played so no device is opened - and are
-/// expected to turn red when issue #93 replaces the stubs with real frequency and session-duration
-/// tracking. When that happens the tests should be rewritten against the new behaviour, not deleted.
-/// </summary>
+/// <summary>Hardware-free playback checks for pattern conditions, including session thresholds.</summary>
 public class PatternSequencerConditionTests : IDisposable
 {
     private readonly TempDirectory _settingsDir = new("edbk-conditions");
@@ -32,123 +18,102 @@ public class PatternSequencerConditionTests : IDisposable
         _audio = new RecordingAudioEngine(new AppSettings());
     }
 
-    /// <summary>
-    /// Stub awaiting #93 - EvaluateEventFrequency always returns true regardless of input. A
-    /// frequency of 1000 events is unreachable for a single event on a sequencer with no history,
-    /// so this test will turn red when #93 replaces the stub with a real frequency check.
-    /// </summary>
     [Fact]
-    public async Task EventFrequency_StubAlwaysPassesThrough_CurrentBehaviour()
+    public async Task EventFrequency_CountsOccurrencesOfTheSameEventBeyondThreshold()
     {
         var sequencer = Sequencer();
-
-        await sequencer.ExecuteConditionalPattern(PatternRequiring("event_frequency", 1000), Event("UnderAttack"));
-
-        Assert.Single(_audio.Played);
-    }
-
-    /// <summary>
-    /// Stub awaiting #93 - EvaluateSessionDuration always returns true regardless of input. A
-    /// required session duration of 999999 cannot have elapsed for a sequencer constructed moments
-    /// ago, so this test will turn red when #93 replaces the stub with real session tracking.
-    /// </summary>
-    [Fact]
-    public async Task SessionDuration_StubAlwaysPassesThrough_CurrentBehaviour()
-    {
-        var sequencer = Sequencer();
-
-        await sequencer.ExecuteConditionalPattern(PatternRequiring("session_duration", 999999), Event("Docked"));
-
-        Assert.Single(_audio.Played);
-    }
-
-    /// <summary>
-    /// Stub awaiting #93 - the plausible-looking value a pattern author would actually write
-    /// (5 events) is accepted for the same reason an absurd one is: the value is never read.
-    /// </summary>
-    [Theory]
-    [InlineData(5)]
-    [InlineData(0)]
-    [InlineData(-1)]
-    public async Task EventFrequency_StubIgnoresItsThreshold_CurrentBehaviour(int frequency)
-    {
-        var sequencer = Sequencer();
-
-        await sequencer.ExecuteConditionalPattern(PatternRequiring("event_frequency", frequency), Event("FSDJump"));
-
-        Assert.Single(_audio.Played);
-    }
-
-    /// <summary>
-    /// Stub awaiting #93 - a 60-minute session requirement passes on a session that has just
-    /// started, because EvaluateSessionDuration never inspects the requested duration.
-    /// </summary>
-    [Theory]
-    [InlineData(60)]
-    [InlineData(0)]
-    [InlineData("not-a-duration")]
-    public async Task SessionDuration_StubIgnoresItsThreshold_CurrentBehaviour(object duration)
-    {
-        var sequencer = Sequencer();
-
-        await sequencer.ExecuteConditionalPattern(PatternRequiring("session_duration", duration), Event("FSDJump"));
-
-        Assert.Single(_audio.Played);
-    }
-
-    /// <summary>
-    /// Stub awaiting #93 - neither stub consults the contextual intelligence service, so injecting
-    /// one (and putting it in a state unrelated to the pattern) changes nothing.
-    /// </summary>
-    [Fact]
-    public async Task StubConditions_PassRegardlessOfContextualState_CurrentBehaviour()
-    {
-        var settings = new AppSettings();
-        var userSettings = new UserSettingsService(NullLogger<UserSettingsService>.Instance, _settingsDir.Path);
-        using var contextualIntelligence = new ContextualIntelligenceService(
-            NullLogger<ContextualIntelligenceService>.Instance, settings, userSettings);
-        contextualIntelligence.GetCurrentContext().UpdateState(GameState.Docked);
-        var sequencer = Sequencer(contextualIntelligence);
-
-        var pattern = new HapticPattern
-        {
-            Name = "Frequency And Duration Rumble",
-            Pattern = PatternType.SharpPulse,
-            Conditions = new Dictionary<string, object>
-            {
-                ["event_frequency"] = 5,
-                ["session_duration"] = 60
-            }
-        };
-
+        var pattern = PatternRequiring("event_frequency", 2);
+        sequencer.RecordEvent("Docked");
+        sequencer.RecordEvent("FSDJump");
         await sequencer.ExecuteConditionalPattern(pattern, Event("FSDJump"));
-
+        sequencer.RecordEvent("FSDJump");
+        await sequencer.ExecuteConditionalPattern(pattern, Event("FSDJump"));
+        Assert.Empty(_audio.Played);
+        sequencer.RecordEvent("FSDJump");
+        await sequencer.ExecuteConditionalPattern(pattern, Event("FSDJump"));
         Assert.Single(_audio.Played);
     }
 
-    /// <summary>
-    /// The stubs pass their own check but do not override the other conditions on the same pattern:
-    /// conditions are ANDed, so a failing health_below still suppresses playback. This guards the
-    /// surrounding AND logic that #93 will have to keep working.
-    /// </summary>
     [Fact]
-    public async Task StubConditions_DoNotOverrideAFailingSiblingCondition()
+    public async Task EventFrequency_EvaluatingPatternsDoesNotCountExtraEvents()
     {
         var sequencer = Sequencer();
-        var pattern = new HapticPattern
-        {
-            Name = "Frequency And Health Rumble",
-            Pattern = PatternType.SharpPulse,
-            Conditions = new Dictionary<string, object>
-            {
-                ["event_frequency"] = 5,
-                ["session_duration"] = 60,
-                ["health_below"] = 0.2
-            }
-        };
+        sequencer.RecordEvent("Docked");
+        for (var i = 0; i < 3; i++)
+            await sequencer.ExecuteConditionalPattern(PatternRequiring("event_frequency", 1), Event("Docked"));
+        Assert.Empty(_audio.Played);
+    }
 
+    [Theory]
+    [InlineData("60")]
+    [InlineData("PT1M")]
+    public async Task SessionDuration_PlaysAtTheThreshold(string duration)
+    {
+        var clock = new SessionClock();
+        var sequencer = new PatternSequencer(NullLogger<PatternSequencer>.Instance, _audio, null, clock);
+        var pattern = PatternRequiring("session_duration", duration);
+        clock.Advance(TimeSpan.FromSeconds(59));
+        await sequencer.ExecuteConditionalPattern(pattern, Event("Docked"));
+        Assert.Empty(_audio.Played);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await sequencer.ExecuteConditionalPattern(pattern, Event("Docked"));
+        Assert.Single(_audio.Played);
+    }
+
+    [Theory]
+    [InlineData("event_frequency", -1)]
+    [InlineData("event_frequency", "NaN")]
+    [InlineData("event_frequency", "Infinity")]
+    [InlineData("event_frequency", "invalid")]
+    [InlineData("session_duration", -1)]
+    [InlineData("session_duration", "-PT1M")]
+    [InlineData("session_duration", "NaN")]
+    [InlineData("session_duration", "Infinity")]
+    [InlineData("session_duration", "invalid")]
+    [InlineData("session_duration", "P999999999999999999999D")]
+    public async Task SessionConditions_InvalidThresholdsDoNotPlay(string key, object value)
+    {
+        var sequencer = Sequencer();
+        sequencer.RecordEvent("Docked");
+        await sequencer.ExecuteConditionalPattern(PatternRequiring(key, value), Event("Docked"));
+        Assert.Empty(_audio.Played);
+    }
+
+    [Theory]
+    [InlineData("event_frequency")]
+    [InlineData("session_duration")]
+    public async Task SessionConditions_ZeroThresholdPlays(string key)
+    {
+        var sequencer = Sequencer();
+        sequencer.RecordEvent("Docked");
+        await sequencer.ExecuteConditionalPattern(PatternRequiring(key, 0), Event("Docked"));
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task SessionConditions_DeserializeNumericJsonThresholds()
+    {
+        var clock = new SessionClock();
+        var sequencer = new PatternSequencer(NullLogger<PatternSequencer>.Instance, _audio, null, clock);
+        var pattern = PatternRequiring("event_frequency", 0);
+        pattern.Conditions = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(
+            "{\"event_frequency\": 1, \"session_duration\": 0.5}")!;
+        sequencer.RecordEvent("Docked");
+        sequencer.RecordEvent("Docked");
+        clock.Advance(TimeSpan.FromSeconds(0.5));
+        await sequencer.ExecuteConditionalPattern(pattern, Event("Docked"));
+        Assert.Single(_audio.Played);
+    }
+
+    [Fact]
+    public async Task SessionConditions_DoNotOverrideAFailingSiblingCondition()
+    {
+        var sequencer = Sequencer();
+        sequencer.RecordEvent("HullDamage");
+        var pattern = PatternRequiring("event_frequency", 0);
+        pattern.Conditions["session_duration"] = 0;
+        pattern.Conditions["health_below"] = 0.2;
         await sequencer.ExecuteConditionalPattern(pattern, Event("HullDamage"));
-
         Assert.Empty(_audio.Played);
     }
 
@@ -361,6 +326,14 @@ public class PatternSequencerConditionTests : IDisposable
         var journalEvent = Event("Loadout");
         journalEvent.Ship = ship;
         return journalEvent;
+    }
+
+    private sealed class SessionClock : TimeProvider
+    {
+        private long _ticks;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _ticks;
+        public void Advance(TimeSpan delta) => _ticks += delta.Ticks;
     }
 
     private sealed class RecordingAudioEngine : AudioEngineService

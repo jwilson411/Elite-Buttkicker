@@ -1,4 +1,7 @@
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Globalization;
+using System.Xml;
 using EDButtkicker.Models;
 using EDButtkicker.Configuration;
 
@@ -11,16 +14,23 @@ public class PatternSequencer
     private readonly ContextualIntelligenceService? _contextualIntelligence;
     private readonly Dictionary<string, HapticPattern> _availablePatterns = new();
 
+    private readonly ConcurrentDictionary<string, long> _sessionEventCounts = new(StringComparer.Ordinal);
+    private readonly TimeProvider _timeProvider;
+    private readonly long _sessionStart;
+
     private static readonly string[] CombatEvents = { "UnderAttack", "HullDamage", "ShieldDown", "FighterDestroyed" };
 
     public PatternSequencer(
         ILogger<PatternSequencer> logger, 
         AudioEngineService audioEngine,
-        ContextualIntelligenceService? contextualIntelligence = null)
+        ContextualIntelligenceService? contextualIntelligence = null,
+        TimeProvider? timeProvider = null)
     {
         _logger = logger;
         _audioEngine = audioEngine;
         _contextualIntelligence = contextualIntelligence;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _sessionStart = _timeProvider.GetTimestamp();
     }
 
     public void LoadPatterns(EventMappingsConfig mappingsConfig)
@@ -199,10 +209,26 @@ public class PatternSequencer
 
     private bool EvaluateEventFrequency(object frequency, JournalEvent journalEvent)
     {
-        // This would need to track event frequency over time
-        // For now, just return true as a placeholder
-        return true;
+        return TryNonNegativeNumber(frequency, out var threshold)
+            && _sessionEventCounts.TryGetValue(journalEvent.Event, out var count)
+            && count > threshold;
     }
+
+    /// <summary>
+    /// Called once by the event pipeline before mapping/enable/rate-limit decisions. Counts journal
+    /// occurrences, not pattern evaluations or successful playbacks, for this process session only.
+    /// Reloading patterns does not restart the session.
+    /// </summary>
+    public void RecordEvent(string eventType)
+    {
+        if (!string.IsNullOrEmpty(eventType))
+            _sessionEventCounts.AddOrUpdate(eventType, 1, (_, count) => count == long.MaxValue ? count : count + 1);
+    }
+
+    private static bool TryNonNegativeNumber(object? value, out double number) =>
+        double.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture),
+            NumberStyles.Float, CultureInfo.InvariantCulture, out number)
+        && double.IsFinite(number) && number >= 0;
 
     private bool EvaluateTimeOfDay(object timeRange)
     {
@@ -248,9 +274,27 @@ public class PatternSequencer
 
     private bool EvaluateSessionDuration(object duration)
     {
-        // This would need to track session start time
-        // For now, just return true as a placeholder
-        return true;
+        double seconds;
+        if (!TryNonNegativeNumber(duration, out seconds))
+        {
+            try
+            {
+                seconds = XmlConvert.ToTimeSpan(duration?.ToString() ?? string.Empty).TotalSeconds;
+                if (seconds < 0) return false;
+            }
+            catch (FormatException)
+            {
+                _logger.LogWarning("Invalid session_duration condition; expected non-negative seconds or an ISO 8601 duration.");
+                return false;
+            }
+            catch (OverflowException)
+            {
+                return false;
+            }
+        }
+
+        // Monotonic time avoids a wall-clock correction changing the apparent session length.
+        return _timeProvider.GetElapsedTime(_sessionStart).TotalSeconds >= seconds;
     }
 
     private bool EvaluateHullDamageAbove(object threshold, JournalEvent journalEvent)
