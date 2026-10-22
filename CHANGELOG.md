@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep setup wizard controls on the selected section when earlier journal or audio-device
+  requests finish late, including after navigating away and back or closing the wizard.
+
 ## [1.3.1] - 2026-10-21
 
 ### Fixed
