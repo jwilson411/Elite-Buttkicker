@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-22
+
 ### Fixed
 
 - Keep setup wizard controls on the selected section when earlier journal or audio-device
