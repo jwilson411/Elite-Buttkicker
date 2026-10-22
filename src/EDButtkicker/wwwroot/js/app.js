@@ -2,6 +2,7 @@
 class ButtkickerApp {
     constructor() {
         this.setup = null;
+        this.setupRenderGeneration = 0;
         this.init();
         this.loadDashboard();
         this.loadSetupState();
@@ -221,11 +222,12 @@ class ButtkickerApp {
         }
     }
 
-    applySetupStatus(status) {
+    applySetupStatus(status, nextStep = null) {
         if (!status) return;
 
         this.setup = status;
-        this.renderSetup();
+        if (nextStep) this.openSetupWizard(nextStep);
+        else this.renderSetup();
 
         if (status.health) {
             this.renderHealth(status.health);
@@ -251,6 +253,12 @@ class ButtkickerApp {
         const panel = document.getElementById('setupPanel');
         const note = document.getElementById('setupNote');
         if (!stepsList || !panel || !this.setup) return;
+
+        // Each render owns the shared panel until navigation or dismissal makes it obsolete.
+        // A step id alone is insufficient when users leave a step and then return to it.
+        const generation = ++this.setupRenderGeneration;
+        const isCurrent = () => generation === this.setupRenderGeneration
+            && !document.getElementById('setupWizard').hidden;
 
         const steps = this.setup.steps || [];
         if (!steps.some(step => step.id === this.activeStep)) {
@@ -282,10 +290,10 @@ class ButtkickerApp {
 
         switch (this.activeStep) {
             case 'journal':
-                this.renderJournalStep(panel);
+                this.renderJournalStep(panel, isCurrent);
                 break;
             case 'audio-device':
-                this.renderAudioDeviceStep(panel);
+                this.renderAudioDeviceStep(panel, isCurrent);
                 break;
             case 'audio-test':
                 this.renderAudioTestStep(panel);
@@ -296,7 +304,7 @@ class ButtkickerApp {
         }
     }
 
-    async renderJournalStep(panel) {
+    async renderJournalStep(panel, isCurrent) {
         const { el, replace } = dom;
 
         replace(panel, el('div', { className: 'loading', text: 'Looking for your Elite Dangerous journal folder...' }));
@@ -304,6 +312,7 @@ class ButtkickerApp {
         try {
             const response = await fetch('/api/setup/journal/candidates');
             const data = await response.json();
+            if (!isCurrent()) return;
             const candidates = data.candidates || [];
 
             replace(panel, [
@@ -348,12 +357,13 @@ class ButtkickerApp {
                 })
             ]);
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Error loading journal candidates:', error);
             replace(panel, el('div', { className: 'loading', text: 'Could not search for journal folders.' }));
         }
     }
 
-    async renderAudioDeviceStep(panel) {
+    async renderAudioDeviceStep(panel, isCurrent) {
         const { el, replace } = dom;
 
         replace(panel, el('div', { className: 'loading', text: 'Reading output devices...' }));
@@ -361,6 +371,7 @@ class ButtkickerApp {
         try {
             const response = await fetch('/api/audio/devices');
             const data = await response.json();
+            if (!isCurrent()) return;
             const devices = data.devices || [];
 
             replace(panel, [
@@ -395,6 +406,7 @@ class ButtkickerApp {
                 ])
             ]);
         } catch (error) {
+            if (!isCurrent()) return;
             console.error('Error loading audio devices:', error);
             replace(panel, el('div', { className: 'loading', text: 'Could not read the output devices.' }));
         }
@@ -2066,8 +2078,7 @@ window.confirmJournalPath = async (path) => {
         }
 
         app.showToast(result.warning || `Journal folder set to ${result.path}`, result.warning ? 'warning' : 'success');
-        app.applySetupStatus(result.setup);
-        app.openSetupWizard('audio-device');
+        app.applySetupStatus(result.setup, 'audio-device');
     } catch (error) {
         console.error('Error confirming journal path:', error);
         app.showToast('Error confirming journal folder', 'error');
@@ -2090,8 +2101,7 @@ window.selectSetupAudioDevice = async (endpointId, deviceId) => {
         }
 
         app.showToast(`Output set to ${result.device.name}`, 'success');
-        app.applySetupStatus(result.setup);
-        app.openSetupWizard('audio-test');
+        app.applySetupStatus(result.setup, 'audio-test');
     } catch (error) {
         console.error('Error selecting audio device:', error);
         app.showToast('Error selecting the output device', 'error');
@@ -2115,8 +2125,7 @@ window.runSetupAudioTest = async () => {
         // played is false when no device could be opened; say so rather than claiming success.
         if (resultBox) resultBox.textContent = result.reason;
         app.showToast(result.reason, result.played ? 'success' : 'warning');
-        app.applySetupStatus(result.setup);
-        app.openSetupWizard(result.played ? 'finish' : 'audio-test');
+        app.applySetupStatus(result.setup, result.played ? 'finish' : 'audio-test');
     } catch (error) {
         console.error('Error running the audio test:', error);
         app.showToast('Error running the audio test', 'error');
